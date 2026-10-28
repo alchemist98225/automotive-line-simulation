@@ -7,7 +7,7 @@ Live deployments of this repository:
 
 ## Prerequisites
 
-- R 4.5 with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `simmer`, `DT`, `zip`, and `rsconnect`. The app calls `library(zip)` so shinyapps.io installs it for **Download all**.
+- R with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `simmer`, `DT`, `zip`, and `rsconnect`. The app and the Quarto doc call `library(zip)` so shinyapps.io installs it for **Download all**. `tidymodels` is not required to run the simulation.
 - A free [shinyapps.io](https://www.shinyapps.io/) account (or Posit Connect / Posit Connect Cloud).
 - [Quarto](https://quarto.org/) for the interactive document.
 
@@ -102,7 +102,9 @@ quarto preview line_sim.qmd
 
 ## Notes for employers / reviewers
 
-- Defaults are **placeholder** manufacturing parameters for a portfolio demo, not real plant data.
-- The DES engine for the app and the Quarto doc is `R/model.R` (`run_line_sim()`, `default_params()`), copied into `app/` and `quarto/`.
-- `scripts/manufacturing_sim.R` sources `app/R/model.R`, runs 10 replications, and writes the CSV exports, `sim_exports.zip`, and the PNG figures under `output/`.
+- Defaults are **placeholder** manufacturing parameters for a portfolio demo, not real plant data. That includes crew sizes, MTBF/MTTR, and support-task times.
+- The DES engine for the app and the Quarto doc is `R/model.R` (`run_line_sim()`, `default_params()`), copied into `app/` and `quarto/`. It models shared or dedicated operators, load/unload separated from the automatic cycle, support work, and MTBF/MTTR failures with shared repair technicians.
+- Both UIs expose those inputs. Charts use every replication. **Download all** writes the plot tables plus `failure_events.csv`, `repair_events.csv`, `downtime_by_rep.csv`, and `operator_by_rep.csv`.
+- `scripts/manufacturing_sim.R` sources `app/R/model.R`, runs 10 replications, and writes that zip and the PNG figures under `output/`. `scripts/staffing_experiments.R` and `scripts/timing_experiments.R` write scenario comparisons. `tests/` checks the engine and the Shiny server.
+- The live shinyapps.io URLs at the top of this file predate operators, breakdowns, and the all-replication charts. Redeploy from `app/` and `quarto/` to publish this version.
 - Keep replications modest (≤ 10) for snappy interactive demos.
