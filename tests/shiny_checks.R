@@ -1,5 +1,27 @@
 e <- new.env()
 source("app/app.R",local=e,chdir=TRUE)
+# First paint: no input registration and no Run click. Dynamic renderUI
+# values are NULL; the session must still produce the placeholder run.
+shiny::testServer(e$server, {
+  stopifnot(is.null(input$run), is.null(input$op_a), is.null(input$load_body_shop), is.null(input$mtbf_paint))
+  res <- sim_result()
+  d <- e$default_params()
+  stopifnot(nrow(res$summaries)==d$n_replications)
+  stopifnot(nrow(res$labor)==nrow(d$operators)*d$n_replications)
+  stopifnot(res$bottleneck %in% d$stations$name)
+  stopifnot(identical(res$params$operators$pool, c("upstream","downstream")))
+  stopifnot(all(res$params$operators$count==2))
+  stopifnot(res$params$stations$mttr_min[res$params$stations$name=="inspection"]==0)
+  stopifnot(all(res$params$stations$mttr_min[res$params$stations$name!="inspection"]>0))
+  stopifnot(nrow(res$queue_timeseries)>0, nrow(res$wip_timeseries)>0, nrow(res$downtime_by_rep)>0)
+  stopifnot(is.character(output$kpi_throughput), nzchar(output$kpi_throughput))
+  invisible(output$plot_util)
+  invisible(output$plot_queue)
+  invisible(output$plot_wip)
+  invisible(output$plot_down)
+  invisible(output$plot_labor)
+})
+cat("First-load check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,
     sim_length=480,warmup=60,arrival_mean=4,n_reps=2,seed=20261027,

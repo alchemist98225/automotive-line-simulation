@@ -297,42 +297,60 @@ read_timing <- function(st,activity) {
   validate(need(isTRUE(valid),paste(station_labels[[st$name]],activity,valid)))
   spec
 }
-# Build params from sidebar inputs
+# Build params from sidebar inputs. Dynamic renderUI inputs are still NULL
+# on the first bindEvent fire (ignoreNULL = FALSE runs before the client
+# registers op_*, load_*, mtbf_*, and the rest). Fall back to the same
+# placeholder defaults those controls display so the first paint is filled.
 build_params <- reactive({
+  defaults <- default_params()
+  st0 <- defaults$stations
+  val <- function(id, default) {
+    x <- input[[id]]
+    if (is.null(x)) default else x
+  }
+  flag <- function(id, default) {
+    x <- input[[id]]
+    if (is.null(x)) default else isTRUE(x)
+  }
+  station_field <- function(station_name, field) st0[[field]][[match(station_name, st0$name)]]
+  staffing <- val("staffing", "zones")
+  if (!staffing %in% c("zones", "shared", "dedicated")) staffing <- "zones"
+  reliability <- flag("reliability", TRUE)
+  noncyclic <- flag("noncyclic", TRUE)
   p <- list(
-    sim_length_min   = input$sim_length,
-    n_replications   = as.integer(input$n_reps),
-    base_seed        = as.integer(input$seed),
-    warmup_min       = input$warmup,
-    arrival_mean_min = input$arrival_mean,
+    sim_length_min   = val("sim_length", defaults$sim_length_min),
+    n_replications   = as.integer(val("n_reps", defaults$n_replications)),
+    base_seed        = as.integer(val("seed", defaults$base_seed)),
+    warmup_min       = val("warmup", defaults$warmup_min),
+    arrival_mean_min = val("arrival_mean", defaults$arrival_mean_min),
+    grid_dt_min      = defaults$grid_dt_min %||% 2,
+    repair_technicians = as.integer(val("repair_staff", defaults$repair_technicians)),
     stations = tribble(
       ~name,              ~capacity,              ~dist,         ~mean_min,        ~sd_min,
-      "body_shop",        as.integer(input$body_cap),  "exponential", input$body_mean,  NA_real_,
-      "paint",            as.integer(input$paint_cap), "normal",      input$paint_mean, 1.5,
-      "final_assembly",   as.integer(input$fa_cap),    "normal",      input$fa_mean,    1.0,
-      "inspection",       as.integer(input$insp_cap),  "exponential", input$insp_mean,  NA_real_
+      "body_shop",        as.integer(val("body_cap", 2)),  "exponential", val("body_mean", 6),  NA_real_,
+      "paint",            as.integer(val("paint_cap", 1)), "normal",      val("paint_mean", 8), 1.5,
+      "final_assembly",   as.integer(val("fa_cap", 2)),    "normal",      val("fa_mean", 7),    1.0,
+      "inspection",       as.integer(val("insp_cap", 1)),  "exponential", val("insp_mean", 3),  NA_real_
     )
   )
-  get_input <- function(id) {req(!is.null(input[[id]])); input[[id]]}
-  p$repair_technicians <- input$repair_staff
-  p$operators <- switch(input$staffing,
-    zones=tibble(pool=c("upstream","downstream"),count=c(get_input("op_a"),get_input("op_b"))),
-    shared=tibble(pool="shared",count=get_input("op_all")),
-    dedicated=tibble(pool=names(station_labels),count=map_dbl(names(station_labels),~get_input(paste0("op_",.x)))))
+  p$operators <- switch(staffing,
+    zones=tibble(pool=c("upstream","downstream"),count=c(val("op_a", 2), val("op_b", 2))),
+    shared=tibble(pool="shared",count=val("op_all", 4)),
+    dedicated=tibble(pool=names(station_labels),count=map_dbl(names(station_labels),~val(paste0("op_",.x), 1))))
   p$stations <- p$stations %>% mutate(
-    operator_pool=switch(input$staffing,zones=c("upstream","upstream","downstream","downstream"),shared=rep("shared",4),dedicated=name),
-    load_min=map_dbl(name,~get_input(paste0("load_",.x))),
-    unload_min=map_dbl(name,~get_input(paste0("unload_",.x))),
-    mtbf_min=if(input$reliability) map_dbl(name,~get_input(paste0("mtbf_",.x))) else Inf,
-    mttr_min=map_dbl(name,~get_input(paste0("mttr_",.x))),
-    task_interval_min=if(input$noncyclic) map_dbl(name,~get_input(paste0("interval_",.x))) else Inf,
-    task_duration_min=if(input$noncyclic) map_dbl(name,~get_input(paste0("task_",.x))) else 0,
-    task_every_n=map_dbl(name,~get_input(paste0("every_",.x))))
+    operator_pool=switch(staffing,zones=c("upstream","upstream","downstream","downstream"),shared=rep("shared",4),dedicated=name),
+    load_min=map_dbl(name,~val(paste0("load_",.x), station_field(.x, "load_min"))),
+    unload_min=map_dbl(name,~val(paste0("unload_",.x), station_field(.x, "unload_min"))),
+    mtbf_min=if(reliability) map_dbl(name,~val(paste0("mtbf_",.x), station_field(.x, "mtbf_min"))) else Inf,
+    mttr_min=map_dbl(name,~val(paste0("mttr_",.x), station_field(.x, "mttr_min"))),
+    task_interval_min=if(noncyclic) map_dbl(name,~val(paste0("interval_",.x), station_field(.x, "task_interval_min"))) else Inf,
+    task_duration_min=if(noncyclic) map_dbl(name,~val(paste0("task_",.x), station_field(.x, "task_duration_min"))) else 0,
+    task_every_n=map_dbl(name,~val(paste0("every_",.x), 0)))
   p$stations <- p$stations %>% mutate(
     load_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"load")),
     auto_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"auto")),
     unload_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"unload")),
-    task_timing=map(seq_len(n()),~if(input$noncyclic) read_timing(p$stations[.x,],"task") else timing_spec()))
+    task_timing=map(seq_len(n()),~if(noncyclic) read_timing(p$stations[.x,],"task") else timing_spec()))
   validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
   p
 })
