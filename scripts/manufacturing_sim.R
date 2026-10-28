@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Run from the repository root, or from any working directory:
 #   Rscript scripts/manufacturing_sim.R
-# Sources app/R/model.R, runs placeholder defaults for 10 replications,
+# Sources app/R/model.R, runs placeholder defaults for 15 replications,
 # and writes all-replication plots plus the CSV/zip export bundle.
 
 suppressPackageStartupMessages(library(tidyverse))
@@ -40,7 +40,7 @@ label_station <- function(resource) {
 station_factor <- function(x) factor(label_station(x), levels = unname(station_labels))
 
 params <- default_params()
-params$n_replications <- 10L
+params$n_replications <- 15L
 params$grid_dt_min <- 2
 
 message("Running ", params$n_replications,

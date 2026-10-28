@@ -7,7 +7,7 @@
 suppressPackageStartupMessages({library(simmer); library(tidyverse)})
 sim_now <- function(env) simmer::now(env)
 default_params <- function() {
-  list(sim_length_min=480, n_replications=5L, base_seed=20261027L,
+  list(sim_length_min=480, n_replications=15L, base_seed=20261027L,
        warmup_min=60, arrival_mean_min=4, grid_dt_min=2, repair_technicians=1L,
        operators=tibble(pool=c("upstream", "downstream"), count=c(2L,2L)),
        stations=tribble(

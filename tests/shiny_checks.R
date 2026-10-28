@@ -13,6 +13,9 @@ shiny::testServer(e$server, {
   stopifnot(all(res$params$operators$count==2))
   stopifnot(res$params$stations$mttr_min[res$params$stations$name=="inspection"]==0)
   stopifnot(all(res$params$stations$mttr_min[res$params$stations$name!="inspection"]>0))
+  stopifnot(d$n_replications == 15L)
+  stopifnot(nrow(res$utilization_by_rep) == d$n_replications * nrow(d$stations))
+  stopifnot(all(c("station", "replication", "avg_util") %in% names(res$utilization_by_rep)))
   stopifnot(nrow(res$queue_timeseries)>0, nrow(res$wip_timeseries)>0, nrow(res$downtime_by_rep)>0)
   stopifnot(is.character(output$kpi_throughput), nzchar(output$kpi_throughput))
   invisible(output$plot_util)
@@ -20,7 +23,25 @@ shiny::testServer(e$server, {
   invisible(output$plot_wip)
   invisible(output$plot_down)
   invisible(output$plot_labor)
+  invisible(output$plot_cycle)
+  invisible(output$table_metrics)
+  invisible(output$reliability_table)
+  invisible(output$labor_table)
 })
+ui_html <- as.character(e$ui)
+page_has <- function(label) {
+  grepl(label, ui_html, fixed = TRUE) ||
+    grepl(gsub("&", "&amp;", label, fixed = TRUE), ui_html, fixed = TRUE)
+}
+for (label in c(
+  "Bottleneck & capacity", "Flow over time", "Lead time & data",
+  "Station occupancy", "Operators", "Downtime", "Staffing comparison",
+  "WIP", "Queues", "Cycle time", "Station metrics", "Timing comparison", "Downloads",
+  "520px", "clamp(450px, 52vh, 550px)", "gap: 0.5rem"
+)) stopifnot(page_has(label))
+# Downloads moved out of the sidebar accordion into the Lead time tab.
+stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
+cat("Results tab layout check passed\n")
 cat("First-load check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,
@@ -34,6 +55,12 @@ shiny::testServer(e$server, {
   }
   session$setInputs(run=1)
   stopifnot(nrow(sim_result()$summaries)==2,nrow(sim_result()$labor)==4)
+  session$setInputs(queue_layout="facet", queue_station="all")
+  invisible(output$plot_queue)
+  session$setInputs(queue_layout="overlay", queue_station="paint")
+  invisible(output$plot_queue)
+  session$setInputs(queue_station="all")
+  invisible(output$plot_queue)
   session$setInputs(compare=1)
   stopifnot(nrow(comparison())==4)
   invisible(output$scenario_table)

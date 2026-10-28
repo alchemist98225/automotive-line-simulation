@@ -7,6 +7,7 @@ library(shiny)
 library(bslib)
 library(bsicons)
 library(tidyverse)
+library(ggrain) # declared so shinyapps.io installs it for the occupancy raincloud
 library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
@@ -26,6 +27,76 @@ station_colors <- c(
 label_station <- function(resource) {
   lab <- station_labels[as.character(resource)]
   ifelse(is.na(lab), as.character(resource), unname(lab))
+}
+
+# plotOutput only accepts a single CSS length. The theme rule below replaces it
+# with clamp(450px, 52vh, 550px) so the chart stays in that range as the window changes.
+plot_height <- "520px"
+
+download_entry <- function(id, label, description) {
+  div(
+    class = "d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 py-2 border-bottom",
+    div(
+      strong(label),
+      p(class = "text-muted small mb-0", description)
+    ),
+    downloadButton(id, label, class = "btn-outline-secondary btn-sm text-nowrap")
+  )
+}
+
+download_catalog <- function() {
+  tagList(
+    download_entry(
+      "dl_queue", "Queue timeseries",
+      "Resampled bay queue and servers by replication, seed, station, and time."
+    ),
+    download_entry(
+      "dl_wip", "WIP timeseries",
+      "Resampled vehicle count, each vehicle once, by replication, seed, and time."
+    ),
+    download_entry(
+      "dl_util", "Bay occupancy by rep",
+      "Time-weighted bay occupancy, queue, and servers for each replication and station."
+    ),
+    download_entry(
+      "dl_cycle", "Cycle times",
+      "One row per departure in the observation window."
+    ),
+    download_entry(
+      "dl_metrics", "Station metrics",
+      "Across-replication mean and SD of occupancy, queue, and downtime fraction."
+    ),
+    download_entry(
+      "dl_down", "Downtime by rep",
+      "Repair minutes, repair count, and downtime fraction by replication and station."
+    ),
+    download_entry(
+      "dl_repairs", "Repair events",
+      "One row per repair: station, start time, sampled duration, and replication."
+    ),
+    download_entry(
+      "dl_ops", "Operator utilization",
+      "Time-weighted utilization and queue for each operator pool and replication."
+    ),
+    download_entry(
+      "dl_params", "Run parameters",
+      "Horizon, seeds, crew pools, and each station's capacity, timing, MTBF/MTTR, and support settings."
+    )
+  )
+}
+
+# One chart per tab, full width. Inner cards size to the plot instead of shrinking in a grid.
+plot_card <- function(title, ...) {
+  card(
+    fill = FALSE,
+    full_screen = TRUE,
+    card_header(title),
+    card_body(fill = FALSE, fillable = FALSE, ...)
+  )
+}
+
+roomy_plot <- function(id) {
+  plotOutput(id, height = plot_height, width = "100%", fill = FALSE)
 }
 
 # Measurements are pasted as minutes, separated by commas, spaces, or newlines.
@@ -56,6 +127,28 @@ ui <- page_navbar(
     primary = "#2c7fb8",
     "navbar-bg" = "#1b4f72"
   ),
+  # plotOutput cannot take clamp() directly. This overrides the 520px fallback.
+  header = tags$style(HTML("
+    .shiny-plot-output {
+      width: 100% !important;
+      height: clamp(450px, 52vh, 550px) !important;
+      min-height: 450px !important;
+    }
+    /* Sub-tab pills wrap instead of collapsing into one run-on label. */
+    #capacity_tabs.nav-pills,
+    #flow_tabs.nav-pills,
+    #lead_tabs.nav-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    #capacity_tabs.nav-pills > .nav-item,
+    #flow_tabs.nav-pills > .nav-item,
+    #lead_tabs.nav-pills > .nav-item {
+      flex: 0 0 auto;
+      width: auto;
+    }
+  ")),
   fillable = TRUE,
 
   nav_panel(
@@ -75,7 +168,7 @@ ui <- page_navbar(
             numericInput("warmup", "Warmup (min)",
                          value = 60, min = 0, max = 2400, step = 15),
             numericInput("n_reps", "Replications",
-                         value = 5, min = 1, max = 30, step = 1),
+                         value = 15, min = 1, max = 30, step = 1),
             numericInput("seed", "Base seed",
                          value = 20261027, min = 1, step = 1)
           ),
@@ -106,27 +199,12 @@ ui <- page_navbar(
         accordion(accordion_panel("Activity timing & reliability by station", uiOutput("station_controls"))),
         actionButton("compare_timing", "Compare timing variability", class="w-100"),
         actionButton("compare", "Compare staffing scenarios", class="w-100"),
-        accordion(
-          accordion_panel(
-            "Download data",
-            helpText("CSV of the tidy data behind each plot, including seeds, repairs, and parameters."),
-            downloadButton("dl_queue", "Queue timeseries", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_wip", "WIP timeseries", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_util", "Bay occupancy by rep", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_cycle", "Cycle times", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_metrics", "Station metrics", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_down", "Downtime by rep", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_repairs", "Repair events", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_ops", "Operator utilization", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_params", "Run parameters", class = "btn-outline-secondary btn-sm w-100 mb-1"),
-            downloadButton("dl_all", "Download all (zip)", class = "btn-secondary btn-sm w-100 mt-2")
-          )
-        ),
+        helpText("Staffing comparison opens under Bottleneck & capacity. Timing comparison and CSV downloads open under Lead time & data."),
         actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
         helpText("Defaults are placeholder example values — not real plant data.")
       ),
 
-      # Main area
+      # KPI boxes stay on top. Charts sit underneath in full-width tabs.
       layout_columns(
         fill = FALSE,
         value_box(
@@ -155,67 +233,179 @@ ui <- page_navbar(
           value = textOutput("kpi_bottleneck", inline = TRUE),
           showcase = bs_icon("exclamation-triangle"),
           theme = "danger",
-          p("highest bay occupancy (candidate)")
+          p("highest bay occupancy — see the first tab")
         )
       ),
 
-      layout_columns(
-        card(
-          card_header("Bay occupancy (all replications)"),
-          plotOutput("plot_util", height = 280),
-          full_screen = TRUE
+      navset_card_underline(
+        id = "results_tabs",
+        selected = "capacity",
+        nav_panel(
+          title = "Bottleneck & capacity",
+          value = "capacity",
+          p(class = "text-muted small px-2 pt-2 mb-1",
+            "The Bottleneck KPI is the station with the highest bay occupancy. These tabs show whether bays, operators, or downtime explain it."),
+          navset_pill(
+            id = "capacity_tabs",
+            selected = "occupancy",
+            nav_panel(
+              title = "Station occupancy",
+              value = "occupancy",
+              plot_card(
+                "Bay occupancy (all replications)",
+                roomy_plot("plot_util")
+              )
+            ),
+            nav_panel(
+              title = "Operators",
+              value = "operators",
+              plot_card(
+                "Operator utilization (all replications)",
+                roomy_plot("plot_labor")
+              ),
+              card(
+                fill = FALSE,
+                card_header("Mean utilization by pool"),
+                card_body(fill = FALSE, DTOutput("labor_table"))
+              )
+            ),
+            nav_panel(
+              title = "Downtime",
+              value = "downtime",
+              plot_card(
+                "Downtime fraction (all replications)",
+                roomy_plot("plot_down")
+              ),
+              card(
+                fill = FALSE,
+                card_header("MTBF, MTTR, and observed failures"),
+                card_body(
+                  fill = FALSE,
+                  p(class = "text-muted small",
+                    "Mean up-time and active repair from the inputs, with failure counts from this run. MTTR of 0 disables failures at that station."),
+                  DTOutput("reliability_table")
+                )
+              )
+            ),
+            nav_panel(
+              title = "Staffing comparison",
+              value = "staffing",
+              card(
+                fill = FALSE,
+                card_header("Staffing experiments"),
+                card_body(
+                  fill = FALSE,
+                  p("Uses the current station settings. Intervals show uncertainty in each scenario's mean throughput, not individual shifts. Multiple replications are needed. Scenarios reuse base seeds; random draws are not synchronized by event."),
+                  p(class = "text-muted small", "Click Compare staffing scenarios in the sidebar to fill this table."),
+                  DTOutput("scenario_table")
+                )
+              )
+            )
+          )
         ),
-        card(
-          card_header("Operator utilization (all replications)"),
-          plotOutput("plot_labor", height = 280),
-          full_screen = TRUE
-        )
-      ),
-
-      layout_columns(
-        card(
-          card_header("Queue length over time (all reps + loess)"),
-          plotOutput("plot_queue", height = 280),
-          full_screen = TRUE
+        nav_panel(
+          title = "Flow over time",
+          value = "flow",
+          p(class = "text-muted small px-2 pt-2 mb-1",
+            "Does the line settle after warmup, or does work keep building? Faint lines are each replication. The ribbon is a loess smooth on the 2-minute grid."),
+          navset_pill(
+            id = "flow_tabs",
+            selected = "wip",
+            nav_panel(
+              title = "WIP",
+              value = "wip",
+              plot_card(
+                "WIP over time (all reps + loess)",
+                roomy_plot("plot_wip")
+              )
+            ),
+            nav_panel(
+              title = "Queues",
+              value = "queues",
+              plot_card(
+                "Queue length over time (all reps + loess)",
+                layout_columns(
+                  fill = FALSE,
+                  col_widths = c(7, 5),
+                  radioButtons(
+                    "queue_layout", "Layout",
+                    choices = c("Overlay stations" = "overlay", "Facet by station" = "facet"),
+                    selected = "overlay", inline = TRUE
+                  ),
+                  selectInput(
+                    "queue_station", "Station",
+                    choices = c(
+                      "All stations" = "all",
+                      setNames(names(station_labels), unname(station_labels))
+                    )
+                  )
+                ),
+                roomy_plot("plot_queue")
+              )
+            )
+          )
         ),
-        card(
-          card_header("WIP over time (all reps + loess)"),
-          plotOutput("plot_wip", height = 280),
-          full_screen = TRUE
+        nav_panel(
+          title = "Lead time & data",
+          value = "lead",
+          navset_pill(
+            id = "lead_tabs",
+            selected = "cycle",
+            nav_panel(
+              title = "Cycle time",
+              value = "cycle",
+              plot_card(
+                "Cycle time distribution",
+                roomy_plot("plot_cycle")
+              )
+            ),
+            nav_panel(
+              title = "Station metrics",
+              value = "metrics",
+              card(
+                fill = FALSE,
+                full_screen = TRUE,
+                card_header("Station metrics"),
+                card_body(fill = FALSE, DTOutput("table_metrics"))
+              )
+            ),
+            nav_panel(
+              title = "Timing comparison",
+              value = "timing",
+              card(
+                fill = FALSE,
+                card_header("Same work content, different variability"),
+                card_body(
+                  fill = FALSE,
+                  p("Compare current timing, fixed expected times, and lognormal durations with SD equal to half the mean. Staffing, arrivals, failures, and trigger rules remain the same. Mean-throughput confidence intervals use independent replications."),
+                  p(class = "text-muted small", "Click Compare timing variability in the sidebar to fill this table."),
+                  DTOutput("timing_table")
+                )
+              )
+            ),
+            nav_panel(
+              title = "Downloads",
+              value = "downloads",
+              card(
+                fill = FALSE,
+                card_header("Download the tidy tables"),
+                card_body(
+                  fill = FALSE,
+                  p("Each CSV is the data behind the charts for the current run, including seeds. Download all also adds per-replication summaries and failure events, which do not have their own button."),
+                  download_catalog(),
+                  div(
+                    class = "mt-3",
+                    downloadButton("dl_all", "Download all (zip)", class = "btn-secondary")
+                  )
+                )
+              )
+            )
+          )
         )
-      ),
-
-      layout_columns(
-        card(
-          card_header("Downtime fraction (all replications)"),
-          plotOutput("plot_down", height = 280),
-          full_screen = TRUE
-        ),
-        card(
-          card_header("Cycle time distribution"),
-          plotOutput("plot_cycle", height = 280),
-          full_screen = TRUE
-        )
-      ),
-
-      card(
-        card_header("Station metrics"),
-        DTOutput("table_metrics"),
-        full_screen = TRUE
       )
     )
   ),
 
-  nav_panel(title="Timing comparison",
-    card(card_header("Same work content, different variability"),
-      p("Compare current timing, fixed expected times, and lognormal durations with SD equal to half the mean. Staffing, arrivals, failures, and trigger rules remain the same. Mean-throughput confidence intervals use independent replications."),
-      DTOutput("timing_table"))),
-  nav_panel(title="Staffing comparison",
-    card(card_header("Staffing experiments"),
-      p("Uses the current station settings. Intervals show uncertainty in each scenario's mean throughput, not individual shifts. Multiple replications are needed. Scenarios reuse base seeds; random draws are not synchronized by event."),
-      DTOutput("scenario_table")),
-    card(card_header("Operator utilization"), DTOutput("labor_table")),
-    card(card_header("Reliability inputs and observed failures"), DTOutput("reliability_table"))),
   nav_panel(
     title = "About this model",
     card(
@@ -250,6 +440,7 @@ before using this for any decision.
 
 - R + simmer (DES engine)
 - tidyverse (wrangling & ggplot2)
+- ggrain (bay-occupancy raincloud)
 - Shiny + bslib (interactive UI)
 
 Operators load a bay, leave during automatic processing, and return to unload.
@@ -270,8 +461,10 @@ Every chart uses **all replications**: faint points or lines for each rep, and
 a mean, loess ribbon, or pooled density for the aggregate. Queue and WIP series
 are resampled onto a 2-minute grid before the loess. WIP counts each vehicle
 once. Downtime is machine-time in repair during the observation window, divided
-by capacity. The Download data panel exports the tidy tables behind the charts,
-including repair events, plus a zip of all of them.
+by capacity. **Lead time & data → Downloads** exports the tidy tables behind the
+charts, including repair events, plus a zip of all of them. Staffing experiments
+sit under **Bottleneck & capacity**; the timing-variability comparison sits under
+**Lead time & data**.
 
 **All default numbers are placeholder example values**, not real plant data.
       ")
@@ -390,6 +583,14 @@ server <- function(input, output, session) {
   timing_comparison <- reactive({
     withProgress(message="Comparing variability…",run_scenarios(variability_scenarios(build_params())))
   }) %>% bindEvent(input$compare_timing)
+  observeEvent(input$compare, {
+    nav_select("results_tabs", "capacity", session = session)
+    nav_select("capacity_tabs", "staffing", session = session)
+  }, ignoreInit = TRUE)
+  observeEvent(input$compare_timing, {
+    nav_select("results_tabs", "lead", session = session)
+    nav_select("lead_tabs", "timing", session = session)
+  }, ignoreInit = TRUE)
   output$timing_table <- renderDT({timing_comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>%
     datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)})
   output$scenario_table <- renderDT({comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>% datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)})
@@ -436,19 +637,36 @@ server <- function(input, output, session) {
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
     means <- res$station_metrics %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
-    ggplot() +
-      geom_jitter(data = per_rep, aes(x = label, y = avg_util),
-                  width = 0.12, height = 0, alpha = 0.35, size = 2.2, color = "#4a4a4a") +
-      geom_errorbar(data = means, aes(x = label,
-          ymin = pmax(0, avg_util_mean - avg_util_sd),
-          ymax = pmin(1, avg_util_mean + avg_util_sd)),
-          width = 0.15, linewidth = 0.6, color = "#2c7fb8") +
-      geom_point(data = means, aes(x = label, y = avg_util_mean), size = 3.2, color = "#2c7fb8") +
-      scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
-      labs(x = NULL, y = "Bay occupancy",
-           subtitle = "Points = each replication; blue = mean ± SD") +
+    ggplot(per_rep, aes(x = label, y = avg_util, fill = label)) +
+      geom_rain(
+        rain.side = "r",
+        seed = 42,
+        point.args = list(alpha = 0.35, size = 1.8, color = "#4a4a4a"),
+        point.args.pos = list(position = position_jitter(width = 0.06, height = 0, seed = 42)),
+        boxplot.args = list(outlier.shape = NA, color = "#225ea8", linewidth = 0.4),
+        violin.args = list(alpha = 0.55, color = NA)
+      ) +
+      geom_point(
+        data = means,
+        aes(x = label, y = avg_util_mean),
+        inherit.aes = FALSE,
+        shape = 18, size = 3.8, color = "#08306b"
+      ) +
+      scale_fill_manual(values = station_colors, guide = "none") +
+      scale_x_discrete(limits = rev) +
+      # Occupancy is the y aesthetic; coord_flip draws it horizontally.
+      # No 0–100 limits, so the axis follows the data and a point at 100% stays visible.
+      scale_y_continuous(
+        labels = scales::percent_format(accuracy = 1),
+        expand = expansion(mult = 0.05)
+      ) +
+      coord_flip(clip = "off") +
+      labs(
+        x = NULL, y = "Bay occupancy",
+        subtitle = "Half-violin and box across replications; faint points = each rep; diamond = mean"
+      ) +
       theme_minimal(base_size = 13) +
-      theme(axis.text.x = element_text(angle = 15, hjust = 1))
+      theme(legend.position = "none", plot.margin = margin(8, 16, 8, 8))
   })
 
   output$plot_labor <- renderPlot({
@@ -473,10 +691,16 @@ server <- function(input, output, session) {
 
   output$plot_queue <- renderPlot({
     res <- sim_result()
+    station <- input$queue_station %||% "all"
+    layout <- input$queue_layout %||% "overlay"
     df <- res$queue_timeseries %>%
       mutate(label = factor(label_station(resource), levels = unname(station_labels)),
              rep_station = paste(replication, resource, sep = "_"))
-    ggplot(df, aes(x = time, y = queue, color = label)) +
+    if (!identical(station, "all")) {
+      df <- dplyr::filter(df, resource == station)
+    }
+    req(nrow(df) > 0)
+    p <- ggplot(df, aes(x = time, y = queue, color = label)) +
       geom_line(aes(group = rep_station), alpha = 0.12, linewidth = 0.4, na.rm = TRUE) +
       geom_smooth(method = "loess", formula = y ~ x, se = TRUE,
                   linewidth = 1.15, alpha = 0.18, span = 0.35, na.rm = TRUE) +
@@ -485,6 +709,10 @@ server <- function(input, output, session) {
            subtitle = "Faint lines = each replication; bold = loess + ribbon") +
       theme_minimal(base_size = 13) +
       theme(legend.position = "bottom")
+    if (identical(layout, "facet") && identical(station, "all")) {
+      p <- p + facet_wrap(~label, ncol = 2) + theme(legend.position = "none")
+    }
+    p
   })
 
   output$plot_wip <- renderPlot({
