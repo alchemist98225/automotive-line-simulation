@@ -1,362 +1,166 @@
 #!/usr/bin/env Rscript
-# =============================================================================
-# manufacturing_sim.R
-# Starter discrete-event simulation of a serial automotive manufacturing line
-# using simmer + tidyverse.
-#
-# ALL numeric inputs below are PLACEHOLDER EXAMPLE VALUES — replace with real
-# plant data before using for decisions.
-# =============================================================================
-
-suppressPackageStartupMessages({
-  library(simmer)
-  library(simmer.plot)
-  library(tidyverse)  # dplyr::select masks simmer::select; lubridate::now masks simmer::now
-  # tidymodels installed for downstream modeling; not required for this DES
-})
-# Qualify simmer time helper (lubridate::now is on the search path).
-sim_now <- function(env) simmer::now(env)
-
-# -----------------------------------------------------------------------------
-# PARAMETERS (PLACEHOLDER EXAMPLE VALUES)
-# -----------------------------------------------------------------------------
-
-# --- Simulation control ---
-SIM_LENGTH_MIN   <- 480        # PLACEHOLDER: one 8-hour shift (minutes)
-N_REPLICATIONS   <- 10         # PLACEHOLDER: number of independent replications
-BASE_SEED        <- 20261027L  # PLACEHOLDER: base RNG seed for reproducibility
-WARMUP_MIN       <- 60         # PLACEHOLDER: warmup to discard (minutes); 0 = none
-
-# --- Arrivals (bodies entering the line) ---
-# PLACEHOLDER: mean interarrival ~ 4 min (15 vehicles/hour)
-ARRIVAL_MEAN_MIN <- 4
-
-# --- Serial stations (automotive-flavoured placeholders) ---
-# capacity = number of parallel servers / bays at that station
-# cycle time distributions are PLACEHOLDER examples only
-STATIONS <- tribble(
-  ~name,              ~capacity, ~dist,         ~mean_min, ~sd_min,
-  "body_shop",        2L,        "exponential", 6.0,       NA_real_,   # PLACEHOLDER
-  "paint",            1L,        "normal",      8.0,       1.5,        # PLACEHOLDER
-  "final_assembly",   2L,        "normal",      7.0,       1.0,        # PLACEHOLDER
-  "inspection",       1L,        "exponential", 3.0,       NA_real_    # PLACEHOLDER
-)
-
-# --- Output paths ---
-# Regenerated artifacts (gitignored). Run from the repository root:
+# Run from the repository root, or from any working directory:
 #   Rscript scripts/manufacturing_sim.R
-OUT_DIR        <- "output"
-METRICS_CSV    <- file.path(OUT_DIR, "metrics_summary.csv")
-PLOT_UTIL      <- file.path(OUT_DIR, "utilization.png")
-PLOT_QUEUE     <- file.path(OUT_DIR, "queue_length.png")
-PLOT_CYCLE     <- file.path(OUT_DIR, "cycle_time_dist.png")
+# Sources app/R/model.R, runs placeholder defaults for 10 replications,
+# and writes all-replication plots plus the CSV/zip export bundle.
 
+suppressPackageStartupMessages(library(tidyverse))
+
+args_full <- commandArgs(trailingOnly = FALSE)
+file_arg <- grep("^--file=", args_full, value = TRUE)
+script_dir <- if (length(file_arg)) dirname(normalizePath(sub("^--file=", "", file_arg))) else normalizePath(".")
+model_candidates <- c(
+  file.path(script_dir, "..", "app", "R", "model.R"),
+  file.path(script_dir, "app", "R", "model.R"),
+  "app/R/model.R"
+)
+model_path <- model_candidates[file.exists(model_candidates)][1]
+if (is.na(model_path)) stop("Could not find app/R/model.R from ", script_dir)
+source(model_path)
+
+if (basename(script_dir) == "scripts") {
+  OUT_DIR <- file.path(dirname(script_dir), "output")
+} else {
+  OUT_DIR <- "output"
+}
 dir.create(OUT_DIR, recursive = TRUE, showWarnings = FALSE)
 
-# -----------------------------------------------------------------------------
-# Helpers
-# -----------------------------------------------------------------------------
-
-# Build a sealed service-time function for one station (closure over params).
-make_service_fn <- function(dist, mean_min, sd_min) {
-  force(dist); force(mean_min); force(sd_min)
-  if (identical(dist, "exponential")) {
-    function() rexp(1L, rate = 1 / mean_min)
-  } else if (identical(dist, "normal")) {
-    function() max(0.1, rnorm(1L, mean = mean_min, sd = sd_min))
-  } else {
-    stop("Unknown dist: ", dist)
-  }
+station_labels <- c(
+  body_shop = "Body shop", paint = "Paint",
+  final_assembly = "Final assembly", inspection = "Inspection"
+)
+station_colors <- c(
+  "Body shop" = "#2c7fb8", "Paint" = "#d95f0e",
+  "Final assembly" = "#31a354", "Inspection" = "#756bb1"
+)
+label_station <- function(resource) {
+  lab <- station_labels[as.character(resource)]
+  ifelse(is.na(lab), as.character(resource), unname(lab))
 }
+station_factor <- function(x) factor(label_station(x), levels = unname(station_labels))
 
-# Run one independent replication with a fixed seed (parallel-safe: no shared RNG).
-run_one_replication <- function(rep_id, seed) {
-  set.seed(seed)
+params <- default_params()
+params$n_replications <- 10L
+params$grid_dt_min <- 2
 
-  env <- simmer(paste0("auto_line_rep", rep_id))
+message("Running ", params$n_replications,
+        " replications (PLACEHOLDER params, operators + reliability) ...")
+res <- run_line_sim(params)
 
-  # Register resources
-  for (i in seq_len(nrow(STATIONS))) {
-    env <- env %>%
-      add_resource(STATIONS$name[[i]], capacity = STATIONS$capacity[[i]])
-  }
+zip_path <- file.path(OUT_DIR, "sim_exports.zip")
+write_sim_exports(res, dir = OUT_DIR, zip_path = zip_path)
+message("Wrote CSV exports and ", zip_path)
 
-  # Trajectory: serial seize -> timeout -> release through each station
-  traj <- trajectory("vehicle") %>%
-    set_attribute("start_time", function() sim_now(env))
-
-  for (i in seq_len(nrow(STATIONS))) {
-    st <- STATIONS[i, ]
-    svc <- make_service_fn(st$dist, st$mean_min, st$sd_min)
-    traj <- traj %>%
-      seize(st$name, 1) %>%
-      timeout(svc) %>%
-      release(st$name, 1)
-  }
-
-  traj <- traj %>%
-    set_attribute("end_time", function() sim_now(env)) %>%
-    set_attribute("cycle_time", function() {
-      get_attribute(env, "end_time") - get_attribute(env, "start_time")
-    })
-
-  env <- env %>%
-    add_generator(
-      name_prefix = "veh",
-      trajectory  = traj,
-      distribution = function() rexp(1L, rate = 1 / ARRIVAL_MEAN_MIN),
-      mon = 2
-    ) %>%
-    run(until = SIM_LENGTH_MIN)
-
-  # --- Arrivals / completions (post-warmup) ---
-  arr <- get_mon_arrivals(env, per_resource = FALSE) %>%
-    as_tibble() %>%
-    filter(start_time >= WARMUP_MIN, finished)
-
-  n_completed <- nrow(arr)
-  horizon     <- SIM_LENGTH_MIN - WARMUP_MIN
-  throughput  <- if (horizon > 0) n_completed / (horizon / 60) else NA_real_  # per hour
-
-  cycle_times <- arr$end_time - arr$start_time
-  ct_mean     <- if (length(cycle_times)) mean(cycle_times) else NA_real_
-  ct_p50      <- if (length(cycle_times)) as.numeric(quantile(cycle_times, 0.50)) else NA_real_
-  ct_p90      <- if (length(cycle_times)) as.numeric(quantile(cycle_times, 0.90)) else NA_real_
-  ct_p95      <- if (length(cycle_times)) as.numeric(quantile(cycle_times, 0.95)) else NA_real_
-
-  # --- Resource monitors: utilization & queue over time ---
-  res <- get_mon_resources(env) %>%
-    as_tibble() %>%
-    filter(time >= WARMUP_MIN)
-
-  # Time-weighted average utilization and queue length per station
-  station_stats <- res %>%
-    group_by(resource) %>%
-    group_modify(~{
-      d <- arrange(.x, time)
-      if (nrow(d) < 2) {
-        return(tibble(avg_util = NA_real_, avg_queue = NA_real_, avg_server = NA_real_))
-      }
-      t0 <- d$time
-      t1 <- lead(t0, default = SIM_LENGTH_MIN)
-      dt <- pmax(t1 - t0, 0)
-      total_dt <- sum(dt)
-      if (total_dt <= 0) {
-        return(tibble(avg_util = NA_real_, avg_queue = NA_real_, avg_server = NA_real_))
-      }
-      cap <- d$capacity
-      # utilization = busy servers / capacity
-      util <- ifelse(cap > 0, d$server / cap, NA_real_)
-      tibble(
-        avg_util   = sum(util * dt, na.rm = TRUE) / total_dt,
-        avg_queue  = sum(d$queue * dt) / total_dt,
-        avg_server = sum(d$server * dt) / total_dt
-      )
-    }) %>%
-    ungroup()
-
-  # Average WIP ≈ average number in system (servers + queues), summed over stations
-  avg_wip <- station_stats %>%
-    summarise(wip = sum(avg_server + avg_queue, na.rm = TRUE)) %>%
-    pull(wip)
-
-  list(
-    summary = tibble(
-      replication   = rep_id,
-      seed          = seed,
-      n_completed   = n_completed,
-      throughput_per_hr = throughput,
-      cycle_time_mean   = ct_mean,
-      cycle_time_p50    = ct_p50,
-      cycle_time_p90    = ct_p90,
-      cycle_time_p95    = ct_p95,
-      avg_wip           = avg_wip
-    ),
-    stations = station_stats %>%
-      mutate(replication = rep_id, seed = seed, .before = 1),
-    cycle_times = tibble(
-      replication = rep_id,
-      cycle_time  = cycle_times
-    ),
-    resources_ts = res %>%
-      mutate(replication = rep_id)
-  )
-}
-
-# -----------------------------------------------------------------------------
-# Run replications (lapply over seeds — each replication sets its own seed)
-# -----------------------------------------------------------------------------
-
-seeds <- BASE_SEED + seq_len(N_REPLICATIONS) - 1L
-
-message("Running ", N_REPLICATIONS, " replications of automotive line DES ...")
-results <- lapply(seq_along(seeds), function(i) {
-  run_one_replication(rep_id = i, seed = seeds[[i]])
-})
-
-summaries <- map_dfr(results, "summary")
-stations  <- map_dfr(results, "stations")
-cycles    <- map_dfr(results, "cycle_times")
-# Use first replication's resource time series for illustrative plots
-res_ts_plot <- results[[1]]$resources_ts
-
-# -----------------------------------------------------------------------------
-# Aggregate headline metrics across replications
-# -----------------------------------------------------------------------------
-
-headline <- summaries %>%
-  summarise(
-    across(
-      c(throughput_per_hr, cycle_time_mean, cycle_time_p50, cycle_time_p90,
-        cycle_time_p95, avg_wip, n_completed),
-      list(mean = ~mean(.x, na.rm = TRUE), sd = ~sd(.x, na.rm = TRUE)),
-      .names = "{.col}_{.fn}"
-    )
-  )
-
-station_headline <- stations %>%
-  group_by(resource) %>%
-  summarise(
-    avg_util_mean  = mean(avg_util, na.rm = TRUE),
-    avg_util_sd    = sd(avg_util, na.rm = TRUE),
-    avg_queue_mean = mean(avg_queue, na.rm = TRUE),
-    avg_queue_sd   = sd(avg_queue, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-# Combined metrics table for CSV
-metrics_out <- bind_rows(
-  summaries %>%
-    mutate(metric_group = "per_replication_system") %>%
-    pivot_longer(
-      cols = -c(replication, seed, metric_group),
-      names_to = "metric",
-      values_to = "value"
-    ),
-  stations %>%
-    mutate(metric_group = "per_replication_station") %>%
-    pivot_longer(
-      cols = c(avg_util, avg_queue, avg_server),
-      names_to = "metric",
-      values_to = "value"
-    ) %>%
-    rename(station = resource) %>%
-    dplyr::select(replication, seed, metric_group, station, metric, value),
-  headline %>%
-    mutate(replication = NA_integer_, seed = NA_integer_, metric_group = "across_reps_system") %>%
-    pivot_longer(
-      cols = -c(replication, seed, metric_group),
-      names_to = "metric",
-      values_to = "value"
-    ),
-  station_headline %>%
-    mutate(replication = NA_integer_, seed = NA_integer_,
-           metric_group = "across_reps_station") %>%
-    rename(station = resource) %>%
-    pivot_longer(
-      cols = -c(replication, seed, metric_group, station),
-      names_to = "metric",
-      values_to = "value"
-    )
-) %>%
-  mutate(
-    note = "PLACEHOLDER EXAMPLE PARAMETERS — not real plant data",
-    sim_length_min = SIM_LENGTH_MIN,
-    warmup_min = WARMUP_MIN,
-    n_replications = N_REPLICATIONS,
-    base_seed = BASE_SEED
-  )
-
-write_csv(metrics_out, METRICS_CSV)
-message("Wrote ", METRICS_CSV)
-
-# -----------------------------------------------------------------------------
-# Plots (PNG)
-# -----------------------------------------------------------------------------
-
-# 1) Utilization by station (mean across replications +/- sd)
-p_util <- station_headline %>%
-  mutate(resource = factor(resource, levels = STATIONS$name)) %>%
-  ggplot(aes(x = resource, y = avg_util_mean)) +
-  geom_col(fill = "#2c7fb8", width = 0.7) +
-  geom_errorbar(
-    aes(ymin = pmax(0, avg_util_mean - avg_util_sd),
-        ymax = pmin(1, avg_util_mean + avg_util_sd)),
-    width = 0.2
-  ) +
+per_rep <- res$utilization_by_rep %>% mutate(label = station_factor(station))
+means <- res$station_metrics %>% mutate(label = station_factor(station))
+p_util <- ggplot() +
+  geom_jitter(data = per_rep, aes(x = label, y = avg_util),
+              width = 0.12, height = 0, alpha = 0.35, size = 2.2, color = "#4a4a4a") +
+  geom_errorbar(data = means, aes(x = label,
+      ymin = pmax(0, avg_util_mean - avg_util_sd),
+      ymax = pmin(1, avg_util_mean + avg_util_sd)),
+      width = 0.15, linewidth = 0.6, color = "#2c7fb8") +
+  geom_point(data = means, aes(x = label, y = avg_util_mean), size = 3.2, color = "#2c7fb8") +
   scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
-  labs(
-    title = "Station utilization (placeholder automotive line)",
-    subtitle = paste0(
-      "Mean +/- SD over ", N_REPLICATIONS, " replications | PLACEHOLDER params"
-    ),
-    x = "Station",
-    y = "Utilization"
-  ) +
+  labs(title = "Bay occupancy (placeholder automotive line)",
+       subtitle = paste0("Points = each replication; blue = mean ± SD | ",
+                         params$n_replications, " reps | PLACEHOLDER"),
+       x = NULL, y = "Bay occupancy") +
   theme_minimal(base_size = 12) +
   theme(axis.text.x = element_text(angle = 20, hjust = 1))
+ggsave(file.path(OUT_DIR, "utilization.png"), p_util, width = 8, height = 5, dpi = 120)
 
-ggsave(PLOT_UTIL, p_util, width = 8, height = 5, dpi = 120)
-message("Wrote ", PLOT_UTIL)
-
-# 2) Queue length over time (replication 1, illustrative)
-p_queue <- res_ts_plot %>%
-  mutate(resource = factor(resource, levels = STATIONS$name)) %>%
-  ggplot(aes(x = time, y = queue, color = resource)) +
-  geom_step(linewidth = 0.6) +
-  labs(
-    title = "Queue length over time (replication 1)",
-    subtitle = "PLACEHOLDER automotive line | illustrative single run",
-    x = "Time (minutes)",
-    y = "Queue length",
-    color = "Station"
-  ) +
+ops <- res$operator_by_rep %>% mutate(label = factor(sub("^operator_", "", resource)))
+op_means <- ops %>% group_by(label) %>%
+  summarise(mean = mean(avg_util), sd = sd(avg_util), .groups = "drop")
+p_ops <- ggplot() +
+  geom_jitter(data = ops, aes(x = label, y = avg_util),
+              width = 0.12, height = 0, alpha = 0.35, size = 2.2, color = "#4a4a4a") +
+  geom_errorbar(data = op_means, aes(x = label,
+      ymin = pmax(0, mean - sd), ymax = pmin(1, mean + sd)),
+      width = 0.15, linewidth = 0.6, color = "#756bb1") +
+  geom_point(data = op_means, aes(x = label, y = mean), size = 3.2, color = "#756bb1") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+  labs(title = "Operator utilization (all replications)",
+       subtitle = "Points = each replication; purple = mean ± SD | PLACEHOLDER",
+       x = NULL, y = "Operator utilization") +
   theme_minimal(base_size = 12)
+ggsave(file.path(OUT_DIR, "operator_utilization.png"), p_ops, width = 8, height = 5, dpi = 120)
 
-ggsave(PLOT_QUEUE, p_queue, width = 9, height = 5, dpi = 120)
-message("Wrote ", PLOT_QUEUE)
+qdf <- res$queue_timeseries %>%
+  mutate(label = station_factor(resource),
+         rep_station = paste(replication, resource, sep = "_"))
+p_queue <- ggplot(qdf, aes(x = time, y = queue, color = label)) +
+  geom_line(aes(group = rep_station), alpha = 0.12, linewidth = 0.4, na.rm = TRUE) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE,
+              linewidth = 1.15, alpha = 0.18, span = 0.35, na.rm = TRUE) +
+  scale_color_manual(values = station_colors) +
+  labs(title = "Queue length over time (all replications)",
+       subtitle = "Faint = each rep; bold = loess + ribbon | PLACEHOLDER",
+       x = "Time (minutes)", y = "Queue length", color = "Station") +
+  theme_minimal(base_size = 12) +
+  theme(legend.position = "bottom")
+ggsave(file.path(OUT_DIR, "queue_length.png"), p_queue, width = 9, height = 5.5, dpi = 120)
 
-# 3) Cycle time distribution across all replications
-p_cycle <- cycles %>%
+p_wip <- ggplot(res$wip_timeseries, aes(x = time, y = wip)) +
+  geom_line(aes(group = replication), alpha = 0.15, linewidth = 0.45, color = "#b35900", na.rm = TRUE) +
+  geom_smooth(method = "loess", formula = y ~ x, se = TRUE,
+              linewidth = 1.2, color = "#b35900", fill = "#fdcc8a",
+              alpha = 0.25, span = 0.35, na.rm = TRUE) +
+  labs(title = "WIP over time (all replications)",
+       subtitle = "Vehicle count, one per vehicle; faint = each rep; bold = loess | PLACEHOLDER",
+       x = "Time (minutes)", y = "WIP (vehicles)") +
+  theme_minimal(base_size = 12)
+ggsave(file.path(OUT_DIR, "wip_over_time.png"), p_wip, width = 9, height = 5, dpi = 120)
+
+down_rep <- res$downtime_by_rep %>% mutate(label = station_factor(station))
+down_means <- res$station_metrics %>% mutate(label = station_factor(station))
+p_down <- ggplot() +
+  geom_jitter(data = down_rep, aes(x = label, y = downtime_fraction),
+              width = 0.12, height = 0, alpha = 0.35, size = 2.2, color = "#4a4a4a") +
+  geom_errorbar(data = down_means, aes(x = label,
+      ymin = pmax(0, downtime_fraction_mean - downtime_fraction_sd),
+      ymax = pmin(1, downtime_fraction_mean + downtime_fraction_sd)),
+      width = 0.15, linewidth = 0.6, color = "#e34a33") +
+  geom_point(data = down_means, aes(x = label, y = downtime_fraction_mean),
+             size = 3.2, color = "#e34a33") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+  labs(title = "Downtime fraction by station (all replications)",
+       subtitle = "Machine-time in repair after warmup | PLACEHOLDER MTBF/MTTR",
+       x = NULL, y = "Downtime fraction") +
+  theme_minimal(base_size = 12) +
+  theme(axis.text.x = element_text(angle = 20, hjust = 1))
+ggsave(file.path(OUT_DIR, "downtime.png"), p_down, width = 8, height = 5, dpi = 120)
+
+mean_ct <- mean(res$cycles$cycle_time, na.rm = TRUE)
+p_cycle <- res$cycles %>%
   ggplot(aes(x = cycle_time)) +
-  geom_histogram(bins = 30, fill = "#41b6c4", color = "white") +
-  geom_vline(
-    xintercept = mean(cycles$cycle_time, na.rm = TRUE),
-    linetype = "dashed",
-    color = "#253494"
-  ) +
-  labs(
-    title = "Vehicle cycle time distribution",
-    subtitle = paste0(
-      "All completed vehicles across ", N_REPLICATIONS,
-      " replications | PLACEHOLDER params"
-    ),
-    x = "Cycle time (minutes)",
-    y = "Count"
-  ) +
+  geom_histogram(aes(y = after_stat(density)), bins = 30,
+                 fill = "#41b6c4", color = "white", alpha = 0.55) +
+  geom_density(aes(group = replication), alpha = 0.25, linewidth = 0.4,
+               color = "#7fcdbb", na.rm = TRUE) +
+  geom_density(linewidth = 1.15, color = "#253494", na.rm = TRUE) +
+  geom_vline(xintercept = mean_ct, linetype = "dashed", color = "#253494") +
+  labs(title = "Vehicle cycle time distribution",
+       subtitle = paste0("Faint = per-rep density; bold = pooled | mean = ",
+                         round(mean_ct, 1), " min | PLACEHOLDER"),
+       x = "Cycle time (minutes)", y = "Density") +
   theme_minimal(base_size = 12)
+ggsave(file.path(OUT_DIR, "cycle_time_dist.png"), p_cycle, width = 8, height = 5, dpi = 120)
 
-ggsave(PLOT_CYCLE, p_cycle, width = 8, height = 5, dpi = 120)
-message("Wrote ", PLOT_CYCLE)
-
-# -----------------------------------------------------------------------------
-# Console headline (PLACEHOLDER results)
-# -----------------------------------------------------------------------------
-
-cat("\n========== HEADLINE METRICS (PLACEHOLDER EXAMPLE PARAMETERS) ==========\n")
-cat(sprintf("R simmer DES | %d reps | sim length %.0f min | warmup %.0f min\n",
-            N_REPLICATIONS, SIM_LENGTH_MIN, WARMUP_MIN))
-cat(sprintf("Stations: %s\n", paste(STATIONS$name, collapse = " -> ")))
-cat(sprintf("Throughput (veh/hr):     mean=%.2f  sd=%.2f\n",
-            headline$throughput_per_hr_mean, headline$throughput_per_hr_sd))
-cat(sprintf("Cycle time mean (min):   mean=%.2f  sd=%.2f\n",
-            headline$cycle_time_mean_mean, headline$cycle_time_mean_sd))
-cat(sprintf("Cycle time p50 / p90 / p95 (min, across-rep means): %.2f / %.2f / %.2f\n",
-            headline$cycle_time_p50_mean, headline$cycle_time_p90_mean,
-            headline$cycle_time_p95_mean))
-cat(sprintf("Average WIP (veh):       mean=%.2f  sd=%.2f\n",
-            headline$avg_wip_mean, headline$avg_wip_sd))
-cat("\nPer-station utilization & avg queue (across-rep means):\n")
-print(as.data.frame(station_headline), row.names = FALSE)
-cat("=======================================================================\n")
-cat("NOTE: All inputs are placeholder example values, not real plant data.\n")
+cat("\n========== HEADLINE (PLACEHOLDER EXAMPLE PARAMETERS) ==========\n")
+cat(sprintf("Throughput (veh/hr):   mean=%.2f  sd=%.2f\n",
+            res$headline$throughput_per_hr_mean, res$headline$throughput_per_hr_sd))
+cat(sprintf("Cycle time mean (min): mean=%.2f  sd=%.2f\n",
+            res$headline$cycle_time_mean_mean, res$headline$cycle_time_mean_sd))
+cat(sprintf("Average WIP (veh):     mean=%.2f  sd=%.2f\n",
+            res$headline$avg_wip_mean, res$headline$avg_wip_sd))
+cat(sprintf("Bottleneck candidate (highest bay occupancy): %s\n", res$bottleneck))
+cat("\nBay occupancy, queue, and downtime fraction:\n")
+print(as.data.frame(res$station_metrics), row.names = FALSE)
+cat("\nOperator utilization:\n")
+print(as.data.frame(res$operator_by_rep %>%
+  group_by(resource) %>%
+  summarise(util_mean = mean(avg_util), util_sd = sd(avg_util), .groups = "drop")),
+  row.names = FALSE)
+cat("NOTE: Inputs are placeholder example values, not real plant data.\n")
