@@ -1,7 +1,8 @@
 e <- new.env()
 source("app/app.R",local=e,chdir=TRUE)
 # First paint: no input registration and no Run click. Dynamic renderUI
-# values are NULL; the session must still produce the placeholder run.
+# values are NULL (collapsed panels have not registered them yet); the
+# session must still produce the placeholder run.
 shiny::testServer(e$server, {
   stopifnot(is.null(input$run), is.null(input$op_a), is.null(input$load_body_shop), is.null(input$mtbf_paint))
   res <- sim_result()
@@ -43,6 +44,45 @@ for (label in c(
 stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
 cat("Results tab layout check passed\n")
 cat("First-load check passed\n")
+
+# Sidebar accordion: four panels, in order. Only Arrivals & run starts open,
+# and more than one panel may be open (multiple = TRUE).
+accordion_titles <- function(html) {
+  titles <- unlist(regmatches(html, gregexpr('<div class="accordion-title">[^<]*</div>', html)))
+  gsub("&amp;", "&", gsub("</div>", "", gsub('<div class="accordion-title">', "", titles, fixed = TRUE), fixed = TRUE), fixed = TRUE)
+}
+panel_titles <- c("Arrivals & run", "Capacity", "Cycle times", "Operators & reliability")
+stopifnot(identical(accordion_titles(ui_html), panel_titles))
+stopifnot(grepl('id="line_controls"', ui_html, fixed = TRUE))
+stopifnot(!grepl("accordion autoclose", ui_html, fixed = TRUE))
+stopifnot(!grepl("data-bs-parent=", ui_html, fixed = TRUE))
+stopifnot(!grepl('data-value="Stations"', ui_html, fixed = TRUE))
+stopifnot(!page_has("Activity timing & reliability by station"))
+items <- strsplit(ui_html, '<div class="accordion-item" ', fixed = TRUE)[[1]][-1]
+stopifnot(length(items) == 4L)
+panel_open <- function(chunk) {
+  header <- sub('<div class="accordion-body".*', "", chunk)
+  collapse <- regmatches(chunk, regexpr('class="accordion-collapse [^"]*"', chunk))
+  grepl('aria-expanded="true"', header, fixed = TRUE) &&
+    identical(collapse, 'class="accordion-collapse collapse show"')
+}
+stopifnot(panel_open(items[[1]]))
+stopifnot(!any(vapply(items[-1], panel_open, logical(1))))
+# Run settings live in the open panel. Capacity, timing, and crews are grouped by station.
+stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="15"', items[[1]], fixed = TRUE))
+stopifnot(grepl('id="run"', items[[1]], fixed = TRUE), grepl('id="arrival_mean"', items[[1]], fixed = TRUE))
+stopifnot(grepl('id="body_cap"', items[[2]], fixed = TRUE), grepl(">Body shop<", items[[2]], fixed = TRUE))
+stopifnot(grepl('id="paint_cap"', items[[2]], fixed = TRUE), grepl('id="fa_cap"', items[[2]], fixed = TRUE), grepl('id="insp_cap"', items[[2]], fixed = TRUE))
+stopifnot(!grepl('id="body_mean"', items[[2]], fixed = TRUE))
+stopifnot(grepl('id="body_mean"', items[[3]], fixed = TRUE), grepl("cycle_body_shop", items[[3]], fixed = TRUE))
+stopifnot(grepl('id="paint_mean"', items[[3]], fixed = TRUE), grepl("cycle_paint", items[[3]], fixed = TRUE))
+stopifnot(grepl('id="fa_mean"', items[[3]], fixed = TRUE), grepl("cycle_final_assembly", items[[3]], fixed = TRUE))
+stopifnot(grepl('id="insp_mean"', items[[3]], fixed = TRUE), grepl("cycle_inspection", items[[3]], fixed = TRUE))
+stopifnot(grepl('id="staffing"', items[[4]], fixed = TRUE), grepl("operator_controls", items[[4]], fixed = TRUE))
+stopifnot(grepl('id="reliability"', items[[4]], fixed = TRUE), grepl('id="repair_staff"', items[[4]], fixed = TRUE), grepl('id="noncyclic"', items[[4]], fixed = TRUE))
+stopifnot(grepl("reliability_body_shop", items[[4]], fixed = TRUE), grepl("reliability_paint", items[[4]], fixed = TRUE))
+stopifnot(grepl("reliability_final_assembly", items[[4]], fixed = TRUE), grepl("reliability_inspection", items[[4]], fixed = TRUE))
+cat("Sidebar accordion check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,
     sim_length=480,warmup=60,arrival_mean=4,n_reps=2,seed=20261027,
