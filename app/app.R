@@ -19,6 +19,26 @@ station_labels <- c(
   inspection     = "Inspection"
 )
 
+# Measurements are pasted as minutes, separated by commas, spaces, or newlines.
+parse_observations <- function(text) {
+  values <- suppressWarnings(as.numeric(strsplit(trimws(text),"[,;[:space:]]+")[[1]]))
+  if (!length(values) || any(!is.finite(values) | values<0))
+    stop("Enter at least one finite, nonnegative observation in minutes.",call.=FALSE)
+  values
+}
+timing_controls <- function(st,activity,label) {
+  id <- paste0(activity,"_",st$name)
+  auto <- activity=="auto"
+  tagList(h6(paste(label,"timing")),
+    selectInput(paste0(id,"_method"),"Timing method",c("Fixed"="fixed","Distribution"="distribution","Measured observations"="empirical"),selected=if(auto) "distribution" else "fixed"),
+    conditionalPanel(sprintf("input['%s_method'] === 'distribution'",id),
+      selectInput(paste0(id,"_distribution"),"Distribution",c("Normal (negative draws become zero)"="normal","Lognormal"="lognormal","Exponential"="exponential"),selected=if(auto) st$dist else "normal"),
+      numericInput(paste0(id,"_sd"),"SD (min; exponential ignores SD)",if(auto && is.finite(st$sd_min)) st$sd_min else .25,min=0,step=.1)),
+    conditionalPanel(sprintf("input['%s_method'] === 'empirical'",id),
+      textAreaInput(paste0(id,"_observations"),"Observed durations (min)",placeholder="e.g. 1.1, 0.9, 1.4",rows=3),
+      helpText("Sampled with replacement each occurrence. Mean and SD inputs are ignored.")))
+}
+
 ui <- page_navbar(
   title = "Automotive Line Simulator",
   theme = bs_theme(
@@ -54,16 +74,16 @@ ui <- page_navbar(
             "Stations",
             h6("Body shop"),
             numericInput("body_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1),
-            numericInput("body_mean", "Mean automatic cycle (min)", value = 6, min = 0.5, max = 60, step = 0.5),
+            numericInput("body_mean", "Automatic duration / mean (min)", value = 6, min = 0.5, max = 60, step = 0.5),
             h6("Paint"),
             numericInput("paint_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1),
-            numericInput("paint_mean", "Mean automatic cycle (min)", value = 8, min = 0.5, max = 60, step = 0.5),
+            numericInput("paint_mean", "Automatic duration / mean (min)", value = 8, min = 0.5, max = 60, step = 0.5),
             h6("Final assembly"),
             numericInput("fa_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1),
-            numericInput("fa_mean", "Mean automatic cycle (min)", value = 7, min = 0.5, max = 60, step = 0.5),
+            numericInput("fa_mean", "Automatic duration / mean (min)", value = 7, min = 0.5, max = 60, step = 0.5),
             h6("Inspection"),
             numericInput("insp_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1),
-            numericInput("insp_mean", "Mean automatic cycle (min)", value = 3, min = 0.5, max = 60, step = 0.5)
+            numericInput("insp_mean", "Automatic duration / mean (min)", value = 3, min = 0.5, max = 60, step = 0.5)
           )
         ),
         h5("Operators & reliability"),
@@ -73,7 +93,8 @@ ui <- page_navbar(
         checkboxInput("reliability", "Enable equipment failures", TRUE),
         numericInput("repair_staff", "Repair technicians", 1, min=1, step=1),
         checkboxInput("noncyclic", "Enable random support tasks", TRUE),
-        accordion(accordion_panel("Manual work & reliability by station", uiOutput("station_controls"))),
+        accordion(accordion_panel("Activity timing & reliability by station", uiOutput("station_controls"))),
+        actionButton("compare_timing", "Compare timing variability", class="w-100"),
         actionButton("compare", "Compare staffing scenarios", class="w-100"),
         actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
         helpText("Defaults are placeholder example values — not real plant data.")
@@ -140,6 +161,10 @@ ui <- page_navbar(
     )
   ),
 
+  nav_panel(title="Timing comparison",
+    card(card_header("Same work content, different variability"),
+      p("Compare current timing, fixed expected times, and lognormal durations with SD equal to half the mean. Staffing, arrivals, failures, and trigger rules remain the same. Mean-throughput confidence intervals use independent replications."),
+      DTOutput("timing_table"))),
   nav_panel(title="Staffing comparison",
     card(card_header("Staffing experiments"),
       p("Uses the current station settings. Intervals show uncertainty in each scenario's mean throughput, not individual shifts. Multiple replications are needed. Scenarios reuse base seeds; random draws are not synchronized by event."),
@@ -212,15 +237,35 @@ server <- function(input, output, session) {
     tagList(lapply(seq_len(nrow(default_params()$stations)),function(i) {
       st <- default_params()$stations[i,]; n <- st$name
       tagList(h6(station_labels[[n]]),
-        numericInput(paste0("load_",n),"Manual load (min)",st$load_min,min=0,step=.25),
-        numericInput(paste0("unload_",n),"Manual unload (min)",st$unload_min,min=0,step=.25),
+        numericInput(paste0("load_",n),"Load duration / mean (min)",st$load_min,min=0,step=.25),
+        numericInput(paste0("unload_",n),"Unload duration / mean (min)",st$unload_min,min=0,step=.25),
+        timing_controls(st,"load","Loading"),
+        timing_controls(st,"auto","Automatic processing"),
+        timing_controls(st,"unload","Unloading"),
         numericInput(paste0("mtbf_",n),"Mean up-time between failures (min)",if(is.finite(st$mtbf_min)) st$mtbf_min else 10000,min=1),
         numericInput(paste0("mttr_",n),"Mean active repair (min; 0 disables)",st$mttr_min,min=0),
         numericInput(paste0("interval_",n),"Mean support-task interval (min)",st$task_interval_min,min=1),
         numericInput(paste0("every_",n),"Support task every N units (0 = random)",0,min=0,step=1),
-        numericInput(paste0("task_",n),"Support-task duration (min)",st$task_duration_min,min=0))
+        numericInput(paste0("task_",n),"Support duration / mean (min)",st$task_duration_min,min=0),
+        timing_controls(st,"task","Support work"))
     }))
   })
+  read_timing <- function(st,activity) {
+    id <- paste0(activity,"_",st$name)
+    legacy <- activity_timing(st,activity)
+    method <- input[[paste0(id,"_method")]]
+    if (is.null(method)) return(legacy)
+    spec <- tryCatch({
+      if (method=="empirical") timing_spec("empirical",observations=parse_observations(input[[paste0(id,"_observations")]] %||% ""))
+      else timing_spec(method,legacy$mean_min,
+        sd_min=input[[paste0(id,"_sd")]] %||% legacy$sd_min,
+        distribution=input[[paste0(id,"_distribution")]] %||% "normal")
+    },error=function(e) e)
+    validate(need(!inherits(spec,"error"),paste(station_labels[[st$name]],activity,if(inherits(spec,"error")) conditionMessage(spec) else "")))
+    valid <- tryCatch({validate_timing(spec); TRUE},error=function(e) conditionMessage(e))
+    validate(need(isTRUE(valid),paste(station_labels[[st$name]],activity,valid)))
+    spec
+  }
   # Build params from sidebar inputs
   build_params <- reactive({
     p <- list(
@@ -252,6 +297,11 @@ server <- function(input, output, session) {
       task_interval_min=if(input$noncyclic) map_dbl(name,~get_input(paste0("interval_",.x))) else Inf,
       task_duration_min=if(input$noncyclic) map_dbl(name,~get_input(paste0("task_",.x))) else 0,
       task_every_n=map_dbl(name,~get_input(paste0("every_",.x))))
+    p$stations <- p$stations %>% mutate(
+      load_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"load")),
+      auto_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"auto")),
+      unload_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"unload")),
+      task_timing=map(seq_len(n()),~if(input$noncyclic) read_timing(p$stations[.x,],"task") else timing_spec()))
     validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
     p
   })
@@ -265,6 +315,11 @@ server <- function(input, output, session) {
     withProgress(message="Comparing staffing…",run_scenarios(tibble(
       scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives)))
   }) %>% bindEvent(input$compare)
+  timing_comparison <- reactive({
+    withProgress(message="Comparing variability…",run_scenarios(variability_scenarios(build_params())))
+  }) %>% bindEvent(input$compare_timing)
+  output$timing_table <- renderDT({timing_comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>%
+    datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)})
   output$scenario_table <- renderDT({comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>% datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)})
   output$labor_table <- renderDT({sim_result()$labor %>% group_by(resource) %>% summarise(utilization=mean(avg_util),queue=mean(avg_queue),.groups="drop") %>% datatable(rownames=FALSE,options=list(dom="t")) %>% formatPercentage("utilization",1)})
 

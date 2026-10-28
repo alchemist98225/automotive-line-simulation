@@ -12,12 +12,69 @@ default_params <- function() {
          "final_assembly",2L,"normal",7,1,"downstream",2,1,300,10,45,4,
          "inspection",1L,"exponential",3,NA_real_,"downstream",1,0.5,Inf,0,60,3))
 }
-make_service_fn <- function(dist, mean_min, sd_min) {
-  force(dist); force(mean_min); force(sd_min)
-  switch(dist, exponential=function() rexp(1,1/mean_min),
-         normal=function() max(0.1,rnorm(1,mean_min,sd_min)),
-         deterministic=function() mean_min, stop("Unknown distribution: ",dist))
+# A timing specification is data; each compiled sampler draws on every invocation.
+# Normal samples are floored at zero, not redrawn. This changes their expected mean.
+timing_spec <- function(method="fixed", mean_min=0, sd_min=0,
+                        distribution="normal", observations=numeric()) {
+  list(method=method,mean_min=mean_min,sd_min=sd_min,
+       distribution=distribution,observations=observations)
 }
+validate_timing <- function(spec) {
+  fail <- function(message) stop("Invalid timing: ",message,call.=FALSE)
+  if (!is.list(spec) || length(spec$method)!=1L || is.na(spec$method) ||
+      !spec$method %in% c("fixed","distribution","empirical")) fail("unknown method")
+  if (spec$method=="empirical") {
+    x <- spec$observations
+    if (!is.numeric(x) || !length(x) || any(!is.finite(x) | x<0))
+      fail("observations must be a nonempty vector of finite, nonnegative minutes")
+  } else {
+    if (length(spec$mean_min)!=1L || !is.numeric(spec$mean_min) ||
+        !is.finite(spec$mean_min) || spec$mean_min<0) fail("mean/duration must be nonnegative")
+    if (spec$method=="distribution") {
+      if (length(spec$distribution)!=1L || is.na(spec$distribution) ||
+          !spec$distribution %in% c("normal","lognormal","exponential")) fail("unknown distribution")
+      if (spec$mean_min<=0) fail("distribution mean must be positive")
+      if (spec$distribution!="exponential" &&
+          (length(spec$sd_min)!=1L || !is.numeric(spec$sd_min) || !is.finite(spec$sd_min) || spec$sd_min<0))
+        fail("SD must be finite and nonnegative")
+    }
+  }
+  spec
+}
+make_duration_fn <- function(spec) {
+  spec <- validate_timing(spec)
+  if (spec$method=="fixed") return(function() spec$mean_min)
+  if (spec$method=="empirical") {
+    # sample(x,1) treats a singleton numeric x as 1:x; index sampling avoids that.
+    return(function() spec$observations[[sample.int(length(spec$observations),1L)]])
+  }
+  if (spec$distribution=="exponential") return(function() rexp(1,1/spec$mean_min))
+  if (spec$distribution=="normal") return(function() max(0,rnorm(1,spec$mean_min,spec$sd_min)))
+  sigma <- sqrt(log1p((spec$sd_min/spec$mean_min)^2))
+  mu <- log(spec$mean_min)-sigma^2/2
+  function() rlnorm(1,mu,sigma)
+}
+timing_mean <- function(spec) {
+  spec <- validate_timing(spec)
+  if (spec$method=="empirical") return(mean(spec$observations))
+  if (spec$method=="distribution" && spec$distribution=="normal" && spec$sd_min>0)
+    return(spec$mean_min*pnorm(spec$mean_min/spec$sd_min)+spec$sd_min*dnorm(spec$mean_min/spec$sd_min))
+  spec$mean_min
+}
+make_service_fn <- function(dist,mean_min,sd_min) {
+  make_duration_fn(timing_spec(if(dist=="deterministic") "fixed" else "distribution",
+    mean_min,sd_min,distribution=dist))
+}
+activity_timing <- function(st,activity) {
+  column <- paste0(activity,"_timing")
+  if (column %in% names(st)) return(st[[column]][[1]])
+  switch(activity,
+    auto=timing_spec(if(st$dist=="deterministic") "fixed" else "distribution",st$mean_min,st$sd_min,st$dist),
+    load=timing_spec(mean_min=st$load_min),
+    unload=timing_spec(mean_min=st$unload_min),
+    task=timing_spec(mean_min=st$task_duration_min))
+}
+# Missing timing list-columns are derived from legacy scalar fields.
 # Old app/Quarto parameter lists remain usable, with labor/reliability disabled.
 normalize_params <- function(p) {
   defaults <- list(operator_pool=NA_character_,load_min=0,unload_min=0,
@@ -25,6 +82,11 @@ normalize_params <- function(p) {
   walk(names(defaults),function(n) {if (!n %in% names(p$stations)) p$stations[[n]] <<- defaults[[n]]})
   if (is.null(p$operators)) p$operators <- tibble(pool=character(),count=integer())
   if (is.null(p$repair_technicians)) p$repair_technicians <- 1L
+  walk(c("load","auto","unload","task"),function(activity) {
+    column <- paste0(activity,"_timing")
+    if (!column %in% names(p$stations))
+      p$stations[[column]] <<- map(seq_len(nrow(p$stations)),~activity_timing(p$stations[.x,],activity))
+  })
   p
 }
 validate_params <- function(p) {
@@ -49,6 +111,11 @@ validate_params <- function(p) {
     !anyDuplicated(p$operators$pool),integer_positive(p$repair_technicians))
   if (nrow(p$operators)) stopifnot(integer_positive(p$operators$count))
   stopifnot(all(na.omit(p$stations$operator_pool) %in% p$operators$pool))
+  walk(c("load","auto","unload","task"),function(activity) {
+    specs <- p$stations[[paste0(activity,"_timing")]]
+    stopifnot(is.list(specs),length(specs)==nrow(p$stations))
+    walk(specs,validate_timing)
+  })
   p
 }
 # Integrate piecewise constant states, including the state at the warmup boundary.
@@ -78,13 +145,13 @@ run_one_replication <- function(rep_id,seed,params) {
       if (is.na(st$operator_pool)) return(t %>% timeout(duration))
       t %>% seize(op) %>% timeout(duration) %>% release(op)
     }
-    t <- manual(t,st$load_min)
-    t <- t %>% seize(paste0("auto_",n)) %>% timeout(make_service_fn(st$dist,st$mean_min,st$sd_min)) %>% release(paste0("auto_",n))
-    t <- manual(t,st$unload_min) %>% release(n)
-    if (!is.na(st$operator_pool) && st$task_every_n>0 && st$task_duration_min>0) {
+    t <- manual(t,make_duration_fn(activity_timing(st,"load")))
+    t <- t %>% seize(paste0("auto_",n)) %>% timeout(make_duration_fn(activity_timing(st,"auto"))) %>% release(paste0("auto_",n))
+    t <- manual(t,make_duration_fn(activity_timing(st,"unload"))) %>% release(n)
+    if (!is.na(st$operator_pool) && st$task_every_n>0 && timing_mean(activity_timing(st,"task"))>0) {
       t <- t %>% set_global(paste0("units_",n),1,mod="+") %>%
         branch(function() as.integer(get_global(env,paste0("units_",n)) %% st$task_every_n==0),continue=TRUE,
-          trajectory() %>% seize(op) %>% timeout(st$task_duration_min) %>% release(op))
+          trajectory() %>% seize(op) %>% timeout(make_duration_fn(activity_timing(st,"task"))) %>% release(op))
     }
     t
   }
@@ -100,9 +167,9 @@ run_one_replication <- function(rep_id,seed,params) {
         release(paste0("auto_",n)) %>% simmer::rollback(7,Inf)
       walk(seq_len(st$capacity),function(j) add_generator(env,paste0("failure_",n,"_",j,"_"),failure,at(0),priority=100,preemptible=100,restart=FALSE))
     }
-    if (!is.na(st$operator_pool) && st$task_every_n==0 && is.finite(st$task_interval_min) && st$task_duration_min>0) {
+    if (!is.na(st$operator_pool) && st$task_every_n==0 && is.finite(st$task_interval_min) && timing_mean(activity_timing(st,"task"))>0) {
       task <- trajectory("noncyclic") %>% seize(paste0("operator_",st$operator_pool)) %>%
-        timeout(st$task_duration_min) %>% release(paste0("operator_",st$operator_pool))
+        timeout(make_duration_fn(activity_timing(st,"task"))) %>% release(paste0("operator_",st$operator_pool))
       add_generator(env,paste0("task_",n,"_"),task,function() rexp(1,1/st$task_interval_min))
     }
   })
@@ -152,4 +219,20 @@ run_scenarios <- function(scenarios) {
       half_width=if(n()>1) qt(.975,n()-1)*se else NA_real_,
       lower=throughput-half_width,upper=throughput+half_width,
       labor_productivity=mean(throughput_per_labor_hr),wip=mean(avg_wip),lead_time=mean(cycle_time_mean,na.rm=TRUE))))
+}
+
+# Fixed/reference and high-variation presets preserve each activity's expected time.
+variability_scenarios <- function(params=default_params()) {
+  current <- params %>% normalize_params() %>% validate_params()
+  fixed <- current; variable <- current
+  walk(c("load","auto","unload","task"),function(activity) {
+    column <- paste0(activity,"_timing")
+    fixed$stations[[column]] <<- map(current$stations[[column]],~timing_spec(mean_min=timing_mean(.x)))
+    variable$stations[[column]] <<- map(current$stations[[column]],function(spec) {
+      m <- timing_mean(spec)
+      if (m==0) timing_spec() else timing_spec("distribution",m,m*.5,"lognormal")
+    })
+  })
+  tibble(scenario=c("Current timing","Fixed at same expected times","Lognormal, CV 0.5, same expected times"),
+         params=list(current,fixed,variable))
 }

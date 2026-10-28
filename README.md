@@ -107,3 +107,58 @@ problem → assumptions → validated baseline → alternatives → recommendati
 
 See DEPLOY.md for deployment. Keep credentials and rsconnect configuration out of
 git. MIT license; see LICENSE.
+
+## Activity timing methods
+
+One engine supports three methods independently for loading, automatic processing,
+unloading, and support work. Under **Activity timing & reliability by station**,
+choose Fixed, Distribution, or Measured observations. The duration/mean inputs
+supply minutes for fixed and distribution methods. Automatic duration/mean stays
+in the Stations controls. Paste empirical values separated by commas, semicolons,
+spaces, or newlines; mean and SD inputs are ignored in empirical mode. Sampling
+uses replacement and assumes independent observations; it does not retain serial
+correlation or relationships between load, automatic, and unload times.
+
+Distribution choices are normal, lognormal, and exponential. Normal draws are now
+floored at **zero**, replacing the previous 0.1-minute automatic-cycle floor.
+Consequently the entered normal mean/SD describe the underlying normal, not the
+floored observations. Lognormal mean and SD describe the positive duration in
+minutes; exponential requires only a mean (its SD equals its mean). Zero-duration
+activities are allowed in fixed and empirical modes.
+
+Timing inputs are stored as `load_timing`, `auto_timing`, `unload_timing`, and
+`task_timing` list-columns of specifications. These take precedence over legacy
+scalar fields. When absent, they are derived from those fields, preserving older
+parameter structures. For example:
+
+```r
+p <- default_params() %>% normalize_params()
+p$stations <- p$stations %>% mutate(
+  load_timing = map(load_min, ~ timing_spec(
+    "empirical", observations = c(.x * .8, .x, .x * 1.2))),
+  auto_timing = map(mean_min, ~ timing_spec(
+    "distribution", mean_min = .x, sd_min = .x * .2,
+    distribution = "lognormal")))
+run_line_sim(p)
+```
+
+Press **Compare timing variability** and open Timing comparison. Presets compare
+current timing, fixed expected times, and lognormal timing with CV 0.5 while
+preserving each activity's expected duration. The expected normal duration accounts
+for its zero floor. CV 0.5 is a standardized alternative, not necessarily more
+variable than the current configuration. Staffing, failures, and support-trigger
+rules stay the same. Remaining failure/arrival randomness means the fixed-activity
+scenario is not a completely deterministic system.
+
+For reproducible batch output:
+
+```sh
+Rscript scripts/timing_experiments.R
+Rscript tests/timing_checks.R
+```
+
+The existing Shiny server checks now cover mixed timing methods, text parsing,
+variability comparisons, and disabling empirical support work. Sampler checks
+cover singleton empirical vectors, sampled value membership, lognormal moments,
+normal flooring, invalid observations, count-triggered support work, and expected
+work-content equality across presets. Browser visual QA remains outstanding.
