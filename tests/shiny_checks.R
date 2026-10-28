@@ -20,7 +20,25 @@ shiny::testServer(e$server, {
   invisible(output$plot_wip)
   invisible(output$plot_down)
   invisible(output$plot_labor)
+  invisible(output$plot_cycle)
+  invisible(output$table_metrics)
+  invisible(output$reliability_table)
+  invisible(output$labor_table)
 })
+ui_html <- as.character(e$ui)
+page_has <- function(label) {
+  grepl(label, ui_html, fixed = TRUE) ||
+    grepl(gsub("&", "&amp;", label, fixed = TRUE), ui_html, fixed = TRUE)
+}
+for (label in c(
+  "Bottleneck & capacity", "Flow over time", "Lead time & data",
+  "Station occupancy", "Operators", "Downtime", "Staffing comparison",
+  "WIP", "Queues", "Cycle time", "Station metrics", "Timing comparison", "Downloads",
+  "520px", "clamp(450px, 52vh, 550px)"
+)) stopifnot(page_has(label))
+# Downloads moved out of the sidebar accordion into the Lead time tab.
+stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
+cat("Results tab layout check passed\n")
 cat("First-load check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,
@@ -34,6 +52,12 @@ shiny::testServer(e$server, {
   }
   session$setInputs(run=1)
   stopifnot(nrow(sim_result()$summaries)==2,nrow(sim_result()$labor)==4)
+  session$setInputs(queue_layout="facet", queue_station="all")
+  invisible(output$plot_queue)
+  session$setInputs(queue_layout="overlay", queue_station="paint")
+  invisible(output$plot_queue)
+  session$setInputs(queue_station="all")
+  invisible(output$plot_queue)
   session$setInputs(compare=1)
   stopifnot(nrow(comparison())==4)
   invisible(output$scenario_table)

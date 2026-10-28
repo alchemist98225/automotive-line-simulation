@@ -94,7 +94,7 @@ The figures under `docs/images/` that are named like the batch outputs are regen
 
 ### Exports
 
-The Shiny sidebar and the Quarto document each offer a CSV per table, plus **Download all (zip)**. The batch script writes the same files to `output/` and bundles them as `output/sim_exports.zip`.
+The Shiny app (**Lead time & data → Downloads**) and the Quarto document each offer a CSV per table, plus **Download all (zip)**. The batch script writes the same files to `output/` and bundles them as `output/sim_exports.zip`.
 
 | File | Contents |
 | --- | --- |
@@ -150,7 +150,7 @@ Quarto CLI is required only for the document: <https://quarto.org/docs/get-start
 Rscript -e 'shiny::runApp("app")'
 ```
 
-The app runs once on load, then again when you press **Run simulation**. **Compare staffing scenarios** and **Compare timing variability** fill the other tabs. Open **Download data** for the CSVs.
+The app runs once on load, then again when you press **Run simulation**. KPI boxes stay above three result tabs (Bottleneck & capacity, Flow over time, Lead time & data), each with full-width charts. **Compare staffing scenarios** opens Bottleneck & capacity → Staffing comparison. **Compare timing variability** opens Lead time & data → Timing comparison. CSVs are under Lead time & data → Downloads.
 
 ### Quarto document
 
