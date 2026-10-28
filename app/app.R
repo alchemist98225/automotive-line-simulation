@@ -7,6 +7,7 @@ library(shiny)
 library(bslib)
 library(bsicons)
 library(tidyverse)
+library(ggrain) # declared so shinyapps.io installs it for the occupancy raincloud
 library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
@@ -153,7 +154,7 @@ ui <- page_navbar(
             numericInput("warmup", "Warmup (min)",
                          value = 60, min = 0, max = 2400, step = 15),
             numericInput("n_reps", "Replications",
-                         value = 5, min = 1, max = 30, step = 1),
+                         value = 15, min = 1, max = 30, step = 1),
             numericInput("seed", "Base seed",
                          value = 20261027, min = 1, step = 1)
           ),
@@ -425,6 +426,7 @@ before using this for any decision.
 
 - R + simmer (DES engine)
 - tidyverse (wrangling & ggplot2)
+- ggrain (bay-occupancy raincloud)
 - Shiny + bslib (interactive UI)
 
 Operators load a bay, leave during automatic processing, and return to unload.
@@ -621,19 +623,35 @@ server <- function(input, output, session) {
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
     means <- res$station_metrics %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
-    ggplot() +
-      geom_jitter(data = per_rep, aes(x = label, y = avg_util),
-                  width = 0.12, height = 0, alpha = 0.35, size = 2.2, color = "#4a4a4a") +
-      geom_errorbar(data = means, aes(x = label,
-          ymin = pmax(0, avg_util_mean - avg_util_sd),
-          ymax = pmin(1, avg_util_mean + avg_util_sd)),
-          width = 0.15, linewidth = 0.6, color = "#2c7fb8") +
-      geom_point(data = means, aes(x = label, y = avg_util_mean), size = 3.2, color = "#2c7fb8") +
-      scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
-      labs(x = NULL, y = "Bay occupancy",
-           subtitle = "Points = each replication; blue = mean ± SD") +
+    ggplot(per_rep, aes(x = label, y = avg_util, fill = label)) +
+      geom_rain(
+        rain.side = "r",
+        seed = 42,
+        point.args = list(alpha = 0.35, size = 1.8, color = "#4a4a4a"),
+        point.args.pos = list(position = position_jitter(width = 0.06, height = 0, seed = 42)),
+        boxplot.args = list(outlier.shape = NA, color = "#225ea8", linewidth = 0.4),
+        violin.args = list(alpha = 0.55, color = NA)
+      ) +
+      geom_point(
+        data = means,
+        aes(x = label, y = avg_util_mean),
+        inherit.aes = FALSE,
+        shape = 18, size = 3.8, color = "#08306b"
+      ) +
+      scale_fill_manual(values = station_colors, guide = "none") +
+      scale_x_discrete(limits = rev) +
+      scale_y_continuous(
+        labels = scales::percent_format(accuracy = 1),
+        breaks = seq(0, 1, by = 0.25),
+        limits = c(0, 1)
+      ) +
+      coord_flip(clip = "off") +
+      labs(
+        x = NULL, y = "Bay occupancy",
+        subtitle = "Half-violin and box across replications; faint points = each rep; diamond = mean"
+      ) +
       theme_minimal(base_size = 13) +
-      theme(axis.text.x = element_text(angle = 15, hjust = 1))
+      theme(legend.position = "none", plot.margin = margin(8, 16, 8, 8))
   })
 
   output$plot_labor <- renderPlot({
