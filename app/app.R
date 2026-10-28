@@ -134,6 +134,20 @@ ui <- page_navbar(
       height: clamp(450px, 52vh, 550px) !important;
       min-height: 450px !important;
     }
+    /* Sub-tab pills wrap instead of collapsing into one run-on label. */
+    #capacity_tabs.nav-pills,
+    #flow_tabs.nav-pills,
+    #lead_tabs.nav-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+    #capacity_tabs.nav-pills > .nav-item,
+    #flow_tabs.nav-pills > .nav-item,
+    #lead_tabs.nav-pills > .nav-item {
+      flex: 0 0 auto;
+      width: auto;
+    }
   ")),
   fillable = TRUE,
 
@@ -640,10 +654,11 @@ server <- function(input, output, session) {
       ) +
       scale_fill_manual(values = station_colors, guide = "none") +
       scale_x_discrete(limits = rev) +
+      # Occupancy is the y aesthetic; coord_flip draws it horizontally.
+      # No 0–100 limits, so the axis follows the data and a point at 100% stays visible.
       scale_y_continuous(
         labels = scales::percent_format(accuracy = 1),
-        breaks = seq(0, 1, by = 0.25),
-        limits = c(0, 1)
+        expand = expansion(mult = 0.05)
       ) +
       coord_flip(clip = "off") +
       labs(
