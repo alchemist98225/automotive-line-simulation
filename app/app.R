@@ -12,6 +12,7 @@ library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
 source("R/model.R", local = TRUE)
+source("R/comparison.R", local = TRUE)
 
 # Station display labels
 station_labels <- c(
@@ -160,6 +161,7 @@ register_station_panels <- function(output) {
 }
 
 ui <- page_navbar(
+  id = "main_page",
   title = "Automotive Line Simulator",
   theme = bs_theme(
     version = 5,
@@ -466,6 +468,8 @@ ui <- page_navbar(
     )
   ),
 
+  comparison_page_ui("two_set_study"),
+
   nav_panel(
     title = "About this model",
     card(
@@ -619,6 +623,8 @@ server <- function(input, output, session) {
     validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
     p
   })
+  two_set_study <- comparison_page_server("two_set_study", build_params, reactive(input$main_page))
+
   comparison <- reactive({
     p <- build_params()
     alternatives <- list(p,p,p,p)

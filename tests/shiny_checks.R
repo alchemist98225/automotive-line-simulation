@@ -52,13 +52,14 @@ accordion_titles <- function(html) {
   gsub("&amp;", "&", gsub("</div>", "", gsub('<div class="accordion-title">', "", titles, fixed = TRUE), fixed = TRUE), fixed = TRUE)
 }
 panel_titles <- c("Arrivals & run", "Capacity", "Cycle times", "Operators & reliability")
-stopifnot(identical(accordion_titles(ui_html), panel_titles))
+sidebar_html <- as.character(xml2::xml_find_first(xml2::read_html(ui_html), "//*[@id='line_controls']"))
+stopifnot(identical(accordion_titles(sidebar_html), panel_titles))
 stopifnot(grepl('id="line_controls"', ui_html, fixed = TRUE))
-stopifnot(!grepl("accordion autoclose", ui_html, fixed = TRUE))
-stopifnot(!grepl("data-bs-parent=", ui_html, fixed = TRUE))
+stopifnot(!grepl("accordion autoclose", sidebar_html, fixed = TRUE))
+stopifnot(!grepl("data-bs-parent=", sidebar_html, fixed = TRUE))
 stopifnot(!grepl('data-value="Stations"', ui_html, fixed = TRUE))
 stopifnot(!page_has("Activity timing & reliability by station"))
-items <- strsplit(ui_html, '<div class="accordion-item" ', fixed = TRUE)[[1]][-1]
+items <- strsplit(sidebar_html, '<div class="accordion-item" ', fixed = TRUE)[[1]][-1]
 stopifnot(length(items) == 4L)
 panel_open <- function(chunk) {
   header <- sub('<div class="accordion-body".*', "", chunk)

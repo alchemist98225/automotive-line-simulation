@@ -237,3 +237,48 @@ LICENSE                 # MIT, Eddie Benjamin, 2026
 ## License
 
 [MIT](LICENSE) © 2026 Eddie Benjamin.
+
+## Two editable parameter sets (Shiny)
+
+Open **Compare two sets** in the top navigation. On the first visit, both sets
+are imported from the current main-page controls, including changes not yet run.
+They then remain independent: editing the main page does not silently overwrite
+the comparison. Use **Import main settings into both sets** to replace both drafts,
+or **Copy Set 1 to Set 2** to restart the study from the edited baseline. These
+buttons intentionally replace the destination settings. A separate button matches
+only Set 2's replication count to Set 1 without changing the treatment.
+
+All editor sections start collapsed. Each set exposes run settings, pool staffing,
+station assignments/capacities, activity timing (including full empirical vectors),
+and reliability/support triggers. Count 0 removes an unused operator pool; an
+assigned pool must have at least one operator. Unconstrained labor can be selected
+explicitly per station.
+
+**Run comparison** freezes the inputs and results for both sets. A prominent notice
+marks old charts when drafts change. Parameter differences show the current drafts;
+charts and the RDS download describe the captured run. Failed validation leaves
+the last successful results intact and reports that the comparison was not updated.
+
+Blue is Set 1 and orange is Set 2 throughout the comparison. Headline cards report
+means, the descriptive Set 2 minus Set 1 difference, and percent change where the
+baseline is nonzero. Rainclouds show replication-level throughput, mean lead time,
+WIP, productivity, bay occupancy, operator utilization, and active repair fraction;
+small/constant samples fall back to boxplots and points. Lead-time density curves
+pool completed departures; WIP and queue curves show replication means on each
+set's own time grid. Missing/no-completion metrics remain unavailable.
+
+The throughput table gives 95% Student-t intervals for each set's mean. It does not
+provide a confidence interval for the difference. Equal base seeds do not establish
+synchronized event random streams or justify a paired inference. Differences in
+horizon, warmup, replications, or arrival rates are explicitly flagged. Active repair
+fraction retains the engine's existing definition and excludes technician waiting.
+
+Download **both runs and exact inputs (.rds)** to retain complete timing vectors,
+parameters, replication outputs, and capture timestamp. This is a new Shiny page;
+the Quarto document retains its existing controls and comparison presets.
+
+Validation: `Rscript tests/comparison_checks.R` exercises import/reset, editable
+controls, identical-set agreement, independent edits, stale results, copying,
+matching replication counts, empirical validation, and all comparison plots/tables.
+Existing model, timing, and Shiny checks also pass. Browser layout and mobile visual
+QA are still required before deploying this development branch.
