@@ -1,0 +1,258 @@
+---
+title: "Automotive Manufacturing Line Simulation"
+subtitle: "Discrete-event simulation with simmer + Shiny"
+author: "Eddie"
+format:
+  html:
+    theme: flatly
+    toc: true
+    toc-location: left
+    code-fold: true
+server: shiny
+---
+
+```{r}
+#| context: setup
+#| include: false
+#| message: false
+#| warning: false
+library(shiny)
+library(bslib)
+library(tidyverse)
+library(DT)
+
+source("R/model.R", local = TRUE)
+
+station_labels <- c(
+  body_shop      = "Body shop",
+  paint          = "Paint",
+  final_assembly = "Final assembly",
+  inspection     = "Inspection"
+)
+```
+
+## Overview
+
+This interactive document runs a **discrete-event simulation** of a serial
+automotive manufacturing line in R using [simmer](https://r-simmer.org/).
+Vehicles arrive and flow through four stations:
+
+**Body shop → Paint → Final assembly → Inspection**
+
+Adjust the parameters below and click **Run simulation** to refresh the KPIs
+and plots. All defaults are **placeholder example values** for portfolio demos —
+not real plant data.
+
+## Parameters
+
+```{r}
+#| label: inputs
+#| echo: false
+
+fluidRow(
+  column(
+    4,
+    h4("Arrivals & run"),
+    numericInput("arrival_mean", "Mean interarrival (min)",
+                 value = 4, min = 0.5, max = 60, step = 0.5),
+    numericInput("sim_length", "Sim length (min)",
+                 value = 480, min = 60, max = 4800, step = 30),
+    numericInput("warmup", "Warmup (min)",
+                 value = 60, min = 0, max = 2400, step = 15),
+    numericInput("n_reps", "Replications",
+                 value = 5, min = 1, max = 20, step = 1),
+    numericInput("seed", "Base seed",
+                 value = 20261027, min = 1, step = 1)
+  ),
+  column(
+    4,
+    h4("Body shop & paint"),
+    numericInput("body_cap", "Body shop capacity", value = 2, min = 1, max = 20),
+    numericInput("body_mean", "Body shop mean (min)", value = 6, min = 0.5, max = 60, step = 0.5),
+    numericInput("paint_cap", "Paint capacity", value = 1, min = 1, max = 20),
+    numericInput("paint_mean", "Paint mean (min)", value = 8, min = 0.5, max = 60, step = 0.5)
+  ),
+  column(
+    4,
+    h4("Assembly & inspection"),
+    numericInput("fa_cap", "Final assembly capacity", value = 2, min = 1, max = 20),
+    numericInput("fa_mean", "Final assembly mean (min)", value = 7, min = 0.5, max = 60, step = 0.5),
+    numericInput("insp_cap", "Inspection capacity", value = 1, min = 1, max = 20),
+    numericInput("insp_mean", "Inspection mean (min)", value = 3, min = 0.5, max = 60, step = 0.5),
+    br(),
+    actionButton("run", "Run simulation", class = "btn-primary")
+  )
+)
+```
+
+## Headline KPIs
+
+```{r}
+#| label: kpis
+#| echo: false
+uiOutput("kpi_boxes")
+```
+
+## Utilization
+
+```{r}
+#| label: util-plot
+#| echo: false
+plotOutput("plot_util", height = 320)
+```
+
+## Queue length over time
+
+```{r}
+#| label: queue-plot
+#| echo: false
+plotOutput("plot_queue", height = 320)
+```
+
+## Cycle time distribution
+
+```{r}
+#| label: cycle-plot
+#| echo: false
+plotOutput("plot_cycle", height = 320)
+```
+
+## Station metrics
+
+```{r}
+#| label: metrics-table
+#| echo: false
+DTOutput("table_metrics")
+```
+
+## About this model
+
+This portfolio foundation uses:
+
+- **simmer** for the DES engine
+- **tidyverse** for tidy results and ggplot2 visuals
+- **Shiny** (via `server: shiny` in Quarto) for interactivity
+
+Each replication sets its own seed (`base_seed + rep - 1`) so results are
+reproducible. Warmup observations are discarded before computing throughput,
+cycle time, WIP, utilization, and queues.
+
+**Caveat:** defaults are placeholders chosen to show a clear paint-booth
+bottleneck. Replace them with real line data before any decision use.
+
+```{r}
+#| context: server
+
+build_params <- reactive({
+  list(
+    sim_length_min   = input$sim_length,
+    n_replications   = as.integer(input$n_reps),
+    base_seed        = as.integer(input$seed),
+    warmup_min       = input$warmup,
+    arrival_mean_min = input$arrival_mean,
+    stations = tribble(
+      ~name,              ~capacity,                   ~dist,         ~mean_min,        ~sd_min,
+      "body_shop",        as.integer(input$body_cap),  "exponential", input$body_mean,  NA_real_,
+      "paint",            as.integer(input$paint_cap), "normal",      input$paint_mean, 1.5,
+      "final_assembly",   as.integer(input$fa_cap),    "normal",      input$fa_mean,    1.0,
+      "inspection",       as.integer(input$insp_cap),  "exponential", input$insp_mean,  NA_real_
+    )
+  )
+})
+
+sim_result <- reactive({
+  run_line_sim(build_params())
+}) %>% bindEvent(input$run, ignoreNULL = FALSE)
+
+output$kpi_boxes <- renderUI({
+  res <- sim_result()
+  lab <- station_labels[[res$bottleneck]]
+  if (is.null(lab)) lab <- res$bottleneck
+  layout_columns(
+    value_box(
+      title = "Throughput",
+      value = sprintf("%.1f veh/hr", res$headline$throughput_per_hr_mean),
+      theme = "primary"
+    ),
+    value_box(
+      title = "Mean cycle time",
+      value = sprintf("%.0f min", res$headline$cycle_time_mean_mean),
+      theme = "info"
+    ),
+    value_box(
+      title = "Avg WIP",
+      value = sprintf("%.1f veh", res$headline$avg_wip_mean),
+      theme = "warning"
+    ),
+    value_box(
+      title = "Bottleneck",
+      value = lab,
+      theme = "danger"
+    )
+  )
+})
+
+output$plot_util <- renderPlot({
+  res <- sim_result()
+  res$station_headline %>%
+    mutate(
+      resource = factor(resource, levels = names(station_labels)),
+      label = station_labels[as.character(resource)]
+    ) %>%
+    ggplot(aes(x = label, y = avg_util_mean)) +
+    geom_col(fill = "#2c7fb8", width = 0.7) +
+    geom_errorbar(
+      aes(ymin = pmax(0, avg_util_mean - avg_util_sd),
+          ymax = pmin(1, avg_util_mean + avg_util_sd)),
+      width = 0.2
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
+    labs(x = NULL, y = "Utilization",
+         title = "Station utilization (mean ± SD)") +
+    theme_minimal(base_size = 13) +
+    theme(axis.text.x = element_text(angle = 15, hjust = 1))
+})
+
+output$plot_queue <- renderPlot({
+  res <- sim_result()
+  res$resources_ts %>%
+    mutate(
+      resource = factor(resource, levels = names(station_labels)),
+      label = station_labels[as.character(resource)]
+    ) %>%
+    ggplot(aes(x = time, y = queue, color = label)) +
+    geom_step(linewidth = 0.7) +
+    labs(x = "Time (minutes)", y = "Queue length", color = "Station",
+         title = "Queue length over time (replication 1)") +
+    theme_minimal(base_size = 13) +
+    theme(legend.position = "bottom")
+})
+
+output$plot_cycle <- renderPlot({
+  res <- sim_result()
+  req(nrow(res$cycles) > 0)
+  mean_ct <- mean(res$cycles$cycle_time, na.rm = TRUE)
+  res$cycles %>%
+    ggplot(aes(x = cycle_time)) +
+    geom_histogram(bins = 30, fill = "#41b6c4", color = "white") +
+    geom_vline(xintercept = mean_ct, linetype = "dashed", color = "#253494") +
+    labs(x = "Cycle time (minutes)", y = "Count",
+         title = "Vehicle cycle time distribution",
+         subtitle = paste0("Mean = ", round(mean_ct, 1), " min")) +
+    theme_minimal(base_size = 13)
+})
+
+output$table_metrics <- renderDT({
+  res <- sim_result()
+  tbl <- res$station_headline %>%
+    mutate(
+      Station = station_labels[resource],
+      `Util %` = round(100 * avg_util_mean, 1),
+      `Util SD` = round(100 * avg_util_sd, 1),
+      `Avg queue` = round(avg_queue_mean, 2),
+      `Queue SD` = round(avg_queue_sd, 2)
+    ) %>%
+    dplyr::select(Station, `Util %`, `Util SD`, `Avg queue`, `Queue SD`)
+  datatable(tbl, rownames = FALSE, options = list(dom = "t", ordering = FALSE))
+})
+```
