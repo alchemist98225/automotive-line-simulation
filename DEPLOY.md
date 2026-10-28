@@ -7,7 +7,7 @@ Live deployments of this repository:
 
 ## Prerequisites
 
-- R 4.5 with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `simmer`, `DT`, and `rsconnect`.
+- R 4.5 with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `simmer`, `DT`, `zip`, and `rsconnect`. The app calls `library(zip)` so shinyapps.io installs it for **Download all**.
 - A free [shinyapps.io](https://www.shinyapps.io/) account (or Posit Connect / Posit Connect Cloud).
 - [Quarto](https://quarto.org/) for the interactive document.
 
@@ -104,5 +104,5 @@ quarto preview line_sim.qmd
 
 - Defaults are **placeholder** manufacturing parameters for a portfolio demo, not real plant data.
 - The DES engine for the app and the Quarto doc is `R/model.R` (`run_line_sim()`, `default_params()`), copied into `app/` and `quarto/`.
-- The batch script at `scripts/manufacturing_sim.R` is a standalone original and does not source `model.R`.
+- `scripts/manufacturing_sim.R` sources `app/R/model.R`, runs 10 replications, and writes the CSV exports, `sim_exports.zip`, and the PNG figures under `output/`.
 - Keep replications modest (≤ 10) for snappy interactive demos.
