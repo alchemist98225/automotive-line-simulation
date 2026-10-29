@@ -1,5 +1,15 @@
 e <- new.env()
 source("app/app.R",local=e,chdir=TRUE)
+# Count ggplot manual-scale mismatches for the whole script, including plot renders.
+scale_warns <- new.env(parent = emptyenv())
+scale_warns$msgs <- character()
+globalCallingHandlers(warning = function(w) {
+  msg <- conditionMessage(w)
+  if (grepl("No shared levels found", msg, fixed = TRUE)) {
+    scale_warns$msgs <- c(scale_warns$msgs, msg)
+    invokeRestart("muffleWarning")
+  }
+})
 # First paint: no input registration and no Run click. Dynamic renderUI
 # values are NULL (collapsed panels have not registered them yet); the
 # session must still produce the placeholder run.
@@ -218,9 +228,63 @@ ridge_mixed <- tibble::tibble(
   group = factor(rep(c("Paint", "Inspection"), each = 6), levels = c("Paint", "Inspection")),
   metric = c(stats::rnorm(6, 0.2, 0.02), rep(0, 6))
 )
+ridge_geoms <- function(built) {
+  vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
+}
+ridge_rugs <- function(built) {
+  geoms <- ridge_geoms(built)
+  stopifnot(!any(grepl("Point", geoms)))
+  idx <- which(grepl("Segment", geoms))
+  stopifnot(length(idx) >= 1L)
+  seg <- dplyr::bind_rows(built$data[idx])
+  stopifnot(nrow(seg) >= 1L, all(seg$yend > seg$y))
+  seg
+}
 for (d in list(ridge_zero, ridge_mixed)) {
   built <- ggplot2::ggplot_build(e$replication_ridges(d, "group", "metric", "Downtime fraction", "check"))
   stopifnot(length(built$data) >= 1L)
+  ridge_rugs(built)
 }
+built <- ggplot2::ggplot_build(e$replication_ridges(ridge_mixed, "group", "metric", "Downtime fraction", "check"))
+seg <- ridge_rugs(built)
+stopifnot(length(unique(round(seg$y, 5))) >= 2L)
+palette <- c(Paint = "#d95f0e", Inspection = "#756bb1")
+built <- ggplot2::ggplot_build(e$replication_ridges(
+  ridge_mixed, "group", "metric", "Downtime fraction", "check", fill_values = palette
+))
+seg <- ridge_rugs(built)
+stopifnot(length(unique(seg$colour)) >= 2L)
+stopifnot(all(unique(seg$colour) %in% unname(palette)))
+# Each operator pool has its own fill, and the rug uses that same color.
+# A station palette passed by mistake must not collapse both pools to one color
+# or warn that the manual scale shares no levels with the data.
+op <- tibble::tibble(
+  label = factor(rep(c("upstream", "downstream"), each = 6), levels = c("upstream", "downstream")),
+  avg_util = c(stats::rnorm(6, 0.25, 0.02), stats::rnorm(6, 0.55, 0.02))
+)
+built <- ggplot2::ggplot_build(e$replication_ridges(op, "label", "avg_util", "Operator utilization", "pools"))
+dens <- built$data[[which(ridge_geoms(built) == "GeomDensityRidges")[1]]]
+fills <- unique(dens$fill[!is.na(dens$fill)])
+stopifnot(length(fills) == 2L)
+seg <- ridge_rugs(built)
+stopifnot(setequal(unique(seg$colour), fills))
+built <- ggplot2::ggplot_build(e$replication_ridges(
+  op, "label", "avg_util", "Operator utilization", "pools", fill_values = e$station_colors
+))
+dens <- built$data[[which(ridge_geoms(built) == "GeomDensityRidges")[1]]]
+stopifnot(length(unique(dens$fill[!is.na(dens$fill)])) == 2L)
+# Quarto defines the same mapper. Upstream and downstream stay distinct there too.
+qmd <- readLines("quarto/line_sim.qmd")
+qstart <- grep("^ridge_fill_values <- function", qmd)[1]
+qend <- grep("^replication_ridges <- function", qmd)[1] - 1L
+qenv <- new.env(parent = baseenv())
+qenv$station_colors <- e$station_colors
+qenv$station_labels <- e$station_labels
+eval(parse(text = qmd[qstart:qend]), qenv)
+qcols <- qenv$ridge_fill_values(c("upstream", "downstream"))
+stopifnot(length(unique(unname(qcols))) == 2L)
+stopifnot(identical(names(qcols), c("upstream", "downstream")))
 cat("Ridgeline checks passed\n")
+cat("Manual-scale level-mismatch warnings:", length(scale_warns$msgs), "\n")
+stopifnot(length(scale_warns$msgs) == 0L)
 cat("Shiny server checks passed\n")

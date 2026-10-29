@@ -127,7 +127,17 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
     # Import/read roundtrips preserve normal input means, not their floored expectations.
     validate_params(p)
   })
-  list(params=params,set_params=set_params,state=state)
+  # Close every section of this set's editor. Nested station panels have no
+  # id; closing these four sections is what gets the results on screen.
+  # accordion_panel_close waits for a later flush. The run that just finished
+  # may not schedule one, which leaves the sections open. Ask for that flush.
+  # testServer's mock rejects requestFlush; a real session uses it.
+  collapse <- function() {
+    accordion_panel_close(session$ns("editor_panels"), values = TRUE)
+    tryCatch(session$requestFlush(), error = function(cond) NULL)
+    session$ns("editor_panels")
+  }
+  list(params=params,set_params=set_params,state=state,collapse=collapse)
 })
 
 # Horizontal raincloud for replication-level summaries. A set with no spread,
@@ -216,7 +226,7 @@ comparison_raincloud <- function(df, value, label) {
 }
 
 # One ridge per station or pool, both sets overlaid. A set with no spread is a
-# vertical spike, matching the Simulate page ridgelines.
+# rug tick at that value, matching the Simulate page ridgelines.
 comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
   df <- df %>%
     filter(is.finite(.data[[x]])) %>%
@@ -245,6 +255,8 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
     mutate(constant = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps))
   varying <- df %>% semi_join(filter(spread, !constant), by = c("ridge", "set"))
   constant <- spread %>% filter(constant)
+  # Scale names are the set levels on this chart, not an unrelated palette.
+  colors <- ridge_fill_values(levels(df$set), comparison_colors)
   p <- ggplot(df, aes(x = .data[[x]], y = y_num))
   if (nrow(varying)) {
     bw <- stats::bw.nrd0(varying[[x]])
@@ -262,41 +274,44 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
       scale = 0.9,
       rel_min_height = 0.01,
       bandwidth = bw,
-      jittered_points = TRUE,
-      point_alpha = 0.28,
-      point_size = 1.5,
-      point_color = "#4a4a4a",
       quantile_lines = TRUE,
       quantiles = 0.5,
       na.rm = TRUE
     ) +
-      scale_fill_manual(
-        values = comparison_colors,
-        limits = names(comparison_colors),
-        name = NULL
-      )
+      # Rug ticks sit on each station or pool baseline. Color follows the set.
+      geom_segment(
+        data = varying,
+        aes(x = .data[[x]], xend = .data[[x]], y = y_num, yend = y_num + 0.16, color = set),
+        inherit.aes = FALSE,
+        linewidth = 0.55,
+        lineend = "butt"
+      ) +
+      scale_fill_manual(values = colors, limits = names(colors), name = NULL)
   }
   if (nrow(constant)) {
     p <- p + geom_segment(
       data = constant,
-      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.62, color = set),
+      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.42, color = set),
       inherit.aes = FALSE,
-      linewidth = 1.15,
-      lineend = "round"
-    ) +
-      scale_color_manual(
-        values = comparison_colors,
-        limits = names(comparison_colors),
-        name = NULL,
-        guide = if (nrow(varying)) "none" else "legend"
-      )
+      linewidth = 1.05,
+      lineend = "butt"
+    )
+  }
+  if (nrow(varying) || nrow(constant)) {
+    p <- p + scale_color_manual(
+      values = colors,
+      limits = names(colors),
+      name = NULL,
+      guide = if (nrow(varying)) "none" else "legend"
+    )
   }
   lv <- levels(df$ridge)
   p +
     scale_y_continuous(
       breaks = nlevels(df$ridge) - seq_along(lv) + 1,
       labels = lv,
-      expand = expansion(add = c(0.35, 0.95))
+      # Extra room under the lowest ridge (Inspection) and above the highest density.
+      expand = expansion(add = c(0.85, 1.2))
     ) +
     scale_x_continuous(
       labels = if (percent) scales::percent_format(accuracy = 1) else waiver(),
@@ -304,7 +319,28 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
     ) +
     labs(x = x_label, y = NULL, subtitle = subtitle) +
     theme_minimal(base_size = 13) +
-    theme(legend.position = "bottom", plot.margin = margin(8, 16, 8, 8))
+    theme(legend.position = "bottom", plot.margin = margin(10, 18, 16, 8))
+}
+
+# The Simulate page clamps .shiny-plot-output at 550px. That crowds four
+# overlaid ridges and leaves the lowest station (Inspection) against the axis.
+# Scale the comparison ridgelines with the number of stations or pools.
+comparison_ridge_n <- function(x) {
+  n <- length(unique(x[!is.na(x)]))
+  if (n < 1L) 1L else as.integer(n)
+}
+comparison_ridge_height <- function(n_ridges) {
+  n <- suppressWarnings(as.integer(n_ridges[[1]]))
+  if (length(n) != 1L || is.na(n) || n < 1L) n <- 1L
+  as.integer(max(560L, 170L * n + 180L))
+}
+comparison_ridge_plot <- function(id, n_ridges) {
+  h <- comparison_ridge_height(n_ridges)
+  div(
+    class = "comparison-ridge-plot",
+    style = sprintf("--ridge-h:%dpx;", h),
+    plotOutput(id, height = paste0(h, "px"), width = "100%", fill = FALSE)
+  )
 }
 
 # Every replication is a faint line. The ribbon is a loess fit on all of them.
@@ -397,6 +433,61 @@ comparison_page_ui <- function(id) {
     value = "compare_sets",
     div(
       class = "p-3 two-set-study",
+      # Beats the app-wide 550px plot clamp for these ridgelines only.
+      tags$style(HTML("
+        .comparison-ridge-plot > .shiny-plot-output {
+          height: var(--ridge-h) !important;
+          min-height: var(--ridge-h) !important;
+          max-height: none !important;
+        }
+      ")),
+      tags$script(HTML("
+        (function() {
+          function hideAccordion(root) {
+            if (!root) return;
+            var panels = root.querySelectorAll(':scope > .accordion-item > .accordion-collapse.show');
+            Array.prototype.forEach.call(panels, function(panel) {
+              var btn = panel.parentElement.querySelector(':scope > .accordion-header .accordion-button');
+              if (window.bootstrap && bootstrap.Collapse) {
+                try {
+                  bootstrap.Collapse.getOrCreateInstance(panel, {toggle: false}).hide();
+                  return;
+                } catch (e) {}
+              }
+              panel.classList.remove('show');
+              if (btn) {
+                btn.classList.add('collapsed');
+                btn.setAttribute('aria-expanded', 'false');
+              }
+            });
+          }
+          function register() {
+            if (window.__twoSetCollapseEditors) return;
+            if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
+            window.__twoSetCollapseEditors = true;
+            Shiny.addCustomMessageHandler('two-set-collapse-editors', function(message) {
+              var ids = message.ids || [];
+              ids.forEach(function(id) { hideAccordion(document.getElementById(id)); });
+              if (!ids.length) {
+                document.querySelectorAll('.two-set-study .accordion.bslib-accordion-input').forEach(hideAccordion);
+              }
+              var el = document.getElementById(message.scrollId);
+              if (!el) return;
+              window.setTimeout(function() {
+                el.scrollIntoView({behavior: 'smooth', block: 'start'});
+              }, 450);
+            });
+          }
+          document.addEventListener('shiny:connected', register);
+          if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', register);
+          else register();
+          var tries = 0;
+          var timer = window.setInterval(function() {
+            register();
+            if (window.__twoSetCollapseEditors || ++tries > 50) window.clearInterval(timer);
+          }, 100);
+        })();
+      ")),
       h3("Compare two parameter sets"),
       p("Start from the main page, change one parameter at a time, and compare output and flow. Set 1 and Set 2 stay independent of the main page after import."),
       p("Results are illustrative only. They are not predictions for any employer."),
@@ -454,12 +545,12 @@ comparison_page_ui <- function(id) {
           nav_panel(
             "Bay occupancy",
             p(class = "text-muted small", "One ridge per station. Blue is Set 1 and orange is Set 2. A spike means that set did not vary."),
-            roomy_plot(ns("occupancy"))
+            uiOutput(ns("occupancy_frame"))
           ),
           nav_panel(
             "Operators",
-            p(class = "text-muted small", "One ridge per pool. Faint points are every replication."),
-            roomy_plot(ns("labor"))
+            p(class = "text-muted small", "One ridge per pool. Rug ticks are every replication."),
+            uiOutput(ns("labor_frame"))
           ),
           nav_panel(
             "WIP & queues",
@@ -469,7 +560,7 @@ comparison_page_ui <- function(id) {
           nav_panel(
             "Repair time",
             p("Active repair fraction only. Technician waiting is not included in this existing engine metric."),
-            roomy_plot(ns("downtime"))
+            uiOutput(ns("downtime_frame"))
           ),
           nav_panel(
             "Tables & download",
@@ -530,6 +621,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         return()
       }
       error(NULL)
+      succeeded <- FALSE
       tryCatch({
         r <- withProgress(message = "Running both parameter sets…", value = 0, {
           a <- run_line_sim(d$one)
@@ -543,7 +635,23 @@ comparison_page_server <- function(id, main_params, active_page) {
           )
         })
         results(r)
+        succeeded <- TRUE
       }, error = function(e) error(conditionMessage(e)))
+      # Invalid input returns before this, and a failed sim leaves succeeded FALSE,
+      # so open editors stay open when the run does not update.
+      if (isTRUE(succeeded)) {
+        # bslib queues a close on the next flush; also close in the browser
+        # immediately so a finished run does not leave the editors open.
+        one$collapse()
+        two$collapse()
+        session$sendCustomMessage(
+          "two-set-collapse-editors",
+          list(
+            ids = c(session$ns("one-editor_panels"), session$ns("two-editor_panels")),
+            scrollId = session$ns("saved_results")
+          )
+        )
+      }
     }
     # Value 0 is the button's initial state, not a request to run.
     observeEvent(input$run, {
@@ -653,6 +761,25 @@ comparison_page_server <- function(id, main_params, active_page) {
         p(class = "mb-0", tags$strong("Set 2"), " · ", format_run_settings(r$params[[2]]))
       )
     })
+    ridge_frame <- function(output_name, plot_name, field, column, fallback_n) {
+      output[[output_name]] <- renderUI({
+        r <- results()
+        n <- if (is.null(r)) fallback_n else comparison_ridge_n(r$runs[[1]][[field]][[column]])
+        comparison_ridge_plot(session$ns(plot_name), n)
+      })
+    }
+    ridge_frame(
+      "occupancy_frame", "occupancy", "utilization_by_rep", "station",
+      nrow(default_params()$stations)
+    )
+    ridge_frame(
+      "labor_frame", "labor", "operator_by_rep", "resource",
+      nrow(default_params()$operators)
+    )
+    ridge_frame(
+      "downtime_frame", "downtime", "downtime_by_rep", "station",
+      nrow(default_params()$stations)
+    )
     output$distribution <- renderPlot({
       labels <- c(
         throughput_per_hr = "Throughput (vehicles/hour)",
@@ -671,7 +798,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_ridges(
         df, "label", "avg_util",
         x_label = "Bay occupancy",
-        subtitle = "One ridge per station; both sets overlaid. Faint points = each rep; line = median. Spike = no spread.",
+        subtitle = "One ridge per station; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
         percent = TRUE
       )
     })
@@ -690,7 +817,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_ridges(
         df, "label", "avg_util",
         x_label = "Operator utilization",
-        subtitle = "One ridge per pool; both sets overlaid. Faint points = each rep; line = median. Spike = no spread.",
+        subtitle = "One ridge per pool; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
         percent = TRUE
       )
     })
@@ -700,7 +827,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_ridges(
         df, "label", "downtime_fraction",
         x_label = "Active repair fraction",
-        subtitle = "One ridge per station; both sets overlaid. Faint points = each rep; line = median. Spike = no spread.",
+        subtitle = "One ridge per station; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
         percent = TRUE
       )
     })

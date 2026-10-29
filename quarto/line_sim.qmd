@@ -178,8 +178,51 @@ comparison_caption <- function(comp) {
     attr(comp, "summary")
   )
 }
+# Colors for the categories on one ridgeline. Names are the levels in the
+# data, so a manual scale is never keyed only to station labels when the
+# ridges are operator pools. Known stations and pools keep their colors;
+# anything else gets its own distinct fallback.
+ridge_fill_values <- function(levels, fill_values = NULL) {
+  levels <- as.character(levels)
+  known <- c(upstream = "#2c7fb8", downstream = "#d95f0e", shared = "#31a354")
+  if (exists("station_colors", inherits = TRUE)) {
+    sc <- get("station_colors", inherits = TRUE)
+    known <- c(known, sc)
+    if (exists("station_labels", inherits = TRUE)) {
+      labs <- get("station_labels", inherits = TRUE)
+      for (id in names(labs)) {
+        label <- unname(labs[[id]])
+        if (label %in% names(sc)) known[[id]] <- unname(sc[[label]])
+      }
+    }
+  }
+  if (!is.null(fill_values)) {
+    fv <- fill_values
+    if (is.null(names(fv))) names(fv) <- levels[seq_along(fv)]
+    known[names(fv)] <- unname(fv)
+  }
+  known <- known[!duplicated(names(known), fromLast = TRUE)]
+  fallback <- c("#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a",
+                "#66a61e", "#e6ab02", "#a6761d", "#1f78b4", "#6a3d9a")
+  out <- stats::setNames(character(length(levels)), levels)
+  used <- character()
+  fb <- 1L
+  for (lv in levels) {
+    col <- if (lv %in% names(known)) unname(known[[lv]]) else NA_character_
+    if (!length(col) || is.na(col) || !nzchar(col) || col %in% used) {
+      repeat {
+        col <- if (fb <= length(fallback)) fallback[[fb]] else grDevices::hcl((fb * 37) %% 360, 75, 48)
+        fb <- fb + 1L
+        if (!col %in% used) break
+      }
+    }
+    out[[lv]] <- col
+    used <- c(used, col)
+  }
+  out
+}
 # One ridge per group, metric on x, every replication. A group with no
-# spread (all reps identical, or a single rep) is a vertical marker:
+# spread (all reps identical, or a single rep) is a rug tick at that value:
 # density estimation has no bandwidth there.
 replication_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, fill_values = NULL) {
   y_sym <- rlang::sym(y)
@@ -208,9 +251,7 @@ replication_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, fill
     dplyr::mutate(constant = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps))
   varying <- df %>% dplyr::semi_join(dplyr::filter(spread, !constant), by = "ridge")
   constant <- spread %>% dplyr::filter(constant)
-  colors <- if (is.null(fill_values)) {
-    stats::setNames(rep("#756bb1", nlevels(df$ridge)), levels(df$ridge))
-  } else fill_values
+  colors <- ridge_fill_values(levels(df$ridge), fill_values)
   p <- ggplot(df, aes(x = .data[[x]], y = y_num))
   if (nrow(varying)) {
     bw <- stats::bw.nrd0(varying[[x]])
@@ -226,23 +267,31 @@ replication_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, fill
       scale = 0.9,
       rel_min_height = 0.01,
       bandwidth = bw,
-      jittered_points = TRUE,
-      point_alpha = 0.28,
-      point_size = 1.5,
-      point_color = "#4a4a4a",
       quantile_lines = TRUE,
       quantiles = 0.5,
       na.rm = TRUE
-    ) + scale_fill_manual(values = colors, drop = FALSE)
+    ) +
+      # One rug tick per replication, standing on that ridge's baseline.
+      geom_segment(
+        data = varying,
+        aes(x = !!x_sym, xend = !!x_sym, y = y_num, yend = y_num + 0.16, color = ridge),
+        inherit.aes = FALSE,
+        linewidth = 0.55,
+        lineend = "butt"
+      ) +
+      scale_fill_manual(values = colors, drop = FALSE, guide = "none")
   }
   if (nrow(constant)) {
     p <- p + geom_segment(
       data = constant,
-      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.62, color = ridge),
+      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.42, color = ridge),
       inherit.aes = FALSE,
-      linewidth = 1.15,
-      lineend = "round"
-    ) + scale_color_manual(values = colors, drop = FALSE)
+      linewidth = 1.05,
+      lineend = "butt"
+    )
+  }
+  if (nrow(varying) || nrow(constant)) {
+    p <- p + scale_color_manual(values = colors, drop = FALSE, guide = "none")
   }
   lv <- levels(df$ridge)
   p +
@@ -1030,7 +1079,7 @@ output$plot_labor <- renderPlot({
   replication_ridges(
     df, "label", "avg_util",
     x_label = "Operator utilization",
-    subtitle = "One ridge per pool; faint points = each rep; line = median. Spike = no spread.",
+    subtitle = "One ridge per pool; rug = each rep at the baseline; line = median. Spike = no spread.",
     percent = TRUE
   )
 })
@@ -1081,7 +1130,7 @@ output$plot_down <- renderPlot({
   replication_ridges(
     per_rep, "label", "downtime_fraction",
     x_label = "Downtime fraction",
-    subtitle = "One ridge per station; faint points = each rep; line = median. Spike = no spread.",
+    subtitle = "One ridge per station; rug = each rep at the baseline; line = median. Spike = no spread.",
     percent = TRUE,
     fill_values = station_colors
   )
