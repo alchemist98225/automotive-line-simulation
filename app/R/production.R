@@ -1,3 +1,100 @@
+# Slowest station if each bay ran its load, automatic, and unload time with no
+# waiting, failures, or support work. Vehicles per measured shift.
+theoretical_shift_capacity <- function(params) {
+  st <- params$stations
+  cycle <- vapply(seq_len(nrow(st)), function(i) {
+    timing_mean(activity_timing(st[i, ], "load")) +
+      timing_mean(activity_timing(st[i, ], "auto")) +
+      timing_mean(activity_timing(st[i, ], "unload"))
+  }, numeric(1))
+  cycle <- pmax(cycle, 1e-9)
+  min(st$capacity * params$shift_length_min / cycle)
+}
+# Completed vehicles by measured shift. One box and one point per replication.
+# Points jitter on the shift axis only. A dashed line marks theoretical bay capacity.
+shift_output_plot <- function(df, capacity, palette = NULL) {
+  df <- df %>% dplyr::filter(is.finite(n_completed), is.finite(shift))
+  if (!nrow(df)) {
+    return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No measured shifts to plot.")))
+  }
+  df <- df %>% mutate(shift_label = factor(
+    paste("Shift", shift),
+    levels = paste("Shift", sort(unique(shift)))
+  ))
+  has_set <- !is.null(palette) && "set" %in% names(df)
+  cap_df <- NULL
+  if (is.data.frame(capacity)) {
+    cap_df <- capacity %>% dplyr::filter(is.finite(capacity))
+    cap_value <- if (nrow(cap_df)) mean(cap_df$capacity) else NA_real_
+  } else {
+    cap_value <- if (length(capacity) == 1L && is.finite(capacity)) capacity else NA_real_
+  }
+  mean_out <- mean(df$n_completed)
+  if (has_set) {
+    by_set <- df %>% group_by(set) %>% summarise(mean_out = mean(n_completed), .groups = "drop")
+    hi <- by_set$set[[which.max(by_set$mean_out)]]
+    lo <- by_set$set[[which.min(by_set$mean_out)]]
+    title <- if (abs(diff(range(by_set$mean_out))) < 0.5) {
+      "The two sets complete about the same number of vehicles per shift"
+    } else {
+      sprintf("%s completes more vehicles per shift than %s", hi, lo)
+    }
+    caption <- "Each point is one replication. Dashed line: theoretical vehicles per shift at the slowest station, ignoring labor, failures, support work, and blocking."
+    p <- ggplot(df, aes(x = shift_label, y = n_completed, colour = set, fill = set)) +
+      geom_boxplot(
+        alpha = 0.5, outlier.shape = NA, width = 0.62,
+        position = position_dodge(width = 0.75)
+      ) +
+      geom_point(
+        size = 3, alpha = 0.5,
+        position = position_jitterdodge(
+          dodge.width = 0.75, jitter.width = 0.15, jitter.height = 0, seed = 42
+        )
+      ) +
+      scale_colour_manual(values = palette, drop = FALSE, name = NULL) +
+      scale_fill_manual(values = palette, drop = FALSE, name = NULL)
+    if (!is.null(cap_df) && nrow(cap_df) > 0 && diff(range(cap_df$capacity)) >= 0.05) {
+      p <- p + geom_hline(
+        data = cap_df,
+        aes(yintercept = capacity, colour = set),
+        inherit.aes = FALSE,
+        linetype = "dashed",
+        linewidth = 0.9
+      )
+    } else if (is.finite(cap_value)) {
+      p <- p + geom_hline(yintercept = cap_value, linetype = "dashed", linewidth = 0.9, colour = "#1a1a1a")
+    }
+    p <- p + theme_sim(legend.position = "bottom")
+  } else {
+    ratio <- if (is.finite(cap_value) && cap_value > 0) mean_out / cap_value else NA_real_
+    title <- if (!is.finite(ratio)) {
+      "Completed vehicles in each measured shift"
+    } else if (ratio < 0.85) {
+      sprintf("Shift output averages %.0f%% of theoretical bay capacity", 100 * ratio)
+    } else if (ratio > 1.05) {
+      "Shift output is above the simple bay-capacity estimate"
+    } else {
+      "Shift output is close to theoretical bay capacity"
+    }
+    caption <- "Each point is one replication. Dashed line: theoretical vehicles per shift at the slowest station, ignoring labor, failures, support work, and blocking."
+    p <- ggplot(df, aes(x = shift_label, y = n_completed)) +
+      geom_boxplot(fill = "#2474A5", colour = "#2474A5", alpha = 0.5, outlier.shape = NA, width = 0.55) +
+      geom_point(
+        colour = "#2474A5", size = 3, alpha = 0.5,
+        position = position_jitter(width = 0.12, height = 0, seed = 42)
+      ) +
+      theme_sim()
+    if (is.finite(cap_value)) {
+      p <- p + geom_hline(yintercept = cap_value, linetype = "dashed", linewidth = 0.9, colour = "#1a1a1a")
+    }
+  }
+  p + labs(
+    title = title,
+    x = "Measured shift",
+    y = "Completed vehicles per shift",
+    caption = caption
+  )
+}
 # Results from the saved main run. No independent resimulation or mutable settings.
 production_page_ui <- function(id) {
   ns<-NS(id)
@@ -30,11 +127,8 @@ production_page_server <- function(id,result,current_fingerprint) moduleServer(i
       value_box(title="Unreleased work at end",value=sprintf("%.1f",mean(r$summaries$end_unreleased_backlog)),p("Mean across runs; outside shop-floor WIP")))
   })
   output$shifts<-renderPlot({
-    saved()$shift_summaries %>% ggplot(aes(shift,n_completed))+
-      {if(n_distinct(saved()$shift_summaries$shift)>1) geom_line(aes(group=replication),alpha=.18,color="#2474A5") else geom_point(aes(group=replication),alpha=.18,color="#2474A5")}+
-      {if(n_distinct(saved()$shift_summaries$shift)>1) stat_summary(aes(group=1),fun=mean,geom="line",color="#2474A5",linewidth=1)}+
-      stat_summary(fun=mean,geom="point",color="#2474A5",size=2)+
-      labs(x="Measured shift",y="Completed vehicles",subtitle="Faint lines: individual runs; points: mean output")+theme_sim()
+    r <- saved()
+    shift_output_plot(r$shift_summaries, theoretical_shift_capacity(r$params))
   })
   output$inventory<-renderPlot({
     saved()$release_timeseries %>% group_by(time) %>% summarise(

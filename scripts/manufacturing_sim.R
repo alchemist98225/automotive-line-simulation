@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Run from the repository root, or from any working directory:
 #   Rscript scripts/manufacturing_sim.R
-# Sources app/R/model.R, runs placeholder defaults for 15 replications,
+# Sources app/R/model.R, runs placeholder defaults for 32 replications,
 # and writes all-replication plots plus the CSV/zip export bundle.
 
 suppressPackageStartupMessages(library(tidyverse))
@@ -40,7 +40,6 @@ label_station <- function(resource) {
 station_factor <- function(x) factor(label_station(x), levels = unname(station_labels))
 
 params <- default_params()
-params$n_replications <- 15L
 params$grid_dt_min <- 2
 
 message("Running ", params$n_replications,
@@ -66,7 +65,7 @@ p_util <- ggplot() +
        subtitle = paste0("Points = each replication; blue = mean ± SD | ",
                          params$n_replications, " reps | PLACEHOLDER"),
        x = NULL, y = "Bay occupancy") +
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 16) +
   theme(axis.text.x = element_text(angle = 20, hjust = 1))
 ggsave(file.path(OUT_DIR, "utilization.png"), p_util, width = 8, height = 5, dpi = 120)
 
@@ -84,7 +83,7 @@ p_ops <- ggplot() +
   labs(title = "Operator utilization (all replications)",
        subtitle = "Points = each replication; purple = mean ± SD | PLACEHOLDER",
        x = NULL, y = "Operator utilization") +
-  theme_minimal(base_size = 12)
+  theme_minimal(base_size = 16)
 ggsave(file.path(OUT_DIR, "operator_utilization.png"), p_ops, width = 8, height = 5, dpi = 120)
 
 qdf <- res$queue_timeseries %>%
@@ -98,7 +97,7 @@ p_queue <- ggplot(qdf, aes(x = time, y = queue, color = label)) +
   labs(title = "Queue length over time (all replications)",
        subtitle = "Faint = each rep; bold = loess + ribbon | PLACEHOLDER",
        x = "Time (minutes)", y = "Queue length", color = "Station") +
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 16) +
   theme(legend.position = "bottom")
 ggsave(file.path(OUT_DIR, "queue_length.png"), p_queue, width = 9, height = 5.5, dpi = 120)
 
@@ -110,7 +109,7 @@ p_wip <- ggplot(res$wip_timeseries, aes(x = time, y = wip)) +
   labs(title = "WIP over time (all replications)",
        subtitle = "Vehicle count, one per vehicle; faint = each rep; bold = loess | PLACEHOLDER",
        x = "Time (minutes)", y = "WIP (vehicles)") +
-  theme_minimal(base_size = 12)
+  theme_minimal(base_size = 16)
 ggsave(file.path(OUT_DIR, "wip_over_time.png"), p_wip, width = 9, height = 5, dpi = 120)
 
 down_rep <- res$downtime_by_rep %>% mutate(label = station_factor(station))
@@ -128,7 +127,7 @@ p_down <- ggplot() +
   labs(title = "Downtime fraction by station (all replications)",
        subtitle = "Machine-time in repair after warmup | PLACEHOLDER MTBF/MTTR",
        x = NULL, y = "Downtime fraction") +
-  theme_minimal(base_size = 12) +
+  theme_minimal(base_size = 16) +
   theme(axis.text.x = element_text(angle = 20, hjust = 1))
 ggsave(file.path(OUT_DIR, "downtime.png"), p_down, width = 8, height = 5, dpi = 120)
 
@@ -145,7 +144,7 @@ p_cycle <- res$cycles %>%
        subtitle = paste0("Faint = per-rep density; bold = pooled | mean = ",
                          round(mean_ct, 1), " min | PLACEHOLDER"),
        x = "Cycle time (minutes)", y = "Density") +
-  theme_minimal(base_size = 12)
+  theme_minimal(base_size = 16)
 ggsave(file.path(OUT_DIR, "cycle_time_dist.png"), p_cycle, width = 8, height = 5, dpi = 120)
 
 cat("\n========== HEADLINE (PLACEHOLDER EXAMPLE PARAMETERS) ==========\n")

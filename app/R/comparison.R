@@ -473,219 +473,32 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
   list(params=params,set_params=set_params,state=state,collapse=collapse)
 })
 
-# Horizontal raincloud for replication-level summaries. A set with no spread,
-# or fewer than three replications, does not become a strip of points: a flat
-# set is a line at its median, and a short set with spread is a box.
-comparison_raincloud <- function(df, value, label, palette = comparison_colors) {
-  df <- df %>%
-    mutate(
-      value = .data[[value]],
-      set = factor(set, levels = names(palette))
-    ) %>%
-    filter(is.finite(value))
-  if (!nrow(df)) {
-    return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No completed observations for this metric.")))
-  }
-  spread <- df %>%
-    group_by(set) %>%
-    summarise(
-      n = n(),
-      s = stats::sd(value),
-      marker = stats::median(value),
-      .groups = "drop"
-    ) %>%
-    mutate(
-      flat = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps),
-      rain = !flat & n >= 3L
-    )
-  rain_df <- df %>% semi_join(filter(spread, rain), by = "set")
-  box_df <- df %>% semi_join(filter(spread, !rain & !flat), by = "set")
-  flat_df <- spread %>% filter(flat)
-  means <- df %>%
-    group_by(set) %>%
-    summarise(value = mean(value), .groups = "drop")
-  rng <- range(df$value)
-  pad <- if (diff(rng) == 0) max(abs(rng[[1]]) * 0.05, 0.05) else 0
-  # geom_rain draws every row of the plot data, including a flat set, so the
-  # raincloud layer only sees sets that have enough spread.
-  p <- ggplot(if (nrow(rain_df)) rain_df else df, aes(x = set, y = value, fill = set, color = set))
-  if (nrow(rain_df)) {
-    p <- p + ggrain::geom_rain(
-      rain.side = "r",
-      seed = 42,
-      point.args = list(alpha = 0.35, size = 1.8, color = "#4a4a4a"),
-      point.args.pos = list(position = position_jitter(width = 0.06, height = 0, seed = 42)),
-      boxplot.args = list(outlier.shape = NA, linewidth = 0.4),
-      # scale = "width": a tight set must not shrink the other set's cloud.
-      # geom_rain's default "area" divides every density by the panel maximum.
-      violin.args = list(alpha = 0.55, color = NA, scale = "width")
-    )
-  }
-  if (nrow(box_df)) {
-    p <- p + geom_boxplot(
-      data = box_df,
-      width = 0.35,
-      outlier.shape = NA,
-      linewidth = 0.4
-    )
-  }
-  if (nrow(flat_df)) {
-    p <- p + geom_crossbar(
-      data = flat_df,
-      aes(x = set, y = marker, ymin = marker, ymax = marker),
-      width = 0.55,
-      linewidth = 0.8,
-      middle.linewidth = 0
-    )
-  }
-  p +
-    geom_point(
-      data = means,
-      aes(x = set, y = value),
-      inherit.aes = FALSE,
-      shape = 18,
-      size = 3.8,
-      color = "#08306b"
-    ) +
-    scale_fill_manual(values = palette, drop = FALSE, name = NULL) +
-    scale_color_manual(values = palette, drop = FALSE, name = NULL) +
-    scale_x_discrete(limits = rev, drop = FALSE) +
-    scale_y_continuous(expand = expansion(mult = 0.05, add = pad)) +
-    coord_flip(clip = "off") +
-    labs(
-      x = NULL, y = label, fill = NULL, color = NULL,
-      subtitle = plot_subtitle("Half-violin and box across replications; faint points = each rep; diamond = mean")
-    ) +
-    theme_sim(legend.position = "none", plot.margin = margin(10, 22, 14, 12))
-}
-
-# One ridge per station or pool, both sets overlaid. A set with no spread is a
-# rug tick at that value, matching the Simulate page ridgelines.
-comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, palette = comparison_colors,
-                              subtitle_width = 68L, bounds = NULL) {
+# Overlaid densities for two sets. Color follows the title-aware set palette.
+# When y is a station or pool with more than one level, each category gets its
+# own panel so the sets stay blue and orange. A set with no spread is a vertical
+# line. Non-negative metrics start at 0; occupancy stays inside [0, 1].
+comparison_densities <- function(df, y, x, x_label, subtitle, percent = TRUE, palette = comparison_colors,
+                                 subtitle_width = 68L, bounds = NULL) {
   df <- df %>%
     filter(is.finite(.data[[x]])) %>%
-    mutate(
-      set = factor(set, levels = names(palette)),
-      ridge_label = .data[[y]]
-    )
+    mutate(set = factor(set, levels = names(palette)))
   if (!nrow(df)) {
     return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No replications to plot")))
   }
-  if (is.factor(df$ridge_label)) {
-    df$ridge <- factor(df$ridge_label, levels = levels(df$ridge_label))
-  } else {
-    df$ridge <- factor(df$ridge_label, levels = unique(df$ridge_label))
-  }
-  df <- df %>% mutate(y_num = nlevels(ridge) - as.numeric(ridge) + 1)
-  spread <- df %>%
-    group_by(ridge, set) %>%
-    summarise(
-      marker = stats::median(.data[[x]], na.rm = TRUE),
-      n = n(),
-      s = stats::sd(.data[[x]], na.rm = TRUE),
-      y_num = first(y_num),
-      .groups = "drop"
-    ) %>%
-    mutate(constant = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps))
-  varying <- df %>% semi_join(filter(spread, !constant), by = c("ridge", "set"))
-  constant <- spread %>% filter(constant)
-  # Scale names are the set levels on this chart, not an unrelated palette.
-  colors <- ridge_fill_values(levels(df$set), palette)
-  p <- ggplot(df, aes(x = .data[[x]], y = y_num))
-  if (nrow(varying)) {
-    bw <- stats::bw.nrd0(varying[[x]])
-    if (!is.finite(bw) || bw <= 0) bw <- stats::mad(varying[[x]], constant = 1)
-    if (!is.finite(bw) || bw <= 0) bw <- diff(range(varying[[x]])) / 10
-    if (!is.finite(bw) || bw <= 0) bw <- 1e-3
-    # from/to keep the kernel grid inside the valid range, so a queue near
-    # zero does not draw a bell below zero and occupancy stays in [0, 1].
-    # Quantiles and rugs still use the original replications.
-    from <- NULL
-    to <- NULL
-    if (!is.null(bounds)) {
-      lo <- bounds[[1]]
-      hi <- bounds[[2]]
-      if (is.finite(lo)) from <- lo
-      if (is.finite(hi)) {
-        to <- hi
-      } else if (is.finite(lo)) {
-        to <- max(varying[[x]], na.rm = TRUE) + 3 * bw
-        if (!is.finite(to) || to <= from) to <- from + max(bw, 1e-3)
-      }
+  if (!identical(y, "set")) {
+    if (is.factor(df[[y]])) {
+      df[[y]] <- factor(df[[y]], levels = levels(df[[y]]))
+    } else {
+      df[[y]] <- factor(df[[y]], levels = unique(df[[y]]))
     }
-    # Omit from/to when unset. Passing NULL makes ggplot compare the
-    # density's fixed white outline to the set color scale.
-    ridge_args <- rlang::list2(
-      data = varying,
-      # y is numeric so spikes can share the scale. Group by ridge and set,
-      # or ggplot drops y when one set spans several ridges.
-      mapping = aes(fill = set, group = interaction(ridge, set)),
-      alpha = 0.55,
-      color = "white",
-      linewidth = 0.35,
-      scale = 0.9,
-      rel_min_height = 0.01,
-      bandwidth = bw,
-      quantile_lines = TRUE,
-      quantiles = 0.5,
-      na.rm = TRUE
-    )
-    if (!is.null(from)) ridge_args$from <- from
-    if (!is.null(to)) ridge_args$to <- to
-    p <- p + rlang::exec(ggridges::geom_density_ridges, !!!ridge_args) +
-      # Rug ticks sit on each station or pool baseline. Color follows the set.
-      geom_segment(
-        data = varying,
-        aes(x = .data[[x]], xend = .data[[x]], y = y_num, yend = y_num + 0.16, color = set),
-        inherit.aes = FALSE,
-        linewidth = 0.55,
-        lineend = "butt"
-      ) +
-      scale_fill_manual(values = colors, limits = names(colors), name = NULL)
   }
-  if (nrow(constant)) {
-    p <- p + geom_segment(
-      data = constant,
-      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.42, color = set),
-      inherit.aes = FALSE,
-      linewidth = 1.05,
-      lineend = "butt"
-    )
-  }
-  if (nrow(varying) || nrow(constant)) {
-    p <- p + scale_color_manual(
-      values = colors,
-      limits = names(colors),
-      name = NULL,
-      guide = if (nrow(varying)) "none" else "legend"
-    )
-  }
-  lv <- levels(df$ridge)
-  p <- p +
-    scale_y_continuous(
-      breaks = nlevels(df$ridge) - seq_along(lv) + 1,
-      labels = lv,
-      # Extra room under the lowest ridge (Inspection) and above the highest density.
-      expand = expansion(add = c(0.95, 1.35))
-    ) +
-    scale_x_continuous(
-      labels = if (percent) scales::percent_format(accuracy = 1) else waiver(),
-      expand = if (is.null(bounds)) expansion(mult = 0.05) else expansion(mult = c(0, 0.05))
-    ) +
-    labs(
-      x = x_label, y = NULL,
-      subtitle = paste(strwrap(subtitle, width = subtitle_width), collapse = "\n")
-    ) +
-    theme_sim(legend.position = "bottom", plot.margin = margin(12, 20, 18, 12))
-  if (!is.null(bounds)) {
-    hi <- bounds[[2]]
-    p <- p + coord_cartesian(
-      xlim = c(bounds[[1]], if (is.finite(hi)) hi else NA),
-      expand = FALSE
-    )
-  }
-  p
+  if (is.null(bounds)) bounds <- if (isTRUE(percent)) c(0, 1) else c(0, Inf)
+  colors <- ridge_fill_values(levels(df$set), palette)
+  facet <- if (!identical(y, "set") && dplyr::n_distinct(df[[y]]) > 1L) y else NULL
+  overlay_densities(
+    df, x, "set", colors, x_label, subtitle,
+    percent = percent, bounds = bounds, facet = facet, subtitle_width = subtitle_width
+  )
 }
 
 # The Simulate page clamps .shiny-plot-output at 720px. That still crowds four
@@ -708,9 +521,8 @@ comparison_ridge_plot <- function(id, n_ridges) {
     plotOutput(id, height = paste0(h, "px"), width = "100%", fill = FALSE)
   )
 }
-# Two ridges (one per set) for a single ranked metric. Same rug convention as
-# the station ridgelines: every replication with spread is a tick on its set's
-# baseline, colored with the set palette. A set with no spread is one spike.
+# Overlaid densities for one ranked metric. Rug ticks are every replication.
+# A set with no spread is a vertical line in that set's color.
 comparison_highlight_height <- 460L
 # One decimal at or above 1; two significant digits below 1 (0.000338 -> 0.00034).
 format_highlight_mean <- function(x) {
@@ -721,7 +533,7 @@ format_highlight_mean <- function(x) {
 # ridge order (top set, then lower set) and omit the full titles.
 comparison_highlight_subtitle <- function(mean_1, mean_2, delta = NA_real_) {
   text <- sprintf(
-    "Rug ticks are every replication. A spike means no spread. Means %s then %s.",
+    "Rug ticks are every replication. A vertical line means no spread. Means %s then %s.",
     format_highlight_mean(mean_1),
     format_highlight_mean(mean_2)
   )
@@ -732,7 +544,7 @@ comparison_highlight_subtitle <- function(mean_1, mean_2, delta = NA_real_) {
 comparison_highlight_plot <- function(df, x_label, subtitle, palette, percent = FALSE, bounds = c(0, Inf)) {
   df <- df %>% mutate(set = factor(.data$set, levels = names(palette)))
   if (isTRUE(percent)) bounds <- c(0, 1)
-  comparison_ridges(
+  comparison_densities(
     df, "set", "value", x_label, subtitle,
     percent = percent, palette = palette,
     subtitle_width = 36L, bounds = bounds
@@ -850,6 +662,9 @@ comparison_page_ui <- function(id) {
         .comparison-set-title .form-group { margin-bottom: 0; }
         .comparison-draft-diff { max-width: 100%; }
         .comparison-change-story { border-left: 4px solid #1b4f72; padding-left: 0.9rem; }
+        .comparison-change-story,
+        .comparison-change-story h4,
+        .comparison-change-story p { color: #1a1a1a; }
       ")),
       tags$script(HTML("
         (function() {
@@ -971,12 +786,12 @@ comparison_page_ui <- function(id) {
           nav_panel("Lead-time curves", roomy_plot(ns("cycles"))),
           nav_panel(
             "Bay occupancy",
-            p(class = "text-muted small", "One ridge per station. Blue is the first set and orange is the second. A spike means that set did not vary."),
+            p("One panel per station. Blue is the first set and orange is the second. A vertical line means that set did not vary."),
             uiOutput(ns("occupancy_frame"))
           ),
           nav_panel(
             "Operators",
-            p(class = "text-muted small", "One ridge per pool. Rug ticks are every replication."),
+            p("One panel per pool. Rug ticks are every replication. A vertical line means that set did not vary."),
             uiOutput(ns("labor_frame"))
           ),
           nav_panel(
@@ -1205,7 +1020,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         class = "comparison-change-story mb-3",
         h4("What changed most"),
         p(class = "mb-2", comparison_change_caption(r$runs, highlight_state()$scores)),
-        p(class = "text-muted small mb-0", "Results are illustrative only. They are not predictions for any employer.")
+        p(class = "mb-0", "Results are illustrative only. They are not predictions for any employer.")
       )
     })
     output$highlights <- renderUI({
@@ -1233,7 +1048,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       tagList(
         p(class = "mb-1", intro),
         p(
-          class = "text-muted small",
+          class = "mb-2",
           "Ranked by percent change from the first set. When that mean is smaller than the spread across replications, the change is measured against the second set's mean instead. Every replication is drawn."
         ),
         layout_columns(col_widths = if (n == 1L) 12 else 6, !!!plots)
@@ -1350,15 +1165,20 @@ comparison_page_server <- function(id, main_params, active_page) {
       metric <- input$metric %||% "throughput_per_hr"
       df <- table_for("summaries")
       validate(need(any(is.finite(df[[metric]])), "No completed observations for this metric."))
-      comparison_raincloud(df, metric, labels[[metric]], palette = palette())
+      comparison_densities(
+        df %>% mutate(value = .data[[metric]]),
+        "set", "value", labels[[metric]],
+        "Overlaid densities of every replication. Rug ticks are each run. A vertical line means that set did not vary.",
+        percent = FALSE, palette = palette(), bounds = c(0, Inf)
+      )
     })
     output$occupancy <- renderPlot({
       df <- table_for("utilization_by_rep") %>%
         mutate(label = factor(label_station(station), levels = unname(station_labels)))
-      comparison_ridges(
+      comparison_densities(
         df, "label", "avg_util",
         x_label = "Bay occupancy",
-        subtitle = "One ridge per station; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
+        subtitle = "One panel per station. Rug ticks are every replication. A vertical line means that set did not vary.",
         percent = TRUE,
         palette = palette()
       )
@@ -1375,10 +1195,10 @@ comparison_page_server <- function(id, main_params, active_page) {
         unique(pools)
       }
       df <- df %>% mutate(label = factor(sub("^operator_", "", resource), levels = levels))
-      comparison_ridges(
+      comparison_densities(
         df, "label", "avg_util",
         x_label = "Operator utilization",
-        subtitle = "One ridge per pool; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
+        subtitle = "One panel per pool. Rug ticks are every replication. A vertical line means that set did not vary.",
         percent = TRUE,
         palette = palette()
       )
@@ -1386,10 +1206,10 @@ comparison_page_server <- function(id, main_params, active_page) {
     output$downtime <- renderPlot({
       df <- table_for("downtime_by_rep") %>%
         mutate(label = factor(label_station(station), levels = unname(station_labels)))
-      comparison_ridges(
+      comparison_densities(
         df, "label", "downtime_fraction",
         x_label = "Active repair fraction",
-        subtitle = "One ridge per station; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
+        subtitle = "One panel per station. Rug ticks are every replication. A vertical line means that set did not vary.",
         percent = TRUE,
         palette = palette()
       )
@@ -1417,11 +1237,13 @@ comparison_page_server <- function(id, main_params, active_page) {
         theme_sim(legend.position = "bottom")
     })
     output$shift_output <- renderPlot({
-      df<-table_for("shift_summaries") %>% group_by(set,shift) %>% summarise(output=mean(n_completed),.groups="drop")
-      ggplot(df,aes(shift,output,color=set))+(if(dplyr::n_distinct(df$shift)>1) geom_line(linewidth=1) else NULL)+geom_point()+
-        scale_color_manual(values = palette(), drop = FALSE, name = NULL) +
-        labs(x = "Measured shift", y = "Mean completed vehicles", color = NULL) +
-        theme_sim()
+      r <- results()
+      req(!is.null(r))
+      caps <- tibble::tibble(
+        set = titles(),
+        capacity = vapply(r$runs, function(run) theoretical_shift_capacity(run$params), numeric(1))
+      )
+      shift_output_plot(table_for("shift_summaries"), caps, palette())
     })
     output$backlog <- renderPlot({comparison_flow(table_for("release_timeseries"),"unreleased_backlog","Orders waiting for admission",palette=palette())})
     output$wip <- renderPlot({

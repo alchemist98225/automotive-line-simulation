@@ -7,7 +7,7 @@ Live deployments of this repository:
 
 ## Prerequisites
 
-- R with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `ggrain`, `ggridges`, `simmer`, `DT`, `zip`, and `rsconnect`. The app and the Quarto doc call `library(zip)` so shinyapps.io installs it for **Download all**, `library(ggrain)` so the bay-occupancy raincloud is available, and `library(ggridges)` so the operator-utilization and downtime ridgelines are available. `tidymodels` is not required to run the simulation.
+- R with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `simmer`, `DT`, `zip`, and `rsconnect`. The app and the Quarto doc call `library(zip)` so shinyapps.io installs it for **Download all**. `tidymodels` is not required to run the simulation.
 - A free [shinyapps.io](https://www.shinyapps.io/) account (or Posit Connect / Posit Connect Cloud).
 - [Quarto](https://quarto.org/) for the interactive document.
 
@@ -105,6 +105,6 @@ quarto preview line_sim.qmd
 - Defaults are **placeholder** manufacturing parameters for a portfolio demo, not real plant data. That includes crew sizes, MTBF/MTTR, and support-task times.
 - The DES engine for the app and the Quarto doc is `R/model.R` (`run_line_sim()`, `default_params()`), copied into `app/` and `quarto/`. It models shared or dedicated operators, load/unload separated from the automatic cycle, support work, and MTBF/MTTR failures with shared repair technicians.
 - Both UIs expose those inputs. Charts use every replication. **Download all** writes the plot tables plus `failure_events.csv`, `repair_events.csv`, `downtime_by_rep.csv`, and `operator_by_rep.csv`.
-- `scripts/manufacturing_sim.R` sources `app/R/model.R`, runs 15 replications, and writes that zip and the PNG figures under `output/`. `scripts/staffing_experiments.R` and `scripts/timing_experiments.R` write scenario comparisons. `tests/` checks the engine and the Shiny server.
+- `scripts/manufacturing_sim.R` sources `app/R/model.R`, runs the 32-replication default, and writes that zip and the PNG figures under `output/`. `scripts/staffing_experiments.R` and `scripts/timing_experiments.R` write scenario comparisons. `tests/` checks the engine and the Shiny server.
 - The live shinyapps.io URLs at the top of this file predate operators, breakdowns, and the all-replication charts. Redeploy from `app/` and `quarto/` to publish this version.
-- The app, Quarto doc, and batch script default to 15 replications. The UI allows 1–30.
+- The app, Quarto doc, and batch script default to 32 replications. The UI allows 1–100. Settling time defaults to 300 minutes, and the CONWIP limit defaults to 20 vehicles.

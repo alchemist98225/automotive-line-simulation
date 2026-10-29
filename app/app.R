@@ -7,8 +7,6 @@ library(shiny)
 library(bslib)
 library(bsicons)
 library(tidyverse)
-library(ggrain) # declared so shinyapps.io installs it for the occupancy raincloud
-library(ggridges) # declared so shinyapps.io installs it for utilization and downtime ridgelines
 library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
@@ -215,11 +213,20 @@ ridge_fill_values <- function(levels, fill_values = NULL) {
   out
 }
 # Charts share one text size. 16 is about half again the ggplot2 default (11).
-# theme_minimal carries that size through axis text, titles, legends, and strips.
+# Titles, subtitles, axes, legends, strips, and captions stay near-black so
+# larger type does not turn into low-contrast grey.
 theme_sim <- function(...) {
   theme_minimal(base_size = 16) +
     theme(
-      plot.subtitle = element_text(margin = margin(0, 0, 8, 0)),
+      text = element_text(colour = "#1a1a1a"),
+      plot.title = element_text(colour = "#1a1a1a"),
+      plot.subtitle = element_text(colour = "#1a1a1a", margin = margin(0, 0, 8, 0)),
+      plot.caption = element_text(colour = "#1a1a1a", hjust = 0),
+      axis.title = element_text(colour = "#1a1a1a"),
+      axis.text = element_text(colour = "#1a1a1a"),
+      legend.title = element_text(colour = "#1a1a1a"),
+      legend.text = element_text(colour = "#1a1a1a"),
+      strip.text = element_text(colour = "#1a1a1a"),
       ...
     )
 }
@@ -227,120 +234,166 @@ theme_sim <- function(...) {
 plot_subtitle <- function(text) {
   paste(strwrap(text, width = 68), collapse = "\n")
 }
-# One ridge per group, metric on x, every replication. A group with no
-# spread (all reps identical, or a single rep) is a rug tick at that value:
-# density estimation has no bandwidth there.
-replication_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, fill_values = NULL) {
+# Finite kernel window. An infinite upper bound becomes a little past the data
+# so stats::density never receives Inf. Occupancy passes both ends already finite.
+density_bounds <- function(x, bounds) {
+  x <- x[is.finite(x)]
+  lo <- if (is.null(bounds)) -Inf else bounds[[1]]
+  hi <- if (is.null(bounds)) Inf else bounds[[2]]
+  bw <- if (length(x) >= 2L) stats::bw.nrd0(x) else NA_real_
+  if (!is.finite(bw) || bw <= 0) bw <- if (length(x) >= 2L) stats::mad(x, constant = 1) else NA_real_
+  if (!is.finite(bw) || bw <= 0) bw <- if (length(x) >= 2L) diff(range(x)) / 10 else NA_real_
+  if (!is.finite(bw) || bw <= 0) bw <- 1e-3
+  if (!is.finite(lo)) lo <- if (length(x)) min(x) - 3 * bw else 0
+  if (!is.finite(hi)) hi <- if (length(x)) max(x) + 3 * bw else lo + bw
+  if (!is.finite(lo)) lo <- 0
+  if (!is.finite(hi) || hi <= lo) hi <- lo + bw
+  c(lo, hi)
+}
+# Overlaid densities, one curve per series, plus one rug tick per row.
+# A series with no spread is a vertical line: the kernel has no bandwidth.
+# The line is opaque; the fill uses the same color at alpha 0.30.
+overlay_densities <- function(df, value, series, colors, x_label, subtitle,
+                              percent = FALSE, bounds = NULL, facet = NULL,
+                              subtitle_width = 68L) {
+  empty <- ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No replications to plot"))
+  if (!nrow(df) || !value %in% names(df) || !series %in% names(df)) return(empty)
+  df <- df %>% dplyr::filter(is.finite(.data[[value]]))
+  if (!nrow(df)) return(empty)
+  if (is.factor(df[[series]])) {
+    df$series <- factor(df[[series]], levels = intersect(levels(df[[series]]), unique(df[[series]])))
+  } else {
+    df$series <- factor(df[[series]], levels = unique(df[[series]]))
+  }
+  df$.value <- df[[value]]
+  group_cols <- "series"
+  if (!is.null(facet)) group_cols <- c(facet, "series")
+  spread <- df %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) %>%
+    dplyr::summarise(
+      marker = stats::median(.value, na.rm = TRUE),
+      n = dplyr::n(),
+      s = stats::sd(.value, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(constant = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps))
+  varying <- df %>% dplyr::semi_join(dplyr::filter(spread, !constant), by = group_cols)
+  constant <- spread %>% dplyr::filter(constant)
+  if (is.null(bounds)) bounds <- if (isTRUE(percent)) c(0, 1) else c(0, Inf)
+  bnds <- density_bounds(if (nrow(varying)) varying$.value else df$.value, bounds)
+  p <- ggplot(df, aes(x = .value, colour = series, fill = series, group = series))
+  if (nrow(varying)) {
+    p <- p +
+      geom_density(
+        data = varying,
+        mapping = aes(x = .value, fill = series, group = series),
+        inherit.aes = FALSE,
+        colour = NA,
+        alpha = 0.30,
+        linewidth = 0,
+        bounds = bnds,
+        na.rm = TRUE,
+        show.legend = FALSE
+      ) +
+      geom_density(
+        data = varying,
+        mapping = aes(x = .value, colour = series, group = series),
+        inherit.aes = FALSE,
+        fill = NA,
+        alpha = 1,
+        linewidth = 1,
+        bounds = bnds,
+        na.rm = TRUE
+      )
+  }
+  if (nrow(constant)) {
+    p <- p + geom_vline(
+      data = constant,
+      aes(xintercept = marker, colour = series),
+      inherit.aes = FALSE,
+      linewidth = 1,
+      show.legend = !nrow(varying)
+    )
+  }
+  p <- p +
+    geom_rug(
+      mapping = aes(x = .value, colour = series),
+      inherit.aes = FALSE,
+      alpha = 0.85,
+      linewidth = 0.45,
+      sides = "b",
+      length = grid::unit(0.035, "npc"),
+      show.legend = FALSE,
+      na.rm = TRUE
+    ) +
+    scale_colour_manual(
+      values = colors, aesthetics = c("colour", "fill"),
+      limits = names(colors), drop = FALSE, name = NULL
+    ) +
+    scale_x_continuous(
+      labels = if (isTRUE(percent)) scales::percent_format(accuracy = 1) else waiver()
+    ) +
+    labs(
+      x = x_label,
+      y = "Density",
+      colour = NULL,
+      fill = NULL,
+      subtitle = paste(strwrap(subtitle, width = subtitle_width), collapse = "\n")
+    ) +
+    theme_sim(legend.position = "bottom", plot.margin = margin(12, 20, 18, 12))
+  if (!is.null(facet) && dplyr::n_distinct(df[[facet]]) > 1L) {
+    p <- p + facet_wrap(vars(.data[[facet]]), ncol = 2)
+  }
+  rng <- range(df$.value)
+  if (!is.finite(diff(rng)) || diff(rng) == 0) {
+    v <- if (length(rng) && is.finite(rng[[1]])) rng[[1]] else 0
+    pad <- max(abs(v) * 0.08, 0.05)
+    lo <- if (is.finite(bounds[[1]])) max(bounds[[1]], v - pad) else v - pad
+    hi <- if (is.finite(bounds[[2]])) min(bounds[[2]], v + pad) else v + pad
+    if (!is.finite(hi) || hi <= lo) hi <- lo + pad
+    xlim <- c(lo, hi)
+  } else {
+    hi <- bounds[[2]]
+    xlim <- c(if (is.finite(bounds[[1]])) bounds[[1]] else NA, if (is.finite(hi)) hi else NA)
+  }
+  p + coord_cartesian(xlim = xlim, expand = FALSE, clip = "off")
+}
+# One overlaid density per category. A category with no spread is a vertical line.
+replication_densities <- function(df, y, x, x_label, subtitle, percent = TRUE, fill_values = NULL) {
   y_sym <- rlang::sym(y)
   x_sym <- rlang::sym(x)
   df <- df %>%
     dplyr::filter(is.finite(!!x_sym)) %>%
-    dplyr::mutate(ridge_label = !!y_sym)
-  if (is.factor(df$ridge_label)) {
-    df$ridge <- factor(df$ridge_label, levels = levels(df$ridge_label))
+    dplyr::mutate(series_label = !!y_sym)
+  if (is.factor(df$series_label)) {
+    df$series <- factor(df$series_label, levels = levels(df$series_label))
   } else {
-    df$ridge <- factor(df$ridge_label, levels = unique(df$ridge_label))
+    df$series <- factor(df$series_label, levels = unique(df$series_label))
   }
   if (!nrow(df)) {
     return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No replications to plot")))
   }
-  df <- df %>% dplyr::mutate(y_num = nlevels(ridge) - as.numeric(ridge) + 1)
-  spread <- df %>%
-    dplyr::group_by(ridge) %>%
-    dplyr::summarise(
-      marker = stats::median(!!x_sym, na.rm = TRUE),
-      n = dplyr::n(),
-      s = stats::sd(!!x_sym, na.rm = TRUE),
-      y_num = dplyr::first(y_num),
-      .groups = "drop"
-    ) %>%
-    dplyr::mutate(constant = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps))
-  varying <- df %>% dplyr::semi_join(dplyr::filter(spread, !constant), by = "ridge")
-  constant <- spread %>% dplyr::filter(constant)
-  colors <- ridge_fill_values(levels(df$ridge), fill_values)
-  p <- ggplot(df, aes(x = .data[[x]], y = y_num))
-  if (nrow(varying)) {
-    bw <- stats::bw.nrd0(varying[[x]])
-    if (!is.finite(bw) || bw <= 0) bw <- stats::mad(varying[[x]], constant = 1)
-    if (!is.finite(bw) || bw <= 0) bw <- diff(range(varying[[x]])) / 10
-    if (!is.finite(bw) || bw <= 0) bw <- 1e-3
-    p <- p + ggridges::geom_density_ridges(
-      data = varying,
-      aes(fill = ridge),
-      alpha = 0.65,
-      color = "white",
-      linewidth = 0.35,
-      scale = 0.9,
-      rel_min_height = 0.01,
-      bandwidth = bw,
-      quantile_lines = TRUE,
-      quantiles = 0.5,
-      na.rm = TRUE
-    ) +
-      # One rug tick per replication, standing on that ridge's baseline.
-      geom_segment(
-        data = varying,
-        aes(x = !!x_sym, xend = !!x_sym, y = y_num, yend = y_num + 0.16, color = ridge),
-        inherit.aes = FALSE,
-        linewidth = 0.55,
-        lineend = "butt"
-      ) +
-      scale_fill_manual(values = colors, drop = FALSE, guide = "none")
-  }
-  if (nrow(constant)) {
-    p <- p + geom_segment(
-      data = constant,
-      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.42, color = ridge),
-      inherit.aes = FALSE,
-      linewidth = 1.05,
-      lineend = "butt"
-    )
-  }
-  if (nrow(varying) || nrow(constant)) {
-    p <- p + scale_color_manual(values = colors, drop = FALSE, guide = "none")
-  }
-  lv <- levels(df$ridge)
-  p +
-    scale_y_continuous(
-      breaks = nlevels(df$ridge) - seq_along(lv) + 1,
-      labels = lv,
-      # Extra room so larger station names clear the axis title and the top ridge.
-      expand = expansion(add = c(0.6, 1.15))
-    ) +
-    scale_x_continuous(
-      labels = if (percent) scales::percent_format(accuracy = 1) else waiver(),
-      expand = expansion(mult = 0.05)
-    ) +
-    labs(x = x_label, y = NULL, subtitle = plot_subtitle(subtitle)) +
-    theme_sim(legend.position = "none", plot.margin = margin(10, 18, 14, 12))
+  colors <- ridge_fill_values(levels(df$series), fill_values)
+  bounds <- if (isTRUE(percent)) c(0, 1) else c(0, Inf)
+  overlay_densities(
+    df, x, "series", colors, x_label, subtitle,
+    percent = percent, bounds = bounds
+  )
 }
-# Horizontal raincloud of bay occupancy across replications.
-# geom_rain's violin uses scale = "area", which divides every density by the
-# tallest peak on the panel. A station piled at 100% (only a couple of distinct
-# occupancies) produces that peak and shrinks the other half-violins until the
-# clouds disappear. scale = "width" gives each station its own full cloud.
-# A station with no spread keeps the points and the flat box; its density has
-# no range, so it does not grow a cloud.
-occupancy_raincloud <- function(per_rep, means) {
-  ggplot(per_rep, aes(x = label, y = avg_util, fill = label)) +
-    geom_rain(
-      rain.side = "r",
-      seed = 42,
-      point.args = list(alpha = 0.35, size = 1.8, color = "#4a4a4a"),
-      point.args.pos = list(position = position_jitter(width = 0.06, height = 0, seed = 42)),
-      boxplot.args = list(outlier.shape = NA, color = "#225ea8", linewidth = 0.4),
-      violin.args = list(alpha = 0.55, color = NA, scale = "width")
-    ) +
+# Horizontal boxes of bay occupancy. One point per replication, jittered on the
+# station axis only. Box and points share a color. Outlier glyphs are off so
+# the point layer is the only copy of each replication. The axis follows the data.
+occupancy_boxes <- function(per_rep) {
+  ggplot(per_rep, aes(x = label, y = avg_util, colour = label, fill = label)) +
+    geom_boxplot(alpha = 0.5, outlier.shape = NA, width = 0.55, linewidth = 0.5) +
     geom_point(
-      data = means,
-      aes(x = label, y = avg_util_mean),
-      inherit.aes = FALSE,
-      shape = 18, size = 3.8, color = "#08306b"
+      size = 3,
+      alpha = 0.5,
+      position = position_jitter(width = 0.12, height = 0, seed = 42)
     ) +
-    scale_fill_manual(values = station_colors, guide = "none") +
+    scale_colour_manual(values = station_colors, drop = FALSE, guide = "none") +
+    scale_fill_manual(values = station_colors, drop = FALSE, guide = "none") +
     scale_x_discrete(limits = rev) +
-    # Occupancy is the y aesthetic; coord_flip draws it horizontally.
-    # No 0–100 limits, so the axis follows the data and a point at 100% stays visible.
     scale_y_continuous(
       labels = scales::percent_format(accuracy = 1),
       expand = expansion(mult = 0.05)
@@ -348,7 +401,7 @@ occupancy_raincloud <- function(per_rep, means) {
     coord_flip(clip = "off") +
     labs(
       x = NULL, y = "Bay occupancy",
-      subtitle = plot_subtitle("Half-violin and box across replications; faint points = each rep; diamond = mean")
+      subtitle = plot_subtitle("Box and one point per replication. Points are jittered along the station only.")
     ) +
     theme_sim(legend.position = "none", plot.margin = margin(10, 22, 14, 12))
 }
@@ -538,11 +591,11 @@ restore_default_inputs <- function(session) {
   updateSelectInput(session,"release_policy",selected="space")
   updateSelectInput(session,"order_spacing",selected="fixed")
   updateNumericInput(session,"entry_buffer",value=3)
-  updateNumericInput(session,"wip_limit",value=10)
+  updateNumericInput(session,"wip_limit",value=20)
   walk(default_params()$stations$name[-1],~updateNumericInput(session,paste0("buffer_",.x),value=3))
   updateNumericInput(session, "sim_length", value = 480)
-  updateNumericInput(session, "warmup", value = 60)
-  updateNumericInput(session, "n_reps", value = 15)
+  updateNumericInput(session, "warmup", value = 300)
+  updateNumericInput(session, "n_reps", value = 32)
   updateNumericInput(session, "seed", value = 20261027)
   updateNumericInput(session, "body_cap", value = 2)
   updateNumericInput(session, "paint_cap", value = 1)
@@ -628,6 +681,14 @@ ui <- page_navbar(
       font-weight: 500;
     }
     .run-settings summary { cursor: pointer; font-weight: 600; }
+    .text-muted,
+    .text-body-secondary,
+    .form-text,
+    .help-block,
+    caption,
+    .caption {
+      color: #1a1a1a !important;
+    }
     #headline_kpis, #plot_util, #plot_labor, #plot_down, #plot_wip,
     #plot_queue, #plot_cycle, #labor_table, #reliability_table, #table_metrics,
     #scenario_table_wrap, #timing_table_wrap {
@@ -653,16 +714,16 @@ ui <- page_navbar(
             selectInput("order_spacing","Order spacing",c("Evenly scheduled"="fixed","Random (exponential)"="exponential"),selected="fixed"),
             selectInput("release_policy","Admission policy",c("When entrance space is available"="space","Limit total line WIP (CONWIP)"="conwip","Release all scheduled work"="scheduled"),selected="space"),
             numericInput("entry_buffer","Entrance waiting positions",3,min=0,step=1),
-            numericInput("wip_limit","Maximum line WIP (CONWIP only)",10,min=1,step=1),
+            numericInput("wip_limit","Maximum line WIP (CONWIP only)",20,min=1,step=1),
             helpText("Planned work waits outside production until admitted. Release-all allows an unlimited entrance queue. Interstation buffers apply to every policy."),
             numericInput("sim_length", "Shift duration (production minutes)",
                          value = 480, min = 1, max = 1440, step = 30),
             numericInput("n_shifts","Number of measured shifts",value=1,min=1,max=100,step=1),
             helpText("Settling happens first. Shifts are measured separately and run consecutively; nights and weekends are not simulated."),
             numericInput("warmup", "Initial settling period (minutes)",
-                         value = 60, min = 0, max = 10080, step = 15),
+                         value = 300, min = 0, max = 10080, step = 15),
             numericInput("n_reps", "Simulation runs",
-                         value = 15, min = 1, max = 100, step = 1),
+                         value = 32, min = 1, max = 100, step = 1),
             numericInput("seed", "Base seed",
                          value = 20261027, min = 1, step = 1),
             actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
@@ -968,17 +1029,16 @@ reproducibility, runs the settling period first, then measures every complete pr
 ### Important caveat
 
 **All default numeric inputs are placeholder example values**, chosen so the
-demo has a clear bottleneck (paint) and responsive run times. They are **not**
-real plant data. Results are illustrative only. They are not predictions for
-any employer. Swap in your own stations, capacities, and time distributions
-before using this for any decision.
+demo has a clear bottleneck (paint) and responsive run times. The opening
+defaults are 32 replications, 300 minutes of settling, and a CONWIP limit of
+20 vehicles. They are **not** real plant data. Results are illustrative only.
+They are not predictions for any employer. Swap in your own stations,
+capacities, and time distributions before using this for any decision.
 
 ### Stack
 
 - R + simmer (DES engine)
 - tidyverse (wrangling & ggplot2)
-- ggrain (bay-occupancy raincloud)
-- ggridges (operator-utilization and downtime ridgelines)
 - Shiny + bslib (interactive UI)
 
 Operators load a bay, leave during automatic processing, and return to unload.
@@ -994,8 +1054,9 @@ and use exponential up and repair durations. Technician queues add downtime.
 Interstation waiting positions are finite. A completed vehicle holds its upstream bay until downstream space opens. Operators are freed after unloading. Shifts are consecutive production periods; nights, weekends, walking time, and scrap are not implemented. Bay occupancy identifies a bottleneck candidate; confirm it
 by testing whether improving that station increases system throughput.
 
-Every chart uses **all replications**. Bay occupancy on Simulate is a raincloud.
-Operator utilization and downtime are ridgelines, with a vertical spike when every
+Every chart uses **all replications**. Bay occupancy on Simulate is a boxplot
+with one point per replication. Operator utilization and downtime are overlaid
+densities, with a rug tick for every replication and a vertical line when every
 replication is identical. Queue and WIP series are faint lines plus a loess
 ribbon, resampled onto a 2-minute grid before the loess. WIP counts each vehicle
 once. Downtime is machine-time in repair during the observation window, divided
@@ -1007,11 +1068,11 @@ sit under **Bottleneck & capacity**; the timing-variability comparison sits unde
 **Compare two sets** keeps two editable copies of the line. Each set has a title
 used on the charts, tables, and downloads. A table above the editors lists only
 the settings that differ. After a run, the metrics that moved the most are
-ridgelines of every replication. Throughput, lead time, WIP, and output per
-operator-hour stay horizontal rainclouds. Bay occupancy, operator utilization,
-and active repair are ridgelines, with a spike when a set has no spread. CSV
-files there are the data behind those charts. The guided example fills this page
-with the 1-bay baseline and the 2-bay experiment.
+overlaid densities of every replication, with a rug tick on each run. Throughput,
+lead time, WIP, output per operator-hour, bay occupancy, operator utilization,
+and active repair use the same density. A vertical line means that set did not
+vary. CSV files there are the data behind those charts. The guided example fills
+this page with the 1-bay baseline and the 2-bay experiment.
 
 **All default numbers are placeholder example values**, not real plant data.
       ")
@@ -1363,9 +1424,7 @@ server <- function(input, output, session) {
     res <- sim_result()
     per_rep <- res$utilization_by_rep %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
-    means <- res$station_metrics %>%
-      mutate(label = factor(label_station(station), levels = unname(station_labels)))
-    occupancy_raincloud(per_rep, means)
+    occupancy_boxes(per_rep)
   })
 
   output$plot_labor <- renderPlot({
@@ -1379,10 +1438,10 @@ server <- function(input, output, session) {
     } else unique(pools)
     df <- res$operator_by_rep %>%
       mutate(label = factor(sub("^operator_", "", resource), levels = levels))
-    replication_ridges(
+    replication_densities(
       df, "label", "avg_util",
       x_label = "Operator utilization",
-      subtitle = "One ridge per pool; rug = each rep at the baseline; line = median. Spike = no spread.",
+      subtitle = "Overlaid densities. Rug ticks are every replication. A vertical line means no spread.",
       percent = TRUE
     )
   })
@@ -1429,10 +1488,10 @@ server <- function(input, output, session) {
     res <- sim_result()
     per_rep <- res$downtime_by_rep %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
-    replication_ridges(
+    replication_densities(
       per_rep, "label", "downtime_fraction",
       x_label = "Downtime fraction",
-      subtitle = "One ridge per station; rug = each rep at the baseline; line = median. Spike = no spread.",
+      subtitle = "Overlaid densities. Rug ticks are every replication. A vertical line means no spread.",
       percent = TRUE,
       fill_values = station_colors
     )

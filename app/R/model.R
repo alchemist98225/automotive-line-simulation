@@ -7,9 +7,9 @@
 suppressPackageStartupMessages({library(simmer); library(tidyverse)})
 sim_now <- function(env) simmer::now(env)
 default_params <- function() {
-  list(sim_length_min=540, time_mode="shifts", shift_length_min=480, n_shifts=1L,
-       release_policy="space", entry_buffer=3L, wip_limit=10L, order_spacing="fixed", n_replications=15L, base_seed=20261027L,
-       warmup_min=60, arrival_mean_min=4, grid_dt_min=2, repair_technicians=1L,
+  list(sim_length_min=780, time_mode="shifts", shift_length_min=480, n_shifts=1L,
+       release_policy="space", entry_buffer=3L, wip_limit=20L, order_spacing="fixed", n_replications=32L, base_seed=20261027L,
+       warmup_min=300, arrival_mean_min=4, grid_dt_min=2, repair_technicians=1L,
        operators=tibble(pool=c("upstream", "downstream"), count=c(2L,2L)),
        stations=tribble(
          ~name, ~capacity, ~dist, ~mean_min, ~sd_min, ~operator_pool, ~load_min, ~unload_min, ~mtbf_min, ~mttr_min, ~task_interval_min, ~task_duration_min,
@@ -98,7 +98,7 @@ normalize_params <- function(p) {
   else {p$shift_length_min <- p$sim_length_min-p$warmup_min; p$n_shifts <- 1L}
   p$release_policy <- p$release_policy %||% "scheduled"
   p$entry_buffer <- p$entry_buffer %||% 3L
-  p$wip_limit <- p$wip_limit %||% 10L
+  p$wip_limit <- p$wip_limit %||% 20L
   p$order_spacing <- p$order_spacing %||% "exponential"
   p
 }

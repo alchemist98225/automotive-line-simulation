@@ -48,7 +48,7 @@ Placeholder defaults (all example values):
 | Final assembly | 2 | normal | 7 | 1.0 | downstream | 2 / 1 | 300 / 10 | 45 / 4 |
 | Inspection | 1 | exponential | 3 | — | downstream | 1 / 0.5 | off (`MTTR` 0) | 60 / 3 |
 
-The Shiny defaults are one 480-minute measured shift after 60 minutes of settling (540 minutes total), 15 evenly scheduled orders/hour, entrance-space admission with three waiting positions, and three waiting positions before each downstream station. Two operators per zone and one repair technician. The app, the Quarto doc, and the batch script default to 15 replications. Base seed is `20261027`. The queue and WIP charts resample monitors onto a 2-minute grid. Random support is on; "every N units" defaults to 0, which selects the random interval.
+The Shiny defaults are one 480-minute measured shift after 300 minutes of settling (780 minutes total), 15 evenly scheduled orders/hour, entrance-space admission with three waiting positions, and three waiting positions before each downstream station. The CONWIP limit, used only when that admission policy is selected, defaults to 20 vehicles. Two operators per zone and one repair technician. The app, the Quarto doc, and the batch script default to 32 replications. Base seed is `20261027`. The queue and WIP charts resample monitors onto a 2-minute grid. Random support is on; "every N units" defaults to 0, which selects the random interval.
 
 ## Features
 
@@ -58,9 +58,9 @@ The Shiny defaults are one 480-minute measured shift after 60 minutes of settlin
 - Equipment failures with per-station MTBF/MTTR and a shared repair crew.
 - Fixed, distribution, or empirical activity timing, plus a variability comparison that holds expected task time constant.
 - Staffing comparison: current crews, one extra operator on the first or last team, and the same headcount in one shared team, with a 95% Student-t interval for mean throughput.
-- All-replication charts: a bay-occupancy raincloud (half-violin, boxplot, faint point per replication, and the mean); operator-utilization and downtime ridgelines (a vertical spike when every replication is identical); faint queue and WIP lines with a loess ribbon; faint per-replication cycle-time densities plus the pooled density.
+- All-replication charts: a bay-occupancy boxplot with one point per replication; operator-utilization and downtime densities overlaid by category, with a rug tick per replication and a vertical line when every replication is identical; faint queue and WIP lines with a loess ribbon; faint per-replication cycle-time densities plus the pooled density.
 - CSV download for each table and a **Download all (zip)** bundle.
-- **Compare two sets:** two independently editable parameter snapshots, imported from the main controls. Charts use every replication. Summary metrics are horizontal rainclouds. Bay occupancy, operator utilization, and active repair are ridgelines. CSV files sit with the comparison tables.
+- **Compare two sets:** two independently editable parameter snapshots, imported from the main controls. Charts use every replication. Summary metrics, bay occupancy, operator utilization, and active repair are overlaid densities with a rug tick per replication. CSV files sit with the comparison tables.
 - Self-contained `app/` and `quarto/` directories, each publishable with `rsconnect`.
 
 ## KPIs
@@ -72,14 +72,14 @@ The Shiny defaults are one 480-minute measured shift after 60 minutes of settlin
 | Cycle time | Departure minus arrival for vehicles that finish in the window. The chart shows each replication's density and the pooled density |
 | Average WIP | Time-weighted vehicles in the system, counted once. The time series is that count on the grid |
 | Queue length | Time-weighted bay queue, and queue over time for every replication |
-| Bay occupancy | Time-weighted busy bays / capacity. The chart is a raincloud: half-violin, boxplot, one faint point per replication, and the mean |
-| Operator utilization | Time-weighted busy operators / pool size. The chart is a ridgeline across replications, with a spike when every replication matches |
-| Downtime fraction | Repair machine-time in the window / (capacity × window). The chart is a ridgeline across replications, with a spike when every replication matches |
+| Bay occupancy | Time-weighted busy bays / capacity. The chart is a horizontal boxplot with one point per replication, in the station's color |
+| Operator utilization | Time-weighted busy operators / pool size. The chart is an overlaid density across replications, with a rug tick per run and a vertical line when every replication matches |
+| Downtime fraction | Repair machine-time in the window / (capacity × window). The chart is an overlaid density across replications, with a rug tick per run and a vertical line when every replication matches |
 | Bottleneck candidate | Station with the highest mean bay occupancy |
 
 ### Example plots
 
-The figures under `docs/images/` that are named like the batch outputs are regenerated by `scripts/manufacturing_sim.R` (15 replications, placeholder defaults, including failures and two operator zones). `deploy_app.png`, `deploy_quarto.png`, and `app_screenshot.png` are the earlier hosted UI.
+The figures under `docs/images/` that are named like the batch outputs were generated by an earlier run of `scripts/manufacturing_sim.R`. The script now uses the 32-replication default, including failures and two operator zones. `deploy_app.png`, `deploy_quarto.png`, and `app_screenshot.png` are the earlier hosted UI.
 
 ![Bay occupancy, one point per replication, with mean and SD](docs/images/utilization.png)
 
@@ -122,8 +122,6 @@ The Shiny app (**Lead time & data → Downloads**) and the Quarto document each 
 | tidyverse | Wrangling and ggplot2 figures |
 | tidymodels | Listed for later modeling work. The simulation does not call it |
 | shiny, bslib, bsicons | Interactive app and Quarto document |
-| ggrain | Bay-occupancy raincloud (`geom_rain`) |
-| ggridges | Operator-utilization and downtime ridgelines (`geom_density_ridges`) |
 | DT | Metrics and scenario tables |
 | zip | **Download all** bundle and `sim_exports.zip` |
 | Quarto (`server: shiny`) | Interactive document |
@@ -141,8 +139,6 @@ install.packages(c(
   "bsicons",
   "DT",
   "zip",
-  "ggrain",
-  "ggridges",
   "rsconnect"
 ))
 ```
@@ -180,7 +176,7 @@ Rscript tests/timing_checks.R
 Rscript tests/comparison_checks.R
 ```
 
-`manufacturing_sim.R` sources `app/R/model.R`, runs 15 replications, and writes `output/*.csv`, `output/sim_exports.zip`, and the PNG figures (`utilization`, `operator_utilization`, `queue_length`, `wip_over_time`, `downtime`, `cycle_time_dist`). The script resolves `output/` from its own path. `output/` is gitignored.
+`manufacturing_sim.R` sources `app/R/model.R`, runs the 32-replication default, and writes `output/*.csv`, `output/sim_exports.zip`, and the PNG figures (`utilization`, `operator_utilization`, `queue_length`, `wip_over_time`, `downtime`, `cycle_time_dist`). The script resolves `output/` from its own path. `output/` is gitignored.
 
 The staffing and timing scripts use 20 replications and write comparison CSVs plus RDS archives of the nested scenario results.
 
@@ -217,7 +213,7 @@ quarto/
   line_sim.qmd          # same controls, server: shiny
   R/model.R             # identical engine copy
 scripts/
-  manufacturing_sim.R   # 10-rep batch: CSVs, zip, PNGs
+  manufacturing_sim.R   # default-replication batch: CSVs, zip, PNGs
   staffing_experiments.R
   timing_experiments.R
 tests/
@@ -265,14 +261,13 @@ marks old charts when drafts change. Parameter differences show the current draf
 charts and the RDS download describe the captured run. Failed validation leaves
 the last successful results intact and reports that the comparison was not updated.
 
-Blue is Set 1 and orange is Set 2 throughout the comparison. Headline cards report
-means, the descriptive Set 2 minus Set 1 difference, and percent change where the
-baseline is nonzero. Throughput, mean lead time, WIP, and output per operator-hour
-are horizontal rainclouds: half-violin, boxplot, one faint point per replication,
-and the mean, with the axis scaled to the data. A set with no spread is a line at
-its median, not a strip of points. Bay occupancy, operator utilization, and active
-repair fraction are ridgelines (one ridge per station or pool, both sets overlaid,
-a vertical spike when a set has no spread). Lead-time density curves pool every
+Blue is Set 1 and orange is Set 2 throughout the comparison, including when the
+titles are renamed. Headline cards report means, the descriptive Set 2 minus Set 1
+difference, and percent change where the baseline is nonzero. Throughput, mean lead
+time, WIP, output per operator-hour, bay occupancy, operator utilization, and active
+repair fraction are overlaid densities with a rug tick for every replication. A set
+with no spread is a vertical line at that value. Occupancy stays inside 0–100%, and
+other non-negative metrics start at zero. Lead-time density curves pool every
 completed departure. WIP and queue charts draw every replication as a faint line,
 with a loess ribbon per set on that set's own time grid. Missing or no-completion
 metrics remain unavailable. Results are illustrative only and are not predictions
