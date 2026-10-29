@@ -15,7 +15,7 @@ The same engine drives a Shiny app, a Quarto document with `server: shiny`, and 
 | Shiny app | <https://2o6mmo-eddie-benjamin.shinyapps.io/automotive-line-sim/> |
 | Quarto document | <https://2o6mmo-eddie-benjamin.shinyapps.io/automotive-line-sim-quarto/> |
 
-Those deployments predate shared operators, breakdowns, and the all-replication charts. The screenshots below are from that earlier build. Redeploy from `app/` and `quarto/` to publish this version. See [DEPLOY.md](DEPLOY.md).
+Deployment contents may differ from this development branch. No automatic deployment is performed by these changes. See [DEPLOY.md](DEPLOY.md).
 
 ![Earlier Shiny deployment, before operators and breakdowns](docs/images/deploy_app.png)
 
@@ -37,7 +37,7 @@ Each replication uses seed `base_seed + replication - 1`. Statistics below use t
 - Bay occupancy and queue length integrate the piecewise-constant resource monitor, including the state carried across the warmup boundary.
 - Downtime fraction is machine-time in repair inside the window, divided by capacity times the window length. The repair-event log keeps start time and sampled duration for the whole run.
 
-Highest bay occupancy is a **bottleneck candidate**. It includes time spent holding a bay while waiting. Confirm a constraint by changing that station and seeing whether throughput moves.
+The **bottleneck candidate** now uses bay occupancy excluding blocked time. This prevents a full upstream station blocked by downstream congestion from automatically ranking highest. Remaining operator/equipment waits can still affect the score; confirm a constraint through a capacity-change experiment.
 
 Placeholder defaults (all example values):
 
@@ -48,7 +48,7 @@ Placeholder defaults (all example values):
 | Final assembly | 2 | normal | 7 | 1.0 | downstream | 2 / 1 | 300 / 10 | 45 / 4 |
 | Inspection | 1 | exponential | 3 | — | downstream | 1 / 0.5 | off (`MTTR` 0) | 60 / 3 |
 
-Mean interarrival time is 4 minutes. Horizon is 480 minutes with 60 minutes of warmup. Two operators per zone and one repair technician. The app, the Quarto doc, and the batch script default to 15 replications. Base seed is `20261027`. The queue and WIP charts resample monitors onto a 2-minute grid. Random support is on; "every N units" defaults to 0, which selects the random interval.
+The Shiny defaults are one 480-minute measured shift after 60 minutes of settling (540 minutes total), 15 evenly scheduled orders/hour, entrance-space admission with three waiting positions, and three waiting positions before each downstream station. Two operators per zone and one repair technician. The app, the Quarto doc, and the batch script default to 15 replications. Base seed is `20261027`. The queue and WIP charts resample monitors onto a 2-minute grid. Random support is on; "every N units" defaults to 0, which selects the random interval.
 
 ## Features
 
@@ -297,3 +297,82 @@ controls, identical-set agreement, independent edits, stale results, copying,
 matching replication counts, empirical validation, and all comparison plots/tables.
 Existing model, timing, and Shiny checks also pass. Browser layout and mobile visual
 QA are still required before deploying this development branch.
+
+## Production schedule, buffers and admission (new development)
+
+The Shiny app separates **Initial settling period**, **Shift duration**,
+**Number of measured shifts**, and **Simulation runs**. Total operating time is
+`settling + shift_duration * shifts`. For example, 1,440 minutes of settling,
+480 minutes per shift, 20 shifts and 25 runs simulates 25 independent periods of
+184 operating hours each, reporting the final 160 hours as twenty separate shifts.
+Shifts are **consecutive production periods**, not a wall-clock weekday calendar.
+Work, repairs and failure clocks continue across shift boundaries; there are no
+nights/weekends/breaks in this release. A long settling period does not guarantee
+stationarity or remove an overloaded order backlog.
+
+A planned order is created at the configured vehicles/hour rate, either evenly
+spaced (first at time zero) or at exponential intervals. This is incoming planned
+work, not a modeled customer due-date/demand forecast. Its admission rule is:
+
+- **Entrance space:** admit FIFO only when a first-station bay or entrance waiting
+  position is available. Further orders wait outside production.
+- **CONWIP:** require entrance space AND a free place under the total line WIP cap.
+- **Release all scheduled work:** admit immediately, permitting an unlimited
+  entrance queue. Interstation buffer limits still apply. Backlog is intentionally
+  relocated into shop-floor WIP in this policy, not silently dropped.
+
+Every downstream station has `buffer_before` waiting positions, additional to its
+bays. Zero permits direct transfer only. A completed upstream vehicle must reserve
+a downstream bay-or-buffer slot before its own bay is released (**blocking after
+processing**). The slot remains allocated until the vehicle leaves that downstream
+station. Operators are released after unloading and are not held during blocking.
+Count-triggered support tasks retain their prior after-bay-release behavior and
+can delay transfer while holding a reserved downstream position. This is an
+explicit reservation assumption, not instantaneous transporter modeling.
+
+`orders` keeps order time, release time, completion time and status. Unreleased
+orders are excluded from shop-floor WIP; their waiting is included in
+order-to-completion lead time. Production lead time starts at release. Both
+lead-time means use completed departure cohorts and remain subject to finite-run
+censoring. No end-of-run draining is performed. Incoming work that remains outside
+production at the end is still visible as backlog.
+
+`shift_summaries` contains one row per shift per run: planned orders, admissions,
+completions, throughput, starting/ending WIP and backlog, average WIP, and both
+lead-time means. Shifts use half-open intervals `[start,end)`; beginning stocks are
+measured immediately before events at the boundary. This gives exact balances:
+
+```
+start WIP + admissions - completions = end WIP
+start backlog + planned orders - admissions = end backlog
+```
+
+The **Production schedule & flow** page shows shift output, admitted WIP versus
+unreleased work, station waiting durations, and active repair versus technician
+waiting. Total equipment unavailability includes ongoing failures still waiting
+for repair at run end. Existing repair-fraction charts retain the narrower active
+repair metric. Blocked, operator-wait and automatic-capacity-wait minutes are
+recorded directly; they are not a full mutually exclusive processing/starvation/
+failure state decomposition. Automatic processing interrupted by a breakdown is
+covered by reliability losses, not the automatic-capacity queue-wait metric.
+
+Comparison sets expose the same new controls, track their changes in provenance,
+and include shift-output and unreleased-backlog charts. The existing scalar
+`sim_length_min` remains a derived total horizon in shift mode. Programmatic old
+parameter lists without `time_mode` use `legacy`: the old total horizon minus
+warmup is one measured period. Legacy lists missing `buffer_before` retain
+unlimited internal queues. The Quarto UI still uses this legacy run configuration;
+its engine copy is kept identical, but the new production UI is Shiny-only.
+
+New exports: `shift_summaries.csv`, `orders.csv`, `release_timeseries.csv`, and
+`station_waits.csv`. The full RDS comparison export retains every new table and
+exact inputs. Existing flat empirical timing labels remain summaries; use the RDS
+for exact replay of empirical vectors.
+
+Checks: `tests/production_checks.R` exercises shift partitions, vehicle/order
+conservation, zero-buffer blocking, entrance limits, event-level CONWIP bounds,
+24-hour settling plus 20-shift measurement, empty runs and repair waiting.
+`tests/production_shiny_checks.R` exercises production controls, fingerprints,
+new result tables/charts, and two-set policy comparisons. Existing model, timing,
+comparison and Shiny checks remain part of the release checks. Production/mobile
+visual QA is still required; this branch is not automatically deployed.

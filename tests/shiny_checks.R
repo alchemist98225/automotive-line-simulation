@@ -35,7 +35,7 @@ shiny::testServer(e$server, {
   stopifnot(identical(output$timing_stale_flag, "fresh"))
   settings <- paste(as.character(output$run_settings_body), collapse = " ")
   stopifnot(grepl("Run 1", settings, fixed = TRUE))
-  stopifnot(grepl("Reps 15", settings, fixed = TRUE))
+  stopifnot(grepl("Runs 15", settings, fixed = TRUE))
   stopifnot(grepl("Paint 1", settings, fixed = TRUE))
   stopifnot(grepl("cycle-time:", settings, fixed = TRUE))
   stopifnot(grepl("operators:", settings, fixed = TRUE))
@@ -115,7 +115,7 @@ stopifnot(panel_open(items[[1]]))
 stopifnot(!any(vapply(items[-1], panel_open, logical(1))))
 # Run settings live in the open panel. Capacity, timing, and crews are grouped by station.
 stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="15"', items[[1]], fixed = TRUE))
-stopifnot(grepl('id="run"', items[[1]], fixed = TRUE), grepl('id="arrival_mean"', items[[1]], fixed = TRUE))
+stopifnot(grepl('id="run"', items[[1]], fixed = TRUE), grepl('id="planned_rate"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="body_cap"', items[[2]], fixed = TRUE), grepl(">Body shop<", items[[2]], fixed = TRUE))
 stopifnot(grepl('id="paint_cap"', items[[2]], fixed = TRUE), grepl('id="fa_cap"', items[[2]], fixed = TRUE), grepl('id="insp_cap"', items[[2]], fixed = TRUE))
 stopifnot(!grepl('id="body_mean"', items[[2]], fixed = TRUE))
@@ -130,7 +130,7 @@ stopifnot(grepl("reliability_final_assembly", items[[4]], fixed = TRUE), grepl("
 cat("Sidebar accordion check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,
-    sim_length=480,warmup=60,arrival_mean=4,n_reps=2,seed=20261027,
+    sim_length=480,warmup=60,planned_rate=15,n_reps=2,seed=20261027,
     body_cap=2,body_mean=6,paint_cap=1,paint_mean=8,fa_cap=2,fa_mean=7,insp_cap=1,insp_mean=3)
   ids <- c(load="load_min",unload="unload_min",mtbf="mtbf_min",mttr="mttr_min",interval="task_interval_min",task="task_duration_min")
   for(i in seq_len(nrow(e$default_params()$stations))) {
@@ -165,7 +165,7 @@ shiny::testServer(e$server, {
   stopifnot(grepl("rerun_staffing", warn, fixed = TRUE))
   settings_txt <- paste(as.character(output$run_settings_body), collapse = " ")
   stopifnot(grepl("Paint 2", settings_txt, fixed = TRUE))
-  stopifnot(grepl("Reps 2", settings_txt, fixed = TRUE))
+  stopifnot(grepl("Runs 2", settings_txt, fixed = TRUE))
   stopifnot(grepl("Run ", settings_txt, fixed = TRUE))
   stopifnot(grepl("cycle-time:", settings_txt, fixed = TRUE))
   stopifnot(grepl("operators:", settings_txt, fixed = TRUE))
@@ -211,7 +211,7 @@ stopifnot(inherits(try(e$parse_observations("1, bad, 2"),silent=TRUE),"try-error
 shiny::testServer(e$server, {
   fp0 <- e$params_fingerprint(build_params())
   session$setInputs(staffing="zones", op_a=2, op_b=2, repair_staff=1, reliability=TRUE, noncyclic=TRUE,
-    sim_length=480, warmup=60, arrival_mean=4, n_reps=15, seed=20261027,
+    sim_length=480, warmup=60, planned_rate=15, n_reps=15, seed=20261027,
     body_cap=2, body_mean=6, paint_cap=1, paint_mean=8, fa_cap=2, fa_mean=7, insp_cap=1, insp_mean=3)
   for (i in seq_len(nrow(e$default_params()$stations))) {
     st <- e$default_params()$stations[i,]
@@ -371,7 +371,7 @@ shiny::testServer(e$server, {
   stopifnot(paint_cap(tried) == 2L)
   stopifnot(identical(tried$bottleneck, "final_assembly"))
   stopifnot(tried$headline$throughput_per_hr_mean > base$headline$throughput_per_hr_mean)
-  stopifnot(tried$headline$avg_wip_mean < base$headline$avg_wip_mean)
+  stopifnot(tried$headline$end_unreleased_backlog_mean < base$headline$end_unreleased_backlog_mean)
   stopifnot(tried$headline$cycle_time_mean_mean < base$headline$cycle_time_mean_mean)
   stopifnot(identical(output$main_stale_flag, "fresh"))
   session$setInputs(body_cap = 4, n_reps = 2)
@@ -385,7 +385,7 @@ shiny::testServer(e$server, {
   stopifnot(isTRUE(all.equal(reset$headline$avg_wip_mean, base$headline$avg_wip_mean)))
   stopifnot(identical(output$main_stale_flag, "fresh"))
   stopifnot(grepl("Paint 1", reset$provenance$summary, fixed = TRUE))
-  stopifnot(grepl("Reps 15", reset$provenance$summary, fixed = TRUE))
+  stopifnot(grepl("Runs 15", reset$provenance$summary, fixed = TRUE))
 })
 qmd_guide <- readLines("quarto/line_sim.qmd")
 stopifnot(any(grepl('id = "guided_example"', qmd_guide, fixed = TRUE)))

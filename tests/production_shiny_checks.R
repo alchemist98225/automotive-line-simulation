@@ -1,0 +1,29 @@
+e<-new.env();source("app/app.R",local=e,chdir=TRUE)
+shiny::testServer(e$server,{
+ session$setInputs(n_reps=2,n_shifts=5,sim_length=480,warmup=1440,planned_rate=15,
+   release_policy="conwip",wip_limit=8,entry_buffer=2,order_spacing="fixed")
+ p<-build_params()
+ stopifnot(p$sim_length_min==3840,p$shift_length_min==480,p$n_shifts==5,p$arrival_mean_min==4)
+ session$setInputs(run=1)
+ r<-sim_result();stopifnot(nrow(r$shift_summaries)==10,max(r$release_timeseries$wip)<=8)
+ fp<-e$params_fingerprint(p)
+ session$setInputs(buffer_paint=1)
+ stopifnot(!identical(fp,e$params_fingerprint(build_params())))
+})
+p<-e$default_params();p$n_replications<-2L;p$n_shifts<-3L
+r<-e$run_line_sim(p)
+shiny::testServer(e$production_page_server,args=list(result=shiny::reactive(r),current_fingerprint=shiny::reactive("test")),{
+ invisible(output$plan);invisible(output$shifts);invisible(output$inventory)
+ invisible(output$shift_table);invisible(output$waits);invisible(output$repairs);invisible(output$buffers)
+})
+shiny::testServer(e$comparison_page_server,args=list(main_params=shiny::reactive(p),active_page=shiny::reactive("compare_sets")),{
+ session$flushReact()
+ a<-one$params();b<-two$params()
+ stopifnot(a$n_shifts==3,e$comparison_same(a,b))
+ b$release_policy<-"conwip";b$wip_limit<-6L;two$set_params(b)
+ stopifnot(nrow(e$comparison_diff(one$params(),two$params()))>0)
+ session$setInputs(run=1)
+ stopifnot(nrow(results()$runs[[2]]$shift_summaries)==6,max(results()$runs[[2]]$release_timeseries$wip)<=6)
+ invisible(output$shift_output);invisible(output$backlog)
+})
+cat("Production UI and comparison checks passed\n")

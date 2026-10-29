@@ -1,5 +1,5 @@
 source("app/R/model.R")
-p <- default_params(); p$n_replications <- 2L
+p <- default_params(); p$time_mode <- "legacy"; p$n_replications <- 2L
 # Warmup boundary: a machine busy continuously must retain 100% utilization.
 synthetic <- tibble(resource="machine",time=c(0,10),server=c(0,1),queue=0,capacity=1)
 stopifnot(resource_stats(synthetic,20,100)$avg_util==1)

@@ -22,3 +22,12 @@ Bay occupancy, operator utilization, and active repair on the comparison page
 are ridgelines (a spike when a set has no spread). Replication summaries stay
 horizontal rainclouds. Results are illustrative only and are not predictions
 for any employer. Tom: review the new page on desktop and mobile.
+
+Production plan/release work: codex/production-plan-release starts at merged PR #10.
+Adds consecutive measured shifts after separate settling, planned-order spacing,
+entrance-space and CONWIP admission, finite downstream buffers (blocking after
+processing), release/order ledgers, shift totals, station wait intervals and total
+repair downtime including technician waiting. Both engine copies remain identical.
+Shiny and its two-set comparison expose the new configuration. Quarto retains its
+legacy total-horizon controls. Review the reservation/after-release support-task
+assumption and the explicit absence of off-shift calendars. No production deploy.

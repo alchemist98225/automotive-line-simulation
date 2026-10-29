@@ -677,7 +677,7 @@ tagList(
                 p("vehicles in system, counted once")),
       value_box(title = "Bottleneck", value = textOutput("kpi_bottleneck", inline = TRUE),
                 showcase = bs_icon("exclamation-triangle"), theme = "danger",
-                p("highest bay occupancy — see the first tab"))
+                p("highest occupancy excluding blocked time — see the first tab"))
     )
   )
 )
@@ -685,7 +685,7 @@ tagList(
 
 ## Results
 
-KPI boxes stay above the charts. Each plot uses the full width. **Bottleneck & capacity** is first because the Bottleneck KPI is the station with the highest bay occupancy.
+KPI boxes stay above the charts. Each plot uses the full width. **Bottleneck & capacity** is first because the Bottleneck KPI is the station with the highest occupancy excluding blocked time.
 
 ```{r}
 #| echo: false
@@ -728,7 +728,7 @@ navset_card_underline(
     title = "Bottleneck & capacity",
     value = "capacity",
     p(class = "text-muted small px-2 pt-2 mb-1",
-      "The Bottleneck KPI is the station with the highest bay occupancy. These tabs show whether bays, operators, or downtime explain it."),
+      "The Bottleneck KPI is the station with the highest occupancy excluding blocked time. These tabs show whether bays, operators, or downtime explain it."),
     navset_pill(
       id = "capacity_tabs",
       selected = "occupancy",

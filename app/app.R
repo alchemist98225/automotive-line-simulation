@@ -14,6 +14,7 @@ library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
 source("R/model.R", local = TRUE)
 source("R/comparison.R", local = TRUE)
+source("R/production.R", local = TRUE)
 
 # Station display labels
 station_labels <- c(
@@ -61,6 +62,8 @@ params_signature <- function(p) {
   st <- p$stations
   list(
     sim_length_min = as.numeric(p$sim_length_min),
+    shift_length_min=as.numeric(p$shift_length_min),n_shifts=as.integer(p$n_shifts),
+    time_mode=p$time_mode,release_policy=p$release_policy,entry_buffer=p$entry_buffer,wip_limit=p$wip_limit,order_spacing=p$order_spacing,
     n_replications = as.integer(p$n_replications),
     base_seed = as.integer(p$base_seed),
     warmup_min = as.numeric(p$warmup_min),
@@ -77,6 +80,7 @@ params_signature <- function(p) {
       list(
         name = as.character(st$name[[i]]),
         capacity = as.integer(st$capacity[[i]]),
+        buffer_before=as.numeric(st$buffer_before[[i]]),
         dist = as.character(st$dist[[i]]),
         mean_min = as.numeric(st$mean_min[[i]]),
         sd_min = if (is.finite(st$sd_min[[i]])) as.numeric(st$sd_min[[i]]) else NA_real_,
@@ -125,7 +129,7 @@ format_run_settings <- function(p) {
     mtbf_txt <- "off"
   }
   sprintf(
-    "Reps %d · seed %d · %g min run / %g min warm-up · interarrival %g min · bays: %s · cycle-time: %s · operators: %s (%s) · MTBF/MTTR %s · repair techs %d",
+    "Runs %d · seed %d · %g min total / %g min settling · planned order interval %g min · bays: %s · cycle-time: %s · operators: %s (%s) · MTBF/MTTR %s · repair techs %d",
     as.integer(p$n_replications), as.integer(p$base_seed),
     p$sim_length_min, p$warmup_min, p$arrival_mean_min,
     bay_txt, cycle_txt, operator_mode_label(p$operators), op_txt, mtbf_txt,
@@ -517,7 +521,7 @@ guided_example_ui <- function() {
             actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
           ),
           p(class = "mb-2",
-            "Under these placeholder inputs, throughput rises, WIP and mean lead time fall, and the bottleneck candidate moves to final assembly."),
+            "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow."),
           p(class = "text-muted small mb-0",
             "All data is illustrative placeholder data, not a prediction for any real plant or company.")
         )
@@ -529,7 +533,13 @@ guided_example_ui <- function() {
 # Push every sidebar control back to the value it shows on first load.
 restore_default_inputs <- function(session) {
   stations <- default_params()$stations
-  updateNumericInput(session, "arrival_mean", value = 4)
+  updateNumericInput(session,"planned_rate",value=15)
+  updateNumericInput(session,"n_shifts",value=1)
+  updateSelectInput(session,"release_policy",selected="space")
+  updateSelectInput(session,"order_spacing",selected="fixed")
+  updateNumericInput(session,"entry_buffer",value=3)
+  updateNumericInput(session,"wip_limit",value=10)
+  walk(default_params()$stations$name[-1],~updateNumericInput(session,paste0("buffer_",.x),value=3))
   updateNumericInput(session, "sim_length", value = 480)
   updateNumericInput(session, "warmup", value = 60)
   updateNumericInput(session, "n_reps", value = 15)
@@ -639,14 +649,20 @@ ui <- page_navbar(
           multiple = TRUE,
           accordion_panel(
             "Arrivals & run",
-            numericInput("arrival_mean", "Mean interarrival (min)",
-                         value = 4, min = 0.5, max = 60, step = 0.5),
-            numericInput("sim_length", "Sim length (min)",
-                         value = 480, min = 60, max = 4800, step = 30),
-            numericInput("warmup", "Warmup (min)",
-                         value = 60, min = 0, max = 2400, step = 15),
-            numericInput("n_reps", "Replications",
-                         value = 15, min = 1, max = 30, step = 1),
+            numericInput("planned_rate","Planned work rate (vehicles/hour)",value=15,min=.01,max=600,step=1),
+            selectInput("order_spacing","Order spacing",c("Evenly scheduled"="fixed","Random (exponential)"="exponential"),selected="fixed"),
+            selectInput("release_policy","Admission policy",c("When entrance space is available"="space","Limit total line WIP (CONWIP)"="conwip","Release all scheduled work"="scheduled"),selected="space"),
+            numericInput("entry_buffer","Entrance waiting positions",3,min=0,step=1),
+            numericInput("wip_limit","Maximum line WIP (CONWIP only)",10,min=1,step=1),
+            helpText("Planned work waits outside production until admitted. Release-all allows an unlimited entrance queue. Interstation buffers apply to every policy."),
+            numericInput("sim_length", "Shift duration (production minutes)",
+                         value = 480, min = 1, max = 1440, step = 30),
+            numericInput("n_shifts","Number of measured shifts",value=1,min=1,max=100,step=1),
+            helpText("Settling happens first. Shifts are measured separately and run consecutively; nights and weekends are not simulated."),
+            numericInput("warmup", "Initial settling period (minutes)",
+                         value = 60, min = 0, max = 10080, step = 15),
+            numericInput("n_reps", "Simulation runs",
+                         value = 15, min = 1, max = 100, step = 1),
             numericInput("seed", "Base seed",
                          value = 20261027, min = 1, step = 1),
             actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
@@ -664,7 +680,11 @@ ui <- page_navbar(
             station_group("Final assembly",
               numericInput("fa_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
             station_group("Inspection",
-              numericInput("insp_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1))
+              numericInput("insp_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1)),
+            helpText("Waiting positions before each downstream process. Zero means direct transfer only. A completed vehicle holds its upstream bay until space opens."),
+            numericInput("buffer_paint","Waiting positions before paint",3,min=0,step=1),
+            numericInput("buffer_final_assembly","Waiting positions before final assembly",3,min=0,step=1),
+            numericInput("buffer_inspection","Waiting positions before inspection",3,min=0,step=1)
           ),
           accordion_panel(
             "Cycle times",
@@ -715,7 +735,7 @@ ui <- page_navbar(
           p("departures / hour (mean across reps)")
         ),
         value_box(
-          title = "Mean cycle time",
+          title = "Mean production lead time",
           value = textOutput("kpi_cycle", inline = TRUE),
           showcase = bs_icon("hourglass-split"),
           theme = "info",
@@ -729,11 +749,11 @@ ui <- page_navbar(
           p("vehicles in system, counted once")
         ),
         value_box(
-          title = "Bottleneck",
+          title = "Bottleneck candidate",
           value = textOutput("kpi_bottleneck", inline = TRUE),
           showcase = bs_icon("exclamation-triangle"),
           theme = "danger",
-          p("highest bay occupancy — see the first tab")
+          p("highest occupancy excluding blocked time — see the first tab")
         )
         )
       ),
@@ -745,7 +765,7 @@ ui <- page_navbar(
           title = "Bottleneck & capacity",
           value = "capacity",
           p(class = "text-muted small px-2 pt-2 mb-1",
-            "The Bottleneck KPI is the station with the highest bay occupancy. These tabs show whether bays, operators, or downtime explain it."),
+            "The Bottleneck KPI is the station with the highest occupancy excluding blocked time. These tabs show whether bays, operators, or downtime explain it."),
           navset_pill(
             id = "capacity_tabs",
             selected = "occupancy",
@@ -916,6 +936,8 @@ ui <- page_navbar(
     )
   ),
 
+  production_page_ui("production_results"),
+
   comparison_page_ui("two_set_study"),
 
   nav_panel(
@@ -935,7 +957,7 @@ lognormal, or exponential), or measured observations. Arrivals follow an
 exponential interarrival process.
 
 The simulator runs multiple independent replications with fixed seeds for
-reproducibility, discards a warmup period, and reports:
+reproducibility, runs the settling period first, then measures every complete production shift and reports:
 
 - Throughput (vehicles/hour)
 - Cycle time (mean and distribution)
@@ -968,8 +990,7 @@ tracking an individual vehicle to a particular physical machine. Failure clocks
 advance in calendar up-time (including idle time), pause during their own repair,
 and use exponential up and repair durations. Technician queues add downtime.
 
-Buffers are unlimited; physical blocking, walking time, shifts, and scrap are
-not implemented. Bay occupancy identifies a bottleneck candidate; confirm it
+Interstation waiting positions are finite. A completed vehicle holds its upstream bay until downstream space opens. Operators are freed after unloading. Shifts are consecutive production periods; nights, weekends, walking time, and scrap are not implemented. Bay occupancy identifies a bottleneck candidate; confirm it
 by testing whether improving that station increases system throughput.
 
 Every chart uses **all replications**. Bay occupancy on Simulate is a raincloud.
@@ -1053,11 +1074,15 @@ server <- function(input, output, session) {
     reliability <- flag("reliability", TRUE)
     noncyclic <- flag("noncyclic", TRUE)
     p <- list(
-      sim_length_min   = val("sim_length", defaults$sim_length_min),
+      time_mode="shifts",shift_length_min=val("sim_length",defaults$shift_length_min),
+      n_shifts=val("n_shifts",defaults$n_shifts),
+      sim_length_min=val("warmup",defaults$warmup_min)+val("sim_length",defaults$shift_length_min)*val("n_shifts",defaults$n_shifts),
+      release_policy=val("release_policy",defaults$release_policy),entry_buffer=val("entry_buffer",defaults$entry_buffer),
+      wip_limit=val("wip_limit",defaults$wip_limit),order_spacing=val("order_spacing",defaults$order_spacing),
       n_replications   = as.integer(val("n_reps", defaults$n_replications)),
       base_seed        = as.integer(val("seed", defaults$base_seed)),
       warmup_min       = val("warmup", defaults$warmup_min),
-      arrival_mean_min = val("arrival_mean", defaults$arrival_mean_min),
+      arrival_mean_min = 60/val("planned_rate",60/defaults$arrival_mean_min),
       grid_dt_min      = defaults$grid_dt_min %||% 2,
       repair_technicians = as.integer(val("repair_staff", defaults$repair_technicians)),
       stations = tribble(
@@ -1073,6 +1098,7 @@ server <- function(input, output, session) {
       shared=tibble(pool="shared",count=val("op_all", 4)),
       dedicated=tibble(pool=names(station_labels),count=map_dbl(names(station_labels),~val(paste0("op_",.x), 1))))
     p$stations <- p$stations %>% mutate(
+      buffer_before=map_dbl(name,~if(.x=="body_shop") 0 else val(paste0("buffer_",.x),station_field(.x,"buffer_before"))),
       operator_pool=switch(staffing,zones=c("upstream","upstream","downstream","downstream"),shared=rep("shared",4),dedicated=name),
       load_min=map_dbl(name,~val(paste0("load_",.x), station_field(.x, "load_min"))),
       unload_min=map_dbl(name,~val(paste0("unload_",.x), station_field(.x, "unload_min"))),
@@ -1090,7 +1116,7 @@ server <- function(input, output, session) {
       p$stations$capacity[p$stations$name == "paint"] <- 2L
     }
     validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
-    p
+    normalize_params(p)
   }
   build_params <- reactive(assemble_params(guide_mode()))
   observeEvent(input$guide_try, {
@@ -1196,6 +1222,7 @@ server <- function(input, output, session) {
   }) %>% bindEvent(input$run, guide_run(), ignoreNULL = FALSE)
 
   current_fingerprint <- reactive(params_fingerprint(build_params()))
+  production_page_server("production_results",sim_result,current_fingerprint)
   main_settings_stale <- reactive({
     !identical(sim_result()$provenance$fingerprint, current_fingerprint())
   })

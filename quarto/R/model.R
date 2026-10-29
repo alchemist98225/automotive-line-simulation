@@ -7,7 +7,8 @@
 suppressPackageStartupMessages({library(simmer); library(tidyverse)})
 sim_now <- function(env) simmer::now(env)
 default_params <- function() {
-  list(sim_length_min=480, n_replications=15L, base_seed=20261027L,
+  list(sim_length_min=540, time_mode="shifts", shift_length_min=480, n_shifts=1L,
+       release_policy="space", entry_buffer=3L, wip_limit=10L, order_spacing="fixed", n_replications=15L, base_seed=20261027L,
        warmup_min=60, arrival_mean_min=4, grid_dt_min=2, repair_technicians=1L,
        operators=tibble(pool=c("upstream", "downstream"), count=c(2L,2L)),
        stations=tribble(
@@ -15,7 +16,7 @@ default_params <- function() {
          "body_shop",2L,"exponential",6,NA_real_,"upstream",1,0.5,240,15,60,4,
          "paint",1L,"normal",8,1.5,"upstream",0.5,0.5,360,20,90,5,
          "final_assembly",2L,"normal",7,1,"downstream",2,1,300,10,45,4,
-         "inspection",1L,"exponential",3,NA_real_,"downstream",1,0.5,Inf,0,60,3))
+         "inspection",1L,"exponential",3,NA_real_,"downstream",1,0.5,Inf,0,60,3) %>% mutate(buffer_before=c(0,3,3,3)))
 }
 # A timing specification is data; each compiled sampler draws on every invocation.
 # Normal samples are floored at zero, not redrawn. This changes their expected mean.
@@ -82,7 +83,7 @@ activity_timing <- function(st,activity) {
 # Missing timing list-columns are derived from legacy scalar fields.
 # Old app/Quarto parameter lists remain usable, with labor/reliability disabled.
 normalize_params <- function(p) {
-  defaults <- list(operator_pool=NA_character_,load_min=0,unload_min=0,
+  defaults <- list(buffer_before=Inf,operator_pool=NA_character_,load_min=0,unload_min=0,
                    mtbf_min=Inf,mttr_min=0,task_interval_min=Inf,task_duration_min=0,task_every_n=0L)
   walk(names(defaults),function(n) {if (!n %in% names(p$stations)) p$stations[[n]] <<- defaults[[n]]})
   if (is.null(p$operators)) p$operators <- tibble(pool=character(),count=integer())
@@ -92,6 +93,13 @@ normalize_params <- function(p) {
     if (!column %in% names(p$stations))
       p$stations[[column]] <<- map(seq_len(nrow(p$stations)),~activity_timing(p$stations[.x,],activity))
   })
+  p$time_mode <- p$time_mode %||% "legacy"
+  if (p$time_mode=="shifts") p$sim_length_min <- p$warmup_min+p$shift_length_min*p$n_shifts
+  else {p$shift_length_min <- p$sim_length_min-p$warmup_min; p$n_shifts <- 1L}
+  p$release_policy <- p$release_policy %||% "scheduled"
+  p$entry_buffer <- p$entry_buffer %||% 3L
+  p$wip_limit <- p$wip_limit %||% 10L
+  p$order_spacing <- p$order_spacing %||% "exponential"
   p
 }
 validate_params <- function(p) {
@@ -121,6 +129,12 @@ validate_params <- function(p) {
     stopifnot(is.list(specs),length(specs)==nrow(p$stations))
     walk(specs,validate_timing)
   })
+  stopifnot(p$time_mode %in% c("shifts","legacy"),positive(p$shift_length_min),integer_positive(p$n_shifts),
+    p$release_policy %in% c("scheduled","space","conwip"),p$order_spacing %in% c("fixed","exponential"),
+    length(p$entry_buffer)==1,is.finite(p$entry_buffer),p$entry_buffer>=0,p$entry_buffer==floor(p$entry_buffer),
+    length(p$wip_limit)==1,integer_positive(p$wip_limit),
+    all(!is.na(p$stations$buffer_before) & p$stations$buffer_before>=0 &
+      (is.infinite(p$stations$buffer_before) | p$stations$buffer_before==floor(p$stations$buffer_before))))
   p
 }
 # Integrate piecewise constant states, including the state at the warmup boundary.
@@ -135,24 +149,52 @@ run_one_replication <- function(rep_id,seed,params) {
   set.seed(seed)
   env <- simmer(paste0("line",rep_id)); s <- params$stations
   events <- new.env(); events$failures <- list(); events$repairs <- list()
-  record_failure <- function(n) {events$failures[[length(events$failures)+1L]] <- tibble(station=n,time=sim_now(env)); 0}
-  record_repair <- function(n,d) {events$repairs[[length(events$repairs)+1L]] <- tibble(station=n,time=sim_now(env),duration=d); d}
+  events$admissions <- list(); events$waits <- list(); events$wip <- 0L; events$entrance <- 0L
+  gated <- params$release_policy!="scheduled"
+  can_admit <- function() events$entrance < s$capacity[1]+params$entry_buffer &&
+    (params$release_policy!="conwip" || events$wip<params$wip_limit)
+  update_gate <- function(t) if(gated) t %>% set_capacity("release_gate",function() as.integer(can_admit())) else t
+  if(gated) add_resource(env,"release_gate",capacity=1)
+  # One slot represents a downstream bay or a waiting position. Held until transfer.
+  walk(seq_len(nrow(s))[-1],function(i) {
+    if(is.finite(s$buffer_before[i])) add_resource(env,paste0("slots_",s$name[i]),s$capacity[i]+s$buffer_before[i])
+  })
+  admit <- function() {
+    events$wip<-events$wip+1L; events$entrance<-events$entrance+1L
+    events$admissions[[length(events$admissions)+1L]]<-tibble(name=get_name(env),release_time=sim_now(env));0
+  }
+  leave_first <- function() {events$entrance<-events$entrance-1L;0}
+  depart <- function() {events$wip<-events$wip-1L;0}
+  begin_wait <- function(st,type) {
+    id<-length(events$waits)+1L;events$waits[[id]]<-tibble(station=st,type=type,start=sim_now(env),end=NA_real_);id
+  }
+  end_wait <- function() {id<-get_attribute(env,"wait_id");events$waits[[id]]$end<-sim_now(env);0}
+  wait_for <- function(t,resource,st,type) t %>%
+    set_attribute("wait_id",function() begin_wait(st,type)) %>% seize(resource) %>% timeout(end_wait)
+  record_failure <- function(n) {id<-length(events$failures)+1L;events$failures[[id]]<-tibble(station=n,time=sim_now(env),failure_id=id);id}
+  record_repair <- function(n,d) {events$repairs[[length(events$repairs)+1L]] <- tibble(station=n,time=sim_now(env),duration=d,failure_id=get_attribute(env,"failure_id")); d}
   walk2(params$operators$pool,params$operators$count,~add_resource(env,paste0("operator_",.x),.y))
   add_resource(env,"maintenance",params$repair_technicians)
   walk2(s$name,s$capacity, function(n,c) {
     add_resource(env,n,c); add_resource(env,paste0("auto_",n),c,preemptive=TRUE)
   })
   # Distinct automatic capacity permits resume after failure without retaining labor.
-  trajectory_for_station <- function(st) {
+  trajectory_for_station <- function(i) {
+    st <- s[i,]
     n <- st$name; op <- paste0("operator_",st$operator_pool)
     t <- trajectory(n) %>% seize(n)
     manual <- function(t,duration) {
       if (is.na(st$operator_pool)) return(t %>% timeout(duration))
-      t %>% seize(op) %>% timeout(duration) %>% release(op)
+      wait_for(t,op,n,"waiting_for_operator") %>% timeout(duration) %>% release(op)
     }
     t <- manual(t,make_duration_fn(activity_timing(st,"load")))
-    t <- t %>% seize(paste0("auto_",n)) %>% timeout(make_duration_fn(activity_timing(st,"auto"))) %>% release(paste0("auto_",n))
-    t <- manual(t,make_duration_fn(activity_timing(st,"unload"))) %>% release(n)
+    t <- wait_for(t,paste0("auto_",n),n,"waiting_for_automatic_capacity") %>% timeout(make_duration_fn(activity_timing(st,"auto"))) %>% release(paste0("auto_",n))
+    t <- manual(t,make_duration_fn(activity_timing(st,"unload")))
+    if(i<nrow(s) && is.finite(s$buffer_before[i+1]))
+      t <- wait_for(t,paste0("slots_",s$name[i+1]),n,"blocked")
+    t <- t %>% release(n)
+    if(i>1 && is.finite(st$buffer_before)) t<-t %>% release(paste0("slots_",n))
+    if(i==1) t<-update_gate(t %>% timeout(leave_first))
     if (!is.na(st$operator_pool) && st$task_every_n>0 && timing_mean(activity_timing(st,"task"))>0) {
       t <- t %>% set_global(paste0("units_",n),1,mod="+") %>%
         branch(function() as.integer(get_global(env,paste0("units_",n)) %% st$task_every_n==0),continue=TRUE,
@@ -160,13 +202,18 @@ run_one_replication <- function(rep_id,seed,params) {
     }
     t
   }
-  vehicle <- reduce(seq_len(nrow(s)),function(t,i) join(t,trajectory_for_station(s[i,])),.init=trajectory("vehicle"))
+  admission <- trajectory("vehicle")
+  if(gated) admission<-admission %>% seize("release_gate")
+  admission<-update_gate(admission %>% timeout(admit))
+  if(gated) admission<-admission %>% release("release_gate")
+  vehicle <- reduce(seq_len(nrow(s)),function(t,i) join(t,trajectory_for_station(i)),.init=admission)
+  vehicle <- update_gate(vehicle %>% timeout(depart))
   # One independent alternating up/repair process per interchangeable machine.
   walk(seq_len(nrow(s)),function(i) {
     st <- s[i,]; n <- st$name
     if (is.finite(st$mtbf_min) && st$mttr_min>0) {
       failure <- trajectory("failure") %>% timeout(function() rexp(1,1/st$mtbf_min)) %>%
-        timeout(function() record_failure(n)) %>%
+        set_attribute("failure_id",function() record_failure(n)) %>%
         seize(paste0("auto_",n)) %>% seize("maintenance") %>%
         timeout(function() record_repair(n,rexp(1,1/st$mttr_min))) %>% release("maintenance") %>%
         release(paste0("auto_",n)) %>% simmer::rollback(7,Inf)
@@ -178,13 +225,26 @@ run_one_replication <- function(rep_id,seed,params) {
       add_generator(env,paste0("task_",n,"_"),task,function() rexp(1,1/st$task_interval_min))
     }
   })
-  add_generator(env,"veh",vehicle,function() rexp(1,1/params$arrival_mean_min),mon=2,restart=FALSE)
+  first_order <- TRUE
+  order_clock <- function() {
+    if(params$order_spacing=="exponential") return(rexp(1,1/params$arrival_mean_min))
+    if(first_order) {first_order<<-FALSE;return(0)}
+    params$arrival_mean_min
+  }
+  add_generator(env,"veh",vehicle,order_clock,mon=2,restart=FALSE)
   run(env,until=params$sim_length_min)
-  arrivals <- get_mon_arrivals(env,ongoing=TRUE) %>% as_tibble() %>% filter(startsWith(name,"veh"))
+  orders <- get_mon_arrivals(env,ongoing=TRUE) %>% as_tibble() %>% filter(startsWith(name,"veh"),start_time>=0,start_time<params$sim_length_min) %>%
+    rename(order_time=start_time) %>% left_join(bind_rows(tibble(name=character(),release_time=double()),events$admissions),by="name")
+  arrivals <- orders %>% filter(!is.na(release_time)) %>% mutate(start_time=release_time)
   completed <- arrivals %>% filter(finished,end_time>=params$warmup_min)
   # Lead times use departures in the observation window, including pre-warmup entrants.
   ct <- completed$end_time-completed$start_time
-  res <- get_mon_resources(env) %>% as_tibble()
+  initial <- bind_rows(tibble(resource=s$name,capacity=s$capacity),
+    tibble(resource=paste0("auto_",s$name),capacity=s$capacity),
+    params$operators %>% transmute(resource=paste0("operator_",pool),capacity=count),
+    tibble(resource="maintenance",capacity=params$repair_technicians)) %>%
+    mutate(time=0,server=0L,queue=0L,queue_size=Inf,system=0L,limit=Inf)
+  res <- bind_rows(initial,get_mon_resources(env) %>% as_tibble())
   stats <- resource_stats(res,params$warmup_min,params$sim_length_min)
   # Arrival-based WIP counts each vehicle once, even when holding several resources.
   wip <- sum(pmax(0,pmin(if_else(arrivals$finished,arrivals$end_time,params$sim_length_min),params$sim_length_min)-pmax(arrivals$start_time,params$warmup_min)))/(params$sim_length_min-params$warmup_min)
@@ -192,6 +252,9 @@ run_one_replication <- function(rep_id,seed,params) {
   list(summary=tibble(replication=rep_id,seed=seed,n_completed=nrow(completed),
          throughput_per_hr=nrow(completed)/((params$sim_length_min-params$warmup_min)/60),
          cycle_time_mean=if(length(ct)) mean(ct) else NA_real_,cycle_time_p50=q(.5),cycle_time_p90=q(.9),cycle_time_p95=q(.95),avg_wip=wip,
+         avg_unreleased_backlog=sum(pmax(0,pmin(coalesce(orders$release_time,params$sim_length_min),params$sim_length_min)-pmax(orders$order_time,params$warmup_min)))/(params$sim_length_min-params$warmup_min),
+         end_unreleased_backlog=sum(is.na(orders$release_time)),end_wip=sum(!arrivals$finished),
+         order_lead_time_mean=if(nrow(completed)) mean(completed$end_time-completed$order_time) else NA_real_,
          throughput_per_labor_hr=if(sum(params$operators$count)>0) nrow(completed)/((params$sim_length_min-params$warmup_min)/60)/sum(params$operators$count) else NA_real_),
        stations=stats %>% filter(resource %in% s$name) %>% mutate(replication=rep_id,seed=seed),
        labor=stats %>% filter(startsWith(resource,"operator_")) %>% mutate(replication=rep_id,seed=seed),
@@ -199,8 +262,10 @@ run_one_replication <- function(rep_id,seed,params) {
        resources_ts=res %>% filter(resource %in% s$name) %>% mutate(replication=rep_id,seed=seed),
        arrivals=arrivals %>% transmute(replication=rep_id,seed=seed,name,start_time,end_time,finished),
        all_resources=stats %>% mutate(replication=rep_id),
-       failure_events=bind_rows(tibble(station=character(),time=double()),events$failures) %>% mutate(replication=rep_id),
-       repair_events=bind_rows(tibble(station=character(),time=double(),duration=double()),events$repairs) %>% mutate(replication=rep_id))
+       orders=orders %>% transmute(replication=rep_id,seed=seed,name,order_time,release_time,end_time,finished),
+       waits=bind_rows(tibble(station=character(),type=character(),start=double(),end=double()),events$waits) %>% mutate(end=coalesce(end,params$sim_length_min),replication=rep_id,seed=seed),
+       failure_events=bind_rows(tibble(station=character(),time=double(),failure_id=integer()),events$failures) %>% mutate(replication=rep_id),
+       repair_events=bind_rows(tibble(station=character(),time=double(),duration=double(),failure_id=integer()),events$repairs) %>% mutate(replication=rep_id))
 }
 run_line_sim <- function(params=default_params()) {
   if (is.null(params$grid_dt_min) || !is.finite(params$grid_dt_min) || params$grid_dt_min<=0)
@@ -216,24 +281,38 @@ run_line_sim <- function(params=default_params()) {
   failure_events <- map_dfr(results$result,"failure_events")
   repair_events <- map_dfr(results$result,"repair_events")
   reps <- results %>% dplyr::select(replication,seed)
+  orders <- map_dfr(results$result,"orders");waits<-map_dfr(results$result,"waits")
+  shift_summaries <- production_shift_metrics(orders,reps,params)
+  release_timeseries <- build_release_timeseries(orders,reps,params)
+  station_waits <- crossing(reps,station=params$stations$name,type=c("blocked","waiting_for_operator","waiting_for_automatic_capacity")) %>%
+    left_join(waits %>% mutate(minutes=pmax(0,pmin(end,params$sim_length_min)-pmax(start,params$warmup_min))) %>%
+      group_by(replication,station,type) %>% summarise(minutes=sum(minutes),.groups="drop"),by=c("replication","station","type")) %>%
+    mutate(minutes=replace_na(minutes,0))
   station_headline <- stations %>% group_by(resource) %>% summarise(avg_util_mean=mean(avg_util),avg_util_sd=sd(avg_util),avg_queue_mean=mean(avg_queue),avg_queue_sd=sd(avg_queue),.groups="drop")
-  queue_timeseries <- build_queue_timeseries(resources_ts,params)
+  queue_timeseries <- build_queue_timeseries(resources_ts,params,reps)
   wip_timeseries <- build_wip_timeseries(arrivals,reps,params)
-  downtime_by_rep <- build_downtime(repair_events,reps,params)
+  downtime_by_rep <- build_downtime(repair_events,reps,params,failure_events)
   down_sum <- downtime_by_rep %>% group_by(station) %>% summarise(
     downtime_fraction_mean=mean(downtime_fraction),downtime_fraction_sd=sd(downtime_fraction),
     repairs_per_rep_mean=mean(n_repairs),.groups="drop")
   utilization_by_rep <- stations %>% rename(station=resource)
   station_metrics <- station_headline %>% rename(station=resource) %>% left_join(down_sum,by="station")
-  list(summaries=summaries,stations=stations,cycles=cycles,cycle_times=cycles,
+  # Full upstream bays may be blocked rather than constraining production.
+  constraint_scores <- station_waits %>% filter(type=="blocked") %>% group_by(station) %>%
+    summarise(blocked_minutes=mean(minutes),.groups="drop") %>%
+    left_join(params$stations %>% transmute(station=name,capacity),by="station") %>%
+    left_join(station_metrics,by="station") %>% mutate(
+      blocked_fraction=blocked_minutes/(capacity*(params$sim_length_min-params$warmup_min)),
+      unblocked_occupancy=pmax(0,avg_util_mean-blocked_fraction))
+  list(summaries=summaries,shift_summaries=shift_summaries,orders=orders,release_timeseries=release_timeseries,station_waits=station_waits,waits=waits,stations=stations,cycles=cycles,cycle_times=cycles,
        resources_ts=resources_ts,labor=labor,operator_by_rep=labor,
        all_resources=map_dfr(results$result,"all_resources"),
        failure_events=failure_events,repair_events=repair_events,arrivals=arrivals,
        queue_timeseries=queue_timeseries,wip_timeseries=wip_timeseries,
        downtime_by_rep=downtime_by_rep,utilization_by_rep=utilization_by_rep,
        headline=summaries %>% summarise(across(-c(replication,seed),list(mean=~mean(.x,na.rm=TRUE),sd=~sd(.x,na.rm=TRUE)),.names="{.col}_{.fn}")),
-       station_headline=station_headline,station_metrics=station_metrics,
-       bottleneck=station_headline %>% slice_max(avg_util_mean,n=1,with_ties=FALSE) %>% pull(resource),
+       station_headline=station_headline,station_metrics=station_metrics,constraint_scores=constraint_scores,
+       bottleneck=constraint_scores %>% slice_max(unblocked_occupancy,n=1,with_ties=FALSE) %>% pull(station),
        params=params,run_parameters=params_to_tibble(params),seeds=results$seed)
 }
 # Scenarios are stored with their parameters and full results in list-columns.
@@ -268,8 +347,8 @@ resample_step <- function(time,value,grid) {
   if (length(time)==0L || all(is.na(time))) return(rep(NA_real_,length(grid)))
   ord <- order(time); time <- time[ord]; value <- value[ord]
   keep <- !duplicated(time,fromLast=TRUE); time <- time[keep]; value <- value[keep]
-  if (length(time)==1L) return(rep(as.numeric(value),length(grid)))
-  as.numeric(approx(time,value,xout=grid,method="constant",f=0,rule=2)$y)
+  if (length(time)==1L) return(ifelse(grid<time,0,as.numeric(value)))
+  ifelse(grid<min(time),0,as.numeric(approx(time,value,xout=grid,method="constant",f=0,rule=2)$y))
 }
 time_grid <- function(params) {
   dt <- params$grid_dt_min %||% 2
@@ -278,9 +357,9 @@ time_grid <- function(params) {
   if (length(grid)==0L || tail(grid,1)<params$sim_length_min-1e-9) grid <- c(grid,params$sim_length_min)
   unique(grid)
 }
-build_queue_timeseries <- function(resources_ts,params) {
+build_queue_timeseries <- function(resources_ts,params,reps=NULL) {
   grid <- time_grid(params)
-  reps <- resources_ts %>% distinct(replication,seed)
+  if(is.null(reps)) reps <- resources_ts %>% distinct(replication,seed)
   rows <- vector("list",nrow(reps)*nrow(params$stations))
   k <- 0L
   for (i in seq_len(nrow(reps))) {
@@ -310,21 +389,30 @@ build_wip_timeseries <- function(arrivals,reps,params) {
   }))
 }
 # Machine-time down inside the observation window, from sampled repair durations.
-build_downtime <- function(repairs,reps,params) {
+build_downtime <- function(repairs,reps,params,failures=NULL) {
   warmup <- params$warmup_min; horizon <- params$sim_length_min; window <- horizon-warmup
   caps <- params$stations %>% transmute(station=name,capacity=capacity)
   grid <- crossing(reps,caps)
   if (nrow(repairs)==0) {
-    return(grid %>% mutate(downtime_min=0,downtime_fraction=0,n_repairs=0L))
+    if(is.null(failures) || nrow(failures)==0) return(grid %>% mutate(downtime_min=0,downtime_fraction=0,n_repairs=0L,total_downtime_min=0,waiting_repair_min=0,total_downtime_fraction=0))
   }
   ov <- repairs %>%
     mutate(overlap=pmax(0,pmin(time+duration,horizon)-pmax(time,warmup))) %>%
     group_by(replication,station) %>%
     summarise(downtime_min=sum(overlap),n_repairs=sum(overlap>0),.groups="drop")
+  if(!is.null(failures)) {
+    down<-failures %>% left_join(repairs %>% transmute(replication,failure_id,repair_end=time+duration),by=c("replication","failure_id")) %>%
+      mutate(overlap=pmax(0,pmin(coalesce(repair_end,horizon),horizon)-pmax(time,warmup))) %>%
+      group_by(replication,station) %>% summarise(total_downtime_min=sum(overlap),.groups="drop")
+    grid<-grid %>% left_join(down,by=c("replication","station"))
+  } else grid$total_downtime_min<-NA_real_
   grid %>% left_join(ov,by=c("replication","station")) %>%
     mutate(downtime_min=replace_na(downtime_min,0),
            n_repairs=as.integer(replace_na(n_repairs,0)),
-           downtime_fraction=downtime_min/(capacity*window))
+           downtime_fraction=downtime_min/(capacity*window),
+           total_downtime_min=coalesce(total_downtime_min,downtime_min),
+           waiting_repair_min=pmax(0,total_downtime_min-downtime_min),
+           total_downtime_fraction=total_downtime_min/(capacity*window))
 }
 timing_label <- function(spec) {
   if (is.null(spec) || !is.list(spec)) return(NA_character_)
@@ -340,10 +428,12 @@ params_to_tibble <- function(params) {
   note <- "PLACEHOLDER EXAMPLE PARAMETERS — not real plant data"
   run_cols <- tibble(sim_length_min=params$sim_length_min,n_replications=as.integer(params$n_replications),
     base_seed=as.integer(params$base_seed),warmup_min=params$warmup_min,arrival_mean_min=params$arrival_mean_min,
+    time_mode=params$time_mode,shift_length_min=params$shift_length_min,n_shifts=params$n_shifts,
+    release_policy=params$release_policy,entry_buffer=params$entry_buffer,wip_limit=params$wip_limit,order_spacing=params$order_spacing,
     grid_dt_min=params$grid_dt_min %||% 2,repair_technicians=as.integer(params$repair_technicians %||% 1L))
   st <- params$stations
   chr <- function(col) vapply(st[[col]],timing_label,character(1))
-  stations <- tibble(param_group="station",station=st$name,capacity=st$capacity,dist=st$dist,
+  stations <- tibble(param_group="station",station=st$name,capacity=st$capacity,buffer_before=st$buffer_before,dist=st$dist,
     mean_min=st$mean_min,sd_min=st$sd_min,operator_pool=st$operator_pool,load_min=st$load_min,
     unload_min=st$unload_min,mtbf_min=st$mtbf_min,mttr_min=st$mttr_min,
     task_interval_min=st$task_interval_min,task_duration_min=st$task_duration_min,task_every_n=st$task_every_n,
@@ -362,7 +452,8 @@ sim_export_tables <- function(res) {
        station_metrics=res$station_metrics,run_parameters=res$run_parameters,
        summaries=res$summaries,failure_events=res$failure_events,
        repair_events=res$repair_events,downtime_by_rep=res$downtime_by_rep,
-       operator_by_rep=res$operator_by_rep)
+       operator_by_rep=res$operator_by_rep,shift_summaries=res$shift_summaries,
+       orders=res$orders,release_timeseries=res$release_timeseries,station_waits=res$station_waits)
 }
 #' Write every export table as CSV. Optionally bundle them into a zip.
 write_sim_exports <- function(res,dir,zip_path=NULL) {
@@ -387,4 +478,36 @@ write_sim_exports <- function(res,dir,zip_path=NULL) {
     }
   }
   invisible(paths)
+}
+
+# Shifts are consecutive production periods, not a wall-clock night/weekend calendar.
+production_shift_metrics <- function(orders,reps,params) {
+  crossing(reps,shift=seq_len(params$n_shifts)) %>% mutate(
+    start=params$warmup_min+(shift-1)*params$shift_length_min,end=start+params$shift_length_min) %>%
+    pmap_dfr(function(replication,seed,shift,start,end) {
+      # Explicit local argument avoids ambiguity with dplyr's data-mask column.
+      a<-orders[orders$replication==replication,]
+      released<-a$release_time; completed<-ifelse(a$finished,a$end_time,Inf)
+      stock<-function(t) sum(!is.na(released)&released<t&completed>=t)
+      backlog<-function(t) sum(a$order_time<t&(is.na(released)|released>=t))
+      done<-a$finished & a$end_time>=start & a$end_time<end
+      tibble(replication=replication,seed=seed,shift=shift,start=start,end=end,
+        orders_due=sum(a$order_time>=start&a$order_time<end),
+        n_released=sum(!is.na(released)&released>=start&released<end),n_completed=sum(done),
+        throughput_per_hr=sum(done)/((end-start)/60),start_wip=stock(start),end_wip=stock(end),
+        start_backlog=backlog(start),end_backlog=backlog(end),
+        avg_wip=sum(pmax(0,pmin(completed,end)-pmax(coalesce(released,end),start)))/(end-start),
+        release_lead_time=if(any(done)) mean(a$end_time[done]-released[done]) else NA_real_,
+        order_lead_time=if(any(done)) mean(a$end_time[done]-a$order_time[done]) else NA_real_)
+    })
+}
+build_release_timeseries <- function(orders,reps,params) {
+  grid<-time_grid(params)
+  map2_dfr(reps$replication,reps$seed,function(id,seed) {
+    a<-orders[orders$replication==id,]
+    due<-findInterval(grid,sort(a$order_time));released<-findInterval(grid,sort(na.omit(a$release_time)))
+    finished<-findInterval(grid,sort(a$end_time[a$finished]))
+    tibble(replication=id,seed=seed,time=grid,unreleased_backlog=due-released,wip=released-finished,
+      cumulative_orders=due,cumulative_releases=released,cumulative_completions=finished)
+  })
 }
