@@ -11,3 +11,9 @@ Still worth a review before anyone treats the numbers as plant guidance:
 - Browser visual QA of the combined layout is still outstanding. No production redeploy is included in this branch.
 
 Finite buffers, blocking, and sensitivity-based bottleneck confirmation remain future work.
+
+Two-set comparison: codex/two-set-comparison is based on PR #5's sidebar branch
+b002e85. It adds app/R/comparison.R and a top-level Compare two sets tab. No engine
+changes or production deployment. Snapshot imports use revision-specific input
+IDs so a reset cannot accidentally read stale controls. Tom: review the new page
+on desktop/mobile, and merge after PR #5 (or review the stacked PR against #5).
