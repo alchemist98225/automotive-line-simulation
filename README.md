@@ -123,6 +123,7 @@ The Shiny app (**Lead time & data → Downloads**) and the Quarto document each 
 | tidymodels | Listed for later modeling work. The simulation does not call it |
 | shiny, bslib, bsicons | Interactive app and Quarto document |
 | DT | Metrics and scenario tables |
+| ggtext | Wraps the shift-output caption to the plot width |
 | zip | **Download all** bundle and `sim_exports.zip` |
 | Quarto (`server: shiny`) | Interactive document |
 | rsconnect | Deploy to shinyapps.io or Posit Connect |
@@ -139,6 +140,7 @@ install.packages(c(
   "bsicons",
   "DT",
   "zip",
+  "ggtext",
   "rsconnect"
 ))
 ```

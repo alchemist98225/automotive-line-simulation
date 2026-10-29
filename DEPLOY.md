@@ -7,7 +7,7 @@ Live deployments of this repository:
 
 ## Prerequisites
 
-- R with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `simmer`, `DT`, `zip`, and `rsconnect`. The app and the Quarto doc call `library(zip)` so shinyapps.io installs it for **Download all**. `tidymodels` is not required to run the simulation.
+- R with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `ggtext`, `simmer`, `DT`, `zip`, and `rsconnect`. The app calls `library(zip)` so shinyapps.io installs it for **Download all**, and `library(ggtext)` so the shift-output caption wraps to the plot width. `tidymodels` is not required to run the simulation.
 - A free [shinyapps.io](https://www.shinyapps.io/) account (or Posit Connect / Posit Connect Cloud).
 - [Quarto](https://quarto.org/) for the interactive document.
 

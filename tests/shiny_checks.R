@@ -381,18 +381,28 @@ dens_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomDensity")[1]]]
 stopifnot(identical(dens_layer$aes_params$colour, "#253494"))
 stopifnot(abs(dens_layer$aes_params$linewidth - 1.15) < 1e-8)
 hist_breaks <- hist_layer$stat_params$breaks
-stopifnot(length(hist_breaks) >= 2L, all(abs(diff(hist_breaks) - round(diff(hist_breaks))) < 1e-8))
+stopifnot(length(hist_breaks) >= 2L, all(abs(diff(hist_breaks) - 1) < 1e-8))
+stopifnot(identical(e$shift_binwidth(one_shift$n_completed), 1L))
+stopifnot(e$shift_binwidth(c(1, 10, 40, 80)) > 1L)
+rug_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomRug")[1]]]
+stopifnot(abs(rug_layer$aes_params$alpha - 0.6) < 1e-8)
+stopifnot(abs(rug_layer$position$width - 0.15) < 1e-8)
+stopifnot(identical(rug_layer$position$height, 0))
 stopifnot(nrow(shift_built$data[[which(shift_geoms == "GeomRug")[1]]]) == nrow(one_shift))
+stopifnot(isFALSE(dens_layer$stat_params$trim))
+label_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomText")[1]]]
+stopifnot(identical(label_layer$aes_params$hjust, 0))
 shift_labels <- unlist(lapply(shift_built$data, function(d) if ("label" %in% names(d)) d$label else character()))
 stopifnot(any(grepl("Theoretical capacity", shift_labels, fixed = TRUE)))
 stopifnot(any(grepl("53 vehicles", shift_labels, fixed = TRUE)))
 x_breaks <- shift_built$layout$panel_params[[1]]$x$breaks
 x_breaks <- x_breaks[is.finite(x_breaks)]
 stopifnot(length(x_breaks) >= 2L, all(abs(x_breaks - round(x_breaks)) < 1e-8))
-cap_lines <- strsplit(shift_built$plot$labels$caption, "\n", fixed = TRUE)[[1]]
-stopifnot(any(grepl("ignoring labor", cap_lines, fixed = TRUE)))
-stopifnot(any(grepl("blocking", cap_lines, fixed = TRUE)))
-stopifnot(length(cap_lines) >= 2L, all(nchar(cap_lines) <= 32L))
+stopifnot(grepl("ignoring labor", shift_built$plot$labels$caption, fixed = TRUE))
+stopifnot(grepl("blocking", shift_built$plot$labels$caption, fixed = TRUE))
+stopifnot(!grepl("\n", shift_built$plot$labels$caption, fixed = TRUE))
+stopifnot(nchar(shift_built$plot$labels$caption) > 32L)
+stopifnot(inherits(shift_built$plot$theme$plot.caption, "element_textbox"))
 title_lines <- strsplit(shift_built$plot$labels$title, "\n", fixed = TRUE)[[1]]
 stopifnot(all(nchar(title_lines) <= 32L))
 stopifnot(identical(shift_built$plot$theme$text$size, 16))

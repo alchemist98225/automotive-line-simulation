@@ -7,6 +7,7 @@ library(shiny)
 library(bslib)
 library(bsicons)
 library(tidyverse)
+library(ggtext) # declared so shinyapps.io installs it; the shift caption wraps to the plot width
 library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 

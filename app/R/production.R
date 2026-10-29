@@ -22,11 +22,13 @@ integer_shift_breaks <- function(lims) {
   by <- max(1L, ceiling(span / 5))
   seq(lo, hi, by = by)
 }
-capacity_label <- function(n) sprintf("Theoretical capacity:\n%.0f vehicles", round(n))
-# Freedman–Diaconis width, rounded to a whole number of vehicles. A point mass uses 1.
+capacity_label <- function(n) sprintf("Theoretical capacity: %.0f vehicles", round(n))
+# One vehicle per bar when the counts span about 20 or fewer. Wider spreads use
+# Freedman–Diaconis, rounded to a whole number of vehicles.
 shift_binwidth <- function(x) {
   x <- x[is.finite(x)]
   if (length(x) < 2L) return(1L)
+  if (diff(range(x)) <= 20) return(1L)
   iqr <- stats::IQR(x)
   bw <- if (!is.finite(iqr) || iqr <= 0) 1 else 2 * iqr / length(x)^(1 / 3)
   max(1L, as.integer(round(bw)))
@@ -62,12 +64,10 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
     cap_value <- if (length(capacity) == 1L && is.finite(capacity)) capacity else NA_real_
   }
   mean_out <- mean(df$n_completed)
-  caption <- plot_subtitle(
-    "Each rug tick is one replication. The dashed line is theoretical vehicles per shift at the slowest station, ignoring labor, failures, support work, and blocking.",
-    32
-  )
+  # One paragraph. A text box wraps it to the plot width instead of a fixed 32 characters.
+  caption <- "Each rug tick is one replication. The dashed line is theoretical vehicles per shift at the slowest station, ignoring labor, failures, support work, and blocking."
   bw <- shift_binwidth(df$n_completed)
-  breaks <- shift_hist_breaks(c(df$n_completed, cap_value, if (!is.null(cap_df)) cap_df$capacity), bw)
+  breaks <- shift_hist_breaks(df$n_completed, bw)
   spread_ok <- function(x) {
     x <- x[is.finite(x)]
     length(x) >= 2L && is.finite(stats::sd(x)) && stats::sd(x) > sqrt(.Machine$double.eps)
@@ -89,46 +89,48 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
         breaks = breaks, position = "identity", alpha = 0.55, colour = "white"
       ) +
       geom_rug(
-        aes(colour = set), alpha = 0.85, length = grid::unit(0.03, "npc"),
+        aes(y = 0, colour = set),
+        sides = "b",
+        alpha = 0.6,
+        length = grid::unit(0.03, "npc"),
+        position = position_jitter(width = 0.15, height = 0, seed = 42),
         show.legend = FALSE
       ) +
       scale_fill_manual(values = palette, drop = FALSE, name = NULL) +
       scale_colour_manual(values = palette, drop = FALSE, name = NULL)
     if (nrow(varying)) {
       p <- p + geom_density(
-        data = varying, aes(colour = set), linewidth = 1.15, na.rm = TRUE, show.legend = FALSE
+        data = varying, aes(colour = set), linewidth = 1.15, trim = FALSE,
+        na.rm = TRUE, show.legend = FALSE
       )
     }
     split_caps <- !is.null(cap_df) && nrow(cap_df) > 1L && diff(range(cap_df$capacity)) >= 0.5
     if (isTRUE(split_caps)) {
       cap_df <- cap_df %>%
-        dplyr::arrange(.data$capacity) %>%
-        dplyr::mutate(
-          hjust = dplyr::if_else(.data$capacity >= median(df$n_completed), 1.02, -0.02),
-          vjust = 1.15 + (dplyr::row_number() - 1L) * 0.15
-        )
+        dplyr::arrange(dplyr::desc(.data$capacity)) %>%
+        dplyr::mutate(vjust = -0.15 - (dplyr::row_number() - 1L) * 1.15)
       p <- p +
         geom_vline(
           data = cap_df, aes(xintercept = .data$capacity, colour = set),
           inherit.aes = FALSE, linetype = "dashed", linewidth = 0.9
         ) +
-        geom_label(
+        geom_text(
           data = cap_df,
-          aes(x = .data$capacity, label = capacity_label(.data$capacity), colour = set, hjust = hjust, vjust = vjust),
-          y = Inf, inherit.aes = FALSE, fill = "white", linewidth = 0, size = 4.2,
-          show.legend = FALSE, label.padding = grid::unit(0.12, "lines")
+          aes(
+            x = .data$capacity, label = capacity_label(.data$capacity),
+            colour = set, vjust = vjust
+          ),
+          y = Inf, hjust = 0, inherit.aes = FALSE, size = 4.2, show.legend = FALSE
         )
     } else if (is.finite(cap_value)) {
-      hjust <- if (cap_value >= median(df$n_completed)) 1.02 else -0.02
       p <- p +
-        geom_vline(xintercept = cap_value, linetype = "dashed", linewidth = 0.9, colour = "#1a1a1a") +
+        geom_vline(xintercept = cap_value, linetype = "dashed", linewidth = 0.9, colour = shift_line_color) +
         annotate(
-          "label", x = cap_value, y = Inf, label = capacity_label(cap_value),
-          hjust = hjust, vjust = 1.15, colour = "#1a1a1a", fill = "white",
-          linewidth = 0, size = 4.2, label.padding = grid::unit(0.12, "lines")
+          "text", x = cap_value, y = Inf, label = capacity_label(cap_value),
+          hjust = 0, vjust = -0.15, colour = shift_line_color, size = 4.2
         )
     }
-    p <- p + theme_sim(legend.position = "bottom", plot.margin = margin(10, 18, 8, 8))
+    p <- p + theme_sim(legend.position = "bottom", plot.margin = margin(28, 16, 8, 8))
   } else {
     ratio <- if (is.finite(cap_value) && cap_value > 0) mean_out / cap_value else NA_real_
     title <- plot_subtitle(if (!is.finite(ratio)) {
@@ -146,32 +148,55 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
         aes(y = after_stat(density)),
         breaks = breaks, fill = shift_hist_fill, colour = "white", alpha = 0.55
       ) +
-      geom_rug(colour = shift_line_color, alpha = 0.85, length = grid::unit(0.03, "npc"))
+      geom_rug(
+        aes(y = 0),
+        sides = "b",
+        colour = shift_line_color, alpha = 0.6, length = grid::unit(0.03, "npc"),
+        position = position_jitter(width = 0.15, height = 0, seed = 42)
+      )
     if (nrow(varying)) {
-      p <- p + geom_density(data = varying, colour = shift_line_color, linewidth = 1.15, na.rm = TRUE)
+      p <- p + geom_density(
+        data = varying, colour = shift_line_color, linewidth = 1.15,
+        trim = FALSE, na.rm = TRUE
+      )
     }
     if (is.finite(cap_value)) {
-      hjust <- if (cap_value >= median(df$n_completed)) 1.02 else -0.02
       p <- p +
         geom_vline(xintercept = cap_value, linetype = "dashed", linewidth = 0.9, colour = shift_line_color) +
         annotate(
-          "label", x = cap_value, y = Inf, label = capacity_label(cap_value),
-          hjust = hjust, vjust = 1.15, colour = shift_line_color, fill = "white",
-          linewidth = 0, size = 4.2, label.padding = grid::unit(0.12, "lines")
+          "text", x = cap_value, y = Inf, label = capacity_label(cap_value),
+          hjust = 0, vjust = -0.15, colour = shift_line_color, size = 4.2
         )
     }
-    p <- p + theme_sim(plot.margin = margin(10, 18, 8, 8))
+    p <- p + theme_sim(plot.margin = margin(28, 16, 8, 8))
   }
   if (nlevels(df$shift_label) > 1L) {
     p <- p + facet_wrap(vars(shift_label), ncol = 2)
   }
+  # Room to the right of the reference line so its label sits in the top margin,
+  # clear of the density peak. clip off lets that label use the margin.
+  x_lo <- min(df$n_completed)
+  x_hi <- max(c(df$n_completed, cap_value, if (!is.null(cap_df)) cap_df$capacity), na.rm = TRUE)
   p +
     scale_x_continuous(breaks = integer_shift_breaks) +
+    coord_cartesian(xlim = c(x_lo - 0.8, x_hi + 8), clip = "off") +
     labs(
       title = title,
       x = "Completed vehicles per shift",
       y = "Density",
       caption = caption
+    ) +
+    theme(
+      plot.caption = ggtext::element_textbox_simple(
+        colour = "#1a1a1a",
+        hjust = 0,
+        halign = 0,
+        size = 16,
+        lineheight = 1.15,
+        width = grid::unit(1, "npc"),
+        margin = margin(8, 0, 0, 0),
+        padding = margin(0, 0, 0, 0)
+      )
     )
 }
 # Results from the saved main run. No independent resimulation or mutable settings.
