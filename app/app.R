@@ -492,6 +492,87 @@ register_station_panels <- function(output) {
   invisible(output)
 }
 
+# Open on first load. The summary collapses it; the buttons drive one experiment.
+guided_example_ui <- function() {
+  tagList(
+    tags$style(HTML("
+      .guided-example summary { cursor: pointer; font-weight: 600; }
+      #guided_example.bslib-card { flex: 0 0 auto; height: auto; }
+    ")),
+    card(
+      id = "guided_example",
+      class = "guided-example",
+      fill = FALSE,
+      card_body(
+        fill = FALSE,
+        tags$details(
+          open = NA,
+          tags$summary("Guided example"),
+          p(class = "mt-2 mb-2",
+            "This model asks where the line's capacity constraint is, and what changes if you add capacity there."),
+          p(class = "mb-2", "Raise Paint from 1 bay to 2."),
+          div(
+            class = "d-flex flex-wrap gap-2 mb-2",
+            actionButton("guide_try", "Try it", class = "btn-primary btn-sm", icon = icon("play")),
+            actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
+          ),
+          p(class = "mb-2",
+            "Under these placeholder inputs, throughput rises, WIP and mean lead time fall, and the bottleneck candidate moves to final assembly."),
+          p(class = "text-muted small mb-0",
+            "All data is illustrative placeholder data, not a prediction for any real plant or company.")
+        )
+      )
+    )
+  )
+}
+
+# Push every sidebar control back to the value it shows on first load.
+restore_default_inputs <- function(session) {
+  stations <- default_params()$stations
+  updateNumericInput(session, "arrival_mean", value = 4)
+  updateNumericInput(session, "sim_length", value = 480)
+  updateNumericInput(session, "warmup", value = 60)
+  updateNumericInput(session, "n_reps", value = 15)
+  updateNumericInput(session, "seed", value = 20261027)
+  updateNumericInput(session, "body_cap", value = 2)
+  updateNumericInput(session, "paint_cap", value = 1)
+  updateNumericInput(session, "fa_cap", value = 2)
+  updateNumericInput(session, "insp_cap", value = 1)
+  updateNumericInput(session, "body_mean", value = 6)
+  updateNumericInput(session, "paint_mean", value = 8)
+  updateNumericInput(session, "fa_mean", value = 7)
+  updateNumericInput(session, "insp_mean", value = 3)
+  updateSelectInput(session, "staffing", selected = "zones")
+  updateCheckboxInput(session, "reliability", value = TRUE)
+  updateCheckboxInput(session, "noncyclic", value = TRUE)
+  updateNumericInput(session, "repair_staff", value = 1)
+  updateNumericInput(session, "op_a", value = 2)
+  updateNumericInput(session, "op_b", value = 2)
+  updateNumericInput(session, "op_all", value = 4)
+  for (nm in names(station_labels)) {
+    updateNumericInput(session, paste0("op_", nm), value = 1)
+  }
+  for (i in seq_len(nrow(stations))) {
+    st <- stations[i, ]
+    n <- st$name
+    updateNumericInput(session, paste0("load_", n), value = st$load_min)
+    updateNumericInput(session, paste0("unload_", n), value = st$unload_min)
+    updateNumericInput(session, paste0("mtbf_", n), value = if (is.finite(st$mtbf_min)) st$mtbf_min else 10000)
+    updateNumericInput(session, paste0("mttr_", n), value = st$mttr_min)
+    updateNumericInput(session, paste0("interval_", n), value = st$task_interval_min)
+    updateNumericInput(session, paste0("every_", n), value = 0)
+    updateNumericInput(session, paste0("task_", n), value = st$task_duration_min)
+    for (activity in c("load", "auto", "unload", "task")) {
+      id <- paste0(activity, "_", n)
+      auto <- identical(activity, "auto")
+      updateSelectInput(session, paste0(id, "_method"), selected = if (auto) "distribution" else "fixed")
+      updateSelectInput(session, paste0(id, "_distribution"), selected = if (auto) st$dist else "normal")
+      updateNumericInput(session, paste0(id, "_sd"), value = if (auto && is.finite(st$sd_min)) st$sd_min else 0.25)
+      updateTextAreaInput(session, paste0(id, "_observations"), value = "")
+    }
+  }
+}
+
 ui <- page_navbar(
   id = "main_page",
   title = "Automotive Line Simulator",
@@ -547,6 +628,7 @@ ui <- page_navbar(
 
   nav_panel(
     title = "Simulate",
+    div(class = "px-3 pt-3", guided_example_ui()),
     layout_sidebar(
       sidebar = sidebar(
         title = "Line parameters",
@@ -847,9 +929,10 @@ pass through four stations in order:
 
 1. **Body shop** → 2. **Paint** → 3. **Final assembly** → 4. **Inspection**
 
-Each station has a configurable number of parallel servers (bays) and a mean
-processing time. Service times are drawn from exponential or normal distributions
-(placeholders). Arrivals follow an exponential interarrival process.
+Each station has a configurable number of parallel bays. Load, automatic,
+unload, and support times can be a fixed duration, a distribution (normal,
+lognormal, or exponential), or measured observations. Arrivals follow an
+exponential interarrival process.
 
 The simulator runs multiple independent replications with fixed seeds for
 reproducibility, discards a warmup period, and reports:
@@ -911,6 +994,11 @@ when a set has no spread. CSV files there are the data behind those charts.
 )
 
 server <- function(input, output, session) {
+  # "try" forces Paint to 2 bays. "defaults" ignores the widgets and uses the
+  # first-load placeholders. NULL follows the sidebar. The overlay stays until
+  # the widgets catch up, so the run is not marked stale during that round trip.
+  guide_mode <- reactiveVal(NULL)
+  guide_run <- reactiveVal(0L)
 
   output$operator_controls <- renderUI({
     switch(input$staffing,
@@ -921,10 +1009,11 @@ server <- function(input, output, session) {
   # Collapsed panels still create operator counts, timing, and reliability inputs.
   outputOptions(output, "operator_controls", suspendWhenHidden = FALSE)
   register_station_panels(output)
-  read_timing <- function(st,activity) {
-    id <- paste0(activity,"_",st$name)
-    legacy <- activity_timing(st,activity)
-    method <- input[[paste0(id,"_method")]]
+  read_timing <- function(st, activity, ignore_inputs = FALSE) {
+    legacy <- activity_timing(st, activity)
+    if (ignore_inputs) return(legacy)
+    id <- paste0(activity, "_", st$name)
+    method <- input[[paste0(id, "_method")]]
     if (is.null(method)) return(legacy)
     spec <- tryCatch({
       if (method=="empirical") timing_spec("empirical",observations=parse_observations(input[[paste0(id,"_observations")]] %||% ""))
@@ -944,14 +1033,17 @@ server <- function(input, output, session) {
   # placeholder defaults those controls display so the first paint is filled.
   # suspendWhenHidden = FALSE lets a later run see values from panels that
   # are still collapsed.
-  build_params <- reactive({
+  assemble_params <- function(mode = NULL) {
+    ignore <- identical(mode, "defaults")
     defaults <- default_params()
     st0 <- defaults$stations
     val <- function(id, default) {
+      if (ignore) return(default)
       x <- input[[id]]
       if (is.null(x)) default else x
     }
     flag <- function(id, default) {
+      if (ignore) return(default)
       x <- input[[id]]
       if (is.null(x)) default else isTRUE(x)
     }
@@ -990,12 +1082,36 @@ server <- function(input, output, session) {
       task_duration_min=if(noncyclic) map_dbl(name,~val(paste0("task_",.x), station_field(.x, "task_duration_min"))) else 0,
       task_every_n=map_dbl(name,~val(paste0("every_",.x), 0)))
     p$stations <- p$stations %>% mutate(
-      load_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"load")),
-      auto_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"auto")),
-      unload_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"unload")),
-      task_timing=map(seq_len(n()),~if(noncyclic) read_timing(p$stations[.x,],"task") else timing_spec()))
+      load_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"load", ignore)),
+      auto_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"auto", ignore)),
+      unload_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"unload", ignore)),
+      task_timing=map(seq_len(n()),~if(noncyclic) read_timing(p$stations[.x,],"task", ignore) else timing_spec()))
+    if (identical(mode, "try")) {
+      p$stations$capacity[p$stations$name == "paint"] <- 2L
+    }
     validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
     p
+  }
+  build_params <- reactive(assemble_params(guide_mode()))
+  observeEvent(input$guide_try, {
+    updateNumericInput(session, "paint_cap", value = 2)
+    guide_mode("try")
+    guide_run(isolate(guide_run()) + 1L)
+  })
+  observeEvent(input$guide_reset, {
+    restore_default_inputs(session)
+    guide_mode("defaults")
+    guide_run(isolate(guide_run()) + 1L)
+  })
+  # Drop the overlay once the sidebar shows the same line the run used.
+  observe({
+    mode <- guide_mode()
+    if (is.null(mode)) return()
+    matched <- tryCatch(
+      identical(params_fingerprint(assemble_params(NULL)), params_fingerprint(assemble_params(mode))),
+      error = function(e) FALSE
+    )
+    if (isTRUE(matched)) guide_mode(NULL)
   })
   two_set_study <- comparison_page_server("two_set_study", build_params, reactive(input$main_page))
 
@@ -1077,7 +1193,7 @@ server <- function(input, output, session) {
     })
     run_seq$main <- run_seq$main + 1L
     stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings)
-  }) %>% bindEvent(input$run, ignoreNULL = FALSE)
+  }) %>% bindEvent(input$run, guide_run(), ignoreNULL = FALSE)
 
   current_fingerprint <- reactive(params_fingerprint(build_params()))
   main_settings_stale <- reactive({
