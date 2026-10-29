@@ -350,6 +350,46 @@ timing_controls <- function(st,activity,label) {
       helpText("Sampled with replacement each occurrence. Mean and SD inputs are ignored.")))
 }
 
+station_group <- function(title, ...) {
+  div(class = "border-bottom pb-2 mb-3", h6(class = "mt-2", title), ...)
+}
+
+# Load/unload/automatic timing and MTBF/support inputs are renderUI outputs.
+# Collapsed accordion panels still build them so a run uses the values on
+# screen even when that panel has not been opened.
+register_station_panels <- function(output) {
+  stations <- default_params()$stations
+  lapply(seq_len(nrow(stations)), function(i) {
+    st <- stations[i, ]
+    n <- st$name
+    cycle_id <- paste0("cycle_", n)
+    rel_id <- paste0("reliability_", n)
+    output[[cycle_id]] <- renderUI({
+      tagList(
+        numericInput(paste0("load_", n), "Load duration / mean (min)", st$load_min, min = 0, step = .25),
+        numericInput(paste0("unload_", n), "Unload duration / mean (min)", st$unload_min, min = 0, step = .25),
+        timing_controls(st, "load", "Loading"),
+        timing_controls(st, "auto", "Automatic processing"),
+        timing_controls(st, "unload", "Unloading")
+      )
+    })
+    output[[rel_id]] <- renderUI({
+      tagList(
+        numericInput(paste0("mtbf_", n), "Mean up-time between failures (min)", if (is.finite(st$mtbf_min)) st$mtbf_min else 10000, min = 1),
+        numericInput(paste0("mttr_", n), "Mean active repair (min; 0 disables)", st$mttr_min, min = 0),
+        numericInput(paste0("interval_", n), "Mean support-task interval (min)", st$task_interval_min, min = 1),
+        numericInput(paste0("every_", n), "Support task every N units (0 = random)", 0, min = 0, step = 1),
+        numericInput(paste0("task_", n), "Support duration / mean (min)", st$task_duration_min, min = 0),
+        timing_controls(st, "task", "Support work")
+      )
+    })
+    outputOptions(output, cycle_id, suspendWhenHidden = FALSE)
+    outputOptions(output, rel_id, suspendWhenHidden = FALSE)
+    NULL
+  })
+  invisible(output)
+}
+
 ui <- page_navbar(
   title = "Automotive Line Simulator",
   theme = bs_theme(
@@ -399,7 +439,9 @@ ui <- page_navbar(
         title = "Line parameters",
         width = 320,
         accordion(
-          open = c("Arrivals & run", "Stations"),
+          id = "line_controls",
+          open = "Arrivals & run",
+          multiple = TRUE,
           accordion_panel(
             "Arrivals & run",
             numericInput("arrival_mean", "Mean interarrival (min)",
@@ -411,38 +453,56 @@ ui <- page_navbar(
             numericInput("n_reps", "Replications",
                          value = 15, min = 1, max = 30, step = 1),
             numericInput("seed", "Base seed",
-                         value = 20261027, min = 1, step = 1)
+                         value = 20261027, min = 1, step = 1),
+            actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
+            actionButton("compare_timing", "Compare timing variability", class = "w-100"),
+            actionButton("compare", "Compare staffing scenarios", class = "w-100"),
+            helpText("Staffing comparison opens under Bottleneck & capacity. Timing comparison and CSV downloads open under Lead time & data."),
+            helpText("Defaults are placeholder example values — not real plant data.")
           ),
           accordion_panel(
-            "Stations",
-            h6("Body shop"),
-            numericInput("body_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1),
-            numericInput("body_mean", "Automatic duration / mean (min)", value = 6, min = 0.5, max = 60, step = 0.5),
-            h6("Paint"),
-            numericInput("paint_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1),
-            numericInput("paint_mean", "Automatic duration / mean (min)", value = 8, min = 0.5, max = 60, step = 0.5),
-            h6("Final assembly"),
-            numericInput("fa_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1),
-            numericInput("fa_mean", "Automatic duration / mean (min)", value = 7, min = 0.5, max = 60, step = 0.5),
-            h6("Inspection"),
-            numericInput("insp_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1),
-            numericInput("insp_mean", "Automatic duration / mean (min)", value = 3, min = 0.5, max = 60, step = 0.5)
+            "Capacity",
+            station_group("Body shop",
+              numericInput("body_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
+            station_group("Paint",
+              numericInput("paint_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1)),
+            station_group("Final assembly",
+              numericInput("fa_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
+            station_group("Inspection",
+              numericInput("insp_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1))
+          ),
+          accordion_panel(
+            "Cycle times",
+            helpText("Automatic duration / mean. Placeholder minutes, not a measured cycle."),
+            station_group("Body shop",
+              numericInput("body_mean", "Automatic duration / mean (min)", value = 6, min = 0.5, max = 60, step = 0.5),
+              uiOutput("cycle_body_shop")),
+            station_group("Paint",
+              numericInput("paint_mean", "Automatic duration / mean (min)", value = 8, min = 0.5, max = 60, step = 0.5),
+              uiOutput("cycle_paint")),
+            station_group("Final assembly",
+              numericInput("fa_mean", "Automatic duration / mean (min)", value = 7, min = 0.5, max = 60, step = 0.5),
+              uiOutput("cycle_final_assembly")),
+            station_group("Inspection",
+              numericInput("insp_mean", "Automatic duration / mean (min)", value = 3, min = 0.5, max = 60, step = 0.5),
+              uiOutput("cycle_inspection"))
+          ),
+          accordion_panel(
+            "Operators & reliability",
+            helpText("Placeholder crew sizes, MTBF/MTTR, and task times — not measured plant data."),
+            selectInput("staffing", "Operator assignment", c("Two shared zones"="zones", "One shared team"="shared", "Dedicated by station"="dedicated")),
+            helpText("Zone A serves body and paint; Zone B serves assembly and inspection."),
+            uiOutput("operator_controls"),
+            checkboxInput("reliability", "Enable equipment failures", TRUE),
+            numericInput("repair_staff", "Repair technicians", 1, min = 1, step = 1),
+            checkboxInput("noncyclic", "Enable random support tasks", TRUE),
+            helpText("Mean up-time (MTBF) is calendar up-time in minutes. Mean active repair (MTTR) of 0 disables failures at that station. Support every N units uses 0 for a random exponential interval. These defaults are placeholders."),
+            station_group("Body shop", uiOutput("reliability_body_shop")),
+            station_group("Paint", uiOutput("reliability_paint")),
+            station_group("Final assembly", uiOutput("reliability_final_assembly")),
+            station_group("Inspection", uiOutput("reliability_inspection"))
           )
-        ),
-        h5("Operators & reliability"),
-        helpText("Placeholder crew sizes, MTBF/MTTR, and task times — not measured plant data."),
-        selectInput("staffing", "Operator assignment", c("Two shared zones"="zones", "One shared team"="shared", "Dedicated by station"="dedicated")),
-        helpText("Zone A serves body and paint; Zone B serves assembly and inspection."),
-        uiOutput("operator_controls"),
-        checkboxInput("reliability", "Enable equipment failures", TRUE),
-        numericInput("repair_staff", "Repair technicians", 1, min=1, step=1),
-        checkboxInput("noncyclic", "Enable random support tasks", TRUE),
-        accordion(accordion_panel("Activity timing & reliability by station", uiOutput("station_controls"))),
-        actionButton("compare_timing", "Compare timing variability", class="w-100"),
-        actionButton("compare", "Compare staffing scenarios", class="w-100"),
-        helpText("Staffing comparison opens under Bottleneck & capacity. Timing comparison and CSV downloads open under Lead time & data."),
-        actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
-        helpText("Defaults are placeholder example values — not real plant data.")
+        )
       ),
 
       # KPI boxes stay on top. Charts sit underneath in full-width tabs.
@@ -738,23 +798,9 @@ server <- function(input, output, session) {
       shared=numericInput("op_all","Shared team operators",4,min=1,step=1),
       dedicated=tagList(lapply(names(station_labels),function(n) numericInput(paste0("op_",n),paste(station_labels[[n]],"operators"),1,min=1,step=1))))
   })
-  output$station_controls <- renderUI({
-    tagList(lapply(seq_len(nrow(default_params()$stations)),function(i) {
-      st <- default_params()$stations[i,]; n <- st$name
-      tagList(h6(station_labels[[n]]),
-        numericInput(paste0("load_",n),"Load duration / mean (min)",st$load_min,min=0,step=.25),
-        numericInput(paste0("unload_",n),"Unload duration / mean (min)",st$unload_min,min=0,step=.25),
-        timing_controls(st,"load","Loading"),
-        timing_controls(st,"auto","Automatic processing"),
-        timing_controls(st,"unload","Unloading"),
-        numericInput(paste0("mtbf_",n),"Mean up-time between failures (min)",if(is.finite(st$mtbf_min)) st$mtbf_min else 10000,min=1),
-        numericInput(paste0("mttr_",n),"Mean active repair (min; 0 disables)",st$mttr_min,min=0),
-        numericInput(paste0("interval_",n),"Mean support-task interval (min)",st$task_interval_min,min=1),
-        numericInput(paste0("every_",n),"Support task every N units (0 = random)",0,min=0,step=1),
-        numericInput(paste0("task_",n),"Support duration / mean (min)",st$task_duration_min,min=0),
-        timing_controls(st,"task","Support work"))
-    }))
-  })
+  # Collapsed panels still create operator counts, timing, and reliability inputs.
+  outputOptions(output, "operator_controls", suspendWhenHidden = FALSE)
+  register_station_panels(output)
   read_timing <- function(st,activity) {
     id <- paste0(activity,"_",st$name)
     legacy <- activity_timing(st,activity)
@@ -773,8 +819,11 @@ server <- function(input, output, session) {
   }
   # Build params from sidebar inputs. Dynamic renderUI inputs are still NULL
   # on the first bindEvent fire (ignoreNULL = FALSE runs before the client
-  # registers op_*, load_*, mtbf_*, and the rest). Fall back to the same
+  # registers op_*, load_*, mtbf_*, and the rest), including when those
+  # outputs sit in a collapsed accordion panel. Fall back to the same
   # placeholder defaults those controls display so the first paint is filled.
+  # suspendWhenHidden = FALSE lets a later run see values from panels that
+  # are still collapsed.
   build_params <- reactive({
     defaults <- default_params()
     st0 <- defaults$stations
