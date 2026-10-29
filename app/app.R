@@ -953,8 +953,9 @@ pass through four stations in order:
 
 Each station has a configurable number of parallel bays. Load, automatic,
 unload, and support times can be a fixed duration, a distribution (normal,
-lognormal, or exponential), or measured observations. Arrivals follow an
-exponential interarrival process.
+lognormal, or exponential), or measured observations. Planned orders use evenly spaced or exponential
+intervals. Admission can depend on entrance space, a total-WIP limit (CONWIP),
+or release all planned work. Unreleased orders stay outside shop-floor WIP.
 
 The simulator runs multiple independent replications with fixed seeds for
 reproducibility, runs the settling period first, then measures every complete production shift and reports:

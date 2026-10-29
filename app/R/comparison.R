@@ -1423,7 +1423,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         labs(x = "Measured shift", y = "Mean completed vehicles", color = NULL) +
         theme_sim()
     })
-    output$backlog <- renderPlot({comparison_flow(table_for("release_timeseries"),"unreleased_backlog","Orders waiting for admission")})
+    output$backlog <- renderPlot({comparison_flow(table_for("release_timeseries"),"unreleased_backlog","Orders waiting for admission",palette=palette())})
     output$wip <- renderPlot({
       comparison_flow(table_for("wip_timeseries"), "wip", "WIP (vehicles)", palette = palette())
     })
