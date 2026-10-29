@@ -51,4 +51,30 @@ a<-e$normalize_params(p);b<-a
  a$stations$auto_timing[[1]]<-e$timing_spec("empirical",observations=c(1,3))
  b$stations$auto_timing[[1]]<-e$timing_spec("empirical",observations=c(2,2))
 stopifnot(!e$comparison_same(a,b))
+set.seed(1)
+rain_df <- tibble::tibble(
+  set = rep(c("Set 1", "Set 2"), each = 6),
+  throughput_per_hr = c(stats::rnorm(6, 10, 0.4), rep(8, 6))
+)
+built <- ggplot2::ggplot_build(e$comparison_raincloud(rain_df, "throughput_per_hr", "Throughput (vehicles/hour)"))
+stopifnot(length(built$data) >= 1L)
+flat <- tibble::tibble(
+  set = rep(c("Set 1", "Set 2"), each = 4),
+  station = "Inspection",
+  downtime_fraction = 0
+)
+built <- ggplot2::ggplot_build(e$comparison_ridges(
+  flat, "station", "downtime_fraction", "Active repair fraction", "check"
+))
+stopifnot(length(built$data) >= 1L)
+mixed <- tibble::tibble(
+  set = rep(c("Set 1", "Set 2"), each = 8),
+  station = rep(rep(c("Paint", "Inspection"), each = 4), 2),
+  downtime_fraction = c(stats::rnorm(4, 0.2, 0.03), rep(0, 4), stats::rnorm(4, 0.35, 0.03), rep(0, 4))
+)
+built <- ggplot2::ggplot_build(e$comparison_ridges(
+  mixed, "station", "downtime_fraction", "Active repair fraction", "check"
+))
+stopifnot(length(built$data) >= 1L)
+cat("Comparison ridgeline checks passed\n")
 cat("Two-set comparison checks passed\n")

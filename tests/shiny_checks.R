@@ -53,7 +53,8 @@ for (label in c(
   "Bottleneck & capacity", "Flow over time", "Lead time & data",
   "Station occupancy", "Operators", "Downtime", "Staffing comparison",
   "WIP", "Queues", "Cycle time", "Station metrics", "Timing comparison", "Downloads",
-  "520px", "clamp(450px, 52vh, 550px)", "gap: 0.5rem", "Run settings"
+  "520px", "clamp(450px, 52vh, 550px)", "gap: 0.5rem", "Run settings",
+  "Compare two sets", "Results are illustrative only"
 )) stopifnot(page_has(label))
 # Downloads moved out of the sidebar accordion into the Lead time tab.
 stopifnot(!grepl("Download data", ui_html, fixed = TRUE))

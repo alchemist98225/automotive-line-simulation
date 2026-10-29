@@ -421,6 +421,16 @@ ui <- page_navbar(
       flex: 0 0 auto;
       width: auto;
     }
+    .two-set-study .nav-tabs,
+    .two-set-study .nav-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .two-set-study .nav-item {
+      flex: 0 0 auto;
+      width: auto;
+    }
     .provenance-warning {
       border-left: 6px solid #8a4b08;
       font-weight: 500;
@@ -753,7 +763,8 @@ reproducibility, discards a warmup period, and reports:
 
 **All default numeric inputs are placeholder example values**, chosen so the
 demo has a clear bottleneck (paint) and responsive run times. They are **not**
-real plant data. Swap in your own stations, capacities, and time distributions
+real plant data. Results are illustrative only. They are not predictions for
+any employer. Swap in your own stations, capacities, and time distributions
 before using this for any decision.
 
 ### Stack
@@ -778,8 +789,8 @@ Buffers are unlimited; physical blocking, walking time, shifts, and scrap are
 not implemented. Bay occupancy identifies a bottleneck candidate; confirm it
 by testing whether improving that station increases system throughput.
 
-Every chart uses **all replications**. Bay occupancy is a raincloud. Operator
-utilization and downtime are ridgelines, with a vertical spike when every
+Every chart uses **all replications**. Bay occupancy on Simulate is a raincloud.
+Operator utilization and downtime are ridgelines, with a vertical spike when every
 replication is identical. Queue and WIP series are faint lines plus a loess
 ribbon, resampled onto a 2-minute grid before the loess. WIP counts each vehicle
 once. Downtime is machine-time in repair during the observation window, divided
@@ -787,6 +798,11 @@ by capacity. **Lead time & data → Downloads** exports the tidy tables behind t
 charts, including repair events, plus a zip of all of them. Staffing experiments
 sit under **Bottleneck & capacity**; the timing-variability comparison sits under
 **Lead time & data**.
+
+**Compare two sets** keeps two editable copies of the line. Throughput, lead
+time, WIP, and output per operator-hour are horizontal rainclouds. Bay occupancy,
+operator utilization, and active repair on that page are ridgelines, with a spike
+when a set has no spread. CSV files there are the data behind those charts.
 
 **All default numbers are placeholder example values**, not real plant data.
       ")
