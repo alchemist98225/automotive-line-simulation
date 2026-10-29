@@ -391,13 +391,17 @@ stopifnot(identical(rug_layer$position$height, 0))
 stopifnot(nrow(shift_built$data[[which(shift_geoms == "GeomRug")[1]]]) == nrow(one_shift))
 stopifnot(isFALSE(dens_layer$stat_params$trim))
 label_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomText")[1]]]
-stopifnot(identical(label_layer$aes_params$hjust, 0))
+stopifnot(label_layer$aes_params$hjust > 0.9)
+x_range <- shift_built$layout$panel_params[[1]]$x.range
+x_edge <- max(one_shift$n_completed, 53.3)
+stopifnot(x_range[[2]] <= x_edge + 2.5, x_range[[2]] >= x_edge + 0.5)
 shift_labels <- unlist(lapply(shift_built$data, function(d) if ("label" %in% names(d)) d$label else character()))
 stopifnot(any(grepl("Theoretical capacity", shift_labels, fixed = TRUE)))
 stopifnot(any(grepl("53 vehicles", shift_labels, fixed = TRUE)))
 x_breaks <- shift_built$layout$panel_params[[1]]$x$breaks
 x_breaks <- x_breaks[is.finite(x_breaks)]
 stopifnot(length(x_breaks) >= 2L, all(abs(x_breaks - round(x_breaks)) < 1e-8))
+stopifnot(all(diff(sort(x_breaks)) %in% c(1, 2)))
 stopifnot(grepl("ignoring labor", shift_built$plot$labels$caption, fixed = TRUE))
 stopifnot(grepl("blocking", shift_built$plot$labels$caption, fixed = TRUE))
 stopifnot(!grepl("\n", shift_built$plot$labels$caption, fixed = TRUE))

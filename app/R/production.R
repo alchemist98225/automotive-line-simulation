@@ -10,17 +10,19 @@ theoretical_shift_capacity <- function(params) {
   cycle <- pmax(cycle, 1e-9)
   min(st$capacity * params$shift_length_min / cycle)
 }
-# Integer tick marks for a vehicle count. pretty() can return halves when the
-# range is short; those are rounded onto a short integer sequence.
+# Integer ticks, every vehicle on a short axis and every other vehicle after that.
 integer_shift_breaks <- function(lims) {
   if (length(lims) < 2L || any(!is.finite(lims))) return(numeric())
   lo <- floor(min(lims))
   hi <- ceiling(max(lims))
   if (hi < lo) return(numeric())
-  span <- hi - lo
-  if (span <= 6) return(seq(lo, hi))
-  by <- max(1L, ceiling(span / 5))
+  by <- if ((hi - lo) <= 10) 1L else 2L
   seq(lo, hi, by = by)
+}
+# A long label to the right of a line near the right edge runs off the panel.
+# Right-align it so the text stays left of that line.
+capacity_label_hjust <- function(cap, x_lo, x_hi) {
+  if (!is.finite(cap) || !is.finite(x_lo) || !is.finite(x_hi) || cap >= (x_lo + x_hi) / 2) 1.08 else 0
 }
 capacity_label <- function(n) sprintf("Theoretical capacity: %.0f vehicles", round(n))
 # One vehicle per bar when the counts span about 20 or fewer. Wider spreads use
@@ -105,10 +107,15 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
       )
     }
     split_caps <- !is.null(cap_df) && nrow(cap_df) > 1L && diff(range(cap_df$capacity)) >= 0.5
+    cap_vals <- if (!is.null(cap_df)) cap_df$capacity else cap_value
+    x_span <- range(c(df$n_completed, cap_vals), na.rm = TRUE)
     if (isTRUE(split_caps)) {
       cap_df <- cap_df %>%
         dplyr::arrange(dplyr::desc(.data$capacity)) %>%
-        dplyr::mutate(vjust = -0.15 - (dplyr::row_number() - 1L) * 1.15)
+        dplyr::mutate(
+          hjust = vapply(capacity, capacity_label_hjust, numeric(1), x_lo = x_span[[1]], x_hi = x_span[[2]]),
+          vjust = -0.35 - (dplyr::row_number() - 1L) * 1.15
+        )
       p <- p +
         geom_vline(
           data = cap_df, aes(xintercept = .data$capacity, colour = set),
@@ -118,19 +125,20 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
           data = cap_df,
           aes(
             x = .data$capacity, label = capacity_label(.data$capacity),
-            colour = set, vjust = vjust
+            colour = set, hjust = hjust, vjust = vjust
           ),
-          y = Inf, hjust = 0, inherit.aes = FALSE, size = 4.2, show.legend = FALSE
+          y = Inf, inherit.aes = FALSE, size = 4.2, show.legend = FALSE
         )
     } else if (is.finite(cap_value)) {
       p <- p +
         geom_vline(xintercept = cap_value, linetype = "dashed", linewidth = 0.9, colour = shift_line_color) +
         annotate(
           "text", x = cap_value, y = Inf, label = capacity_label(cap_value),
-          hjust = 0, vjust = -0.15, colour = shift_line_color, size = 4.2
+          hjust = capacity_label_hjust(cap_value, min(df$n_completed), max(df$n_completed, cap_value)),
+          vjust = -0.35, colour = shift_line_color, size = 4.2
         )
     }
-    p <- p + theme_sim(legend.position = "bottom", plot.margin = margin(28, 16, 8, 8))
+    p <- p + theme_sim(legend.position = "bottom", plot.margin = margin(6, 10, 8, 8))
   } else {
     ratio <- if (is.finite(cap_value) && cap_value > 0) mean_out / cap_value else NA_real_
     title <- plot_subtitle(if (!is.finite(ratio)) {
@@ -165,21 +173,21 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
         geom_vline(xintercept = cap_value, linetype = "dashed", linewidth = 0.9, colour = shift_line_color) +
         annotate(
           "text", x = cap_value, y = Inf, label = capacity_label(cap_value),
-          hjust = 0, vjust = -0.15, colour = shift_line_color, size = 4.2
+          hjust = capacity_label_hjust(cap_value, min(df$n_completed), max(df$n_completed, cap_value)),
+          vjust = -0.35, colour = shift_line_color, size = 4.2
         )
     }
-    p <- p + theme_sim(plot.margin = margin(28, 16, 8, 8))
+    p <- p + theme_sim(plot.margin = margin(6, 10, 8, 8))
   }
   if (nlevels(df$shift_label) > 1L) {
     p <- p + facet_wrap(vars(shift_label), ncol = 2)
   }
-  # Room to the right of the reference line so its label sits in the top margin,
-  # clear of the density peak. clip off lets that label use the margin.
+  # One to two vehicles of padding. The label stays inside that window.
   x_lo <- min(df$n_completed)
   x_hi <- max(c(df$n_completed, cap_value, if (!is.null(cap_df)) cap_df$capacity), na.rm = TRUE)
   p +
     scale_x_continuous(breaks = integer_shift_breaks) +
-    coord_cartesian(xlim = c(x_lo - 0.8, x_hi + 8), clip = "off") +
+    coord_cartesian(xlim = c(x_lo - 1.5, x_hi + 1.5), clip = "off") +
     labs(
       title = title,
       x = "Completed vehicles per shift",
@@ -187,6 +195,7 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
       caption = caption
     ) +
     theme(
+      plot.title = element_text(colour = "#1a1a1a", margin = margin(0, 0, 20, 0)),
       plot.caption = ggtext::element_textbox_simple(
         colour = "#1a1a1a",
         hjust = 0,
