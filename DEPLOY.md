@@ -7,7 +7,7 @@ Live deployments of this repository:
 
 ## Prerequisites
 
-- R with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `ggrain`, `simmer`, `DT`, `zip`, and `rsconnect`. The app and the Quarto doc call `library(zip)` so shinyapps.io installs it for **Download all**, and `library(ggrain)` so the bay-occupancy raincloud is available. `tidymodels` is not required to run the simulation.
+- R with: `shiny`, `bslib`, `bsicons`, `tidyverse`, `ggrain`, `ggridges`, `simmer`, `DT`, `zip`, and `rsconnect`. The app and the Quarto doc call `library(zip)` so shinyapps.io installs it for **Download all**, `library(ggrain)` so the bay-occupancy raincloud is available, and `library(ggridges)` so the operator-utilization and downtime ridgelines are available. `tidymodels` is not required to run the simulation.
 - A free [shinyapps.io](https://www.shinyapps.io/) account (or Posit Connect / Posit Connect Cloud).
 - [Quarto](https://quarto.org/) for the interactive document.
 

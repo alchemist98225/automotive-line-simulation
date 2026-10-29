@@ -58,7 +58,7 @@ Mean interarrival time is 4 minutes. Horizon is 480 minutes with 60 minutes of w
 - Equipment failures with per-station MTBF/MTTR and a shared repair crew.
 - Fixed, distribution, or empirical activity timing, plus a variability comparison that holds expected task time constant.
 - Staffing comparison: current crews, one extra operator on the first or last team, and the same headcount in one shared team, with a 95% Student-t interval for mean throughput.
-- All-replication charts: a bay-occupancy raincloud (half-violin, boxplot, faint point per replication, and the mean), operator utilization, and downtime; faint queue and WIP lines with a loess ribbon; faint per-replication cycle-time densities plus the pooled density.
+- All-replication charts: a bay-occupancy raincloud (half-violin, boxplot, faint point per replication, and the mean); operator-utilization and downtime ridgelines (a vertical spike when every replication is identical); faint queue and WIP lines with a loess ribbon; faint per-replication cycle-time densities plus the pooled density.
 - CSV download for each table and a **Download all (zip)** bundle.
 - Self-contained `app/` and `quarto/` directories, each publishable with `rsconnect`.
 
@@ -72,8 +72,8 @@ Mean interarrival time is 4 minutes. Horizon is 480 minutes with 60 minutes of w
 | Average WIP | Time-weighted vehicles in the system, counted once. The time series is that count on the grid |
 | Queue length | Time-weighted bay queue, and queue over time for every replication |
 | Bay occupancy | Time-weighted busy bays / capacity. The chart is a raincloud: half-violin, boxplot, one faint point per replication, and the mean |
-| Operator utilization | Time-weighted busy operators / pool size, one point per replication |
-| Downtime fraction | Repair machine-time in the window / (capacity × window), one point per replication |
+| Operator utilization | Time-weighted busy operators / pool size. The chart is a ridgeline across replications, with a spike when every replication matches |
+| Downtime fraction | Repair machine-time in the window / (capacity × window). The chart is a ridgeline across replications, with a spike when every replication matches |
 | Bottleneck candidate | Station with the highest mean bay occupancy |
 
 ### Example plots
@@ -122,6 +122,7 @@ The Shiny app (**Lead time & data → Downloads**) and the Quarto document each 
 | tidymodels | Listed for later modeling work. The simulation does not call it |
 | shiny, bslib, bsicons | Interactive app and Quarto document |
 | ggrain | Bay-occupancy raincloud (`geom_rain`) |
+| ggridges | Operator-utilization and downtime ridgelines (`geom_density_ridges`) |
 | DT | Metrics and scenario tables |
 | zip | **Download all** bundle and `sim_exports.zip` |
 | Quarto (`server: shiny`) | Interactive document |
@@ -140,6 +141,7 @@ install.packages(c(
   "DT",
   "zip",
   "ggrain",
+  "ggridges",
   "rsconnect"
 ))
 ```

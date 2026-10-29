@@ -21,6 +21,7 @@ library(bslib)
 library(bsicons)
 library(tidyverse)
 library(ggrain) # declared so shinyapps.io installs it for the occupancy raincloud
+library(ggridges) # declared so shinyapps.io installs it for utilization and downtime ridgelines
 library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
@@ -39,6 +40,236 @@ station_colors <- c(
 label_station <- function(resource) {
   lab <- station_labels[as.character(resource)]
   ifelse(is.na(lab), as.character(resource), unname(lab))
+}
+
+# Snapshot comparison. UI defaults that do not change the run (fixed-timing SD,
+# exponential SD, and MTBF while MTTR is 0) match the first-load fallback.
+canonical_timing <- function(spec) {
+  if (is.null(spec) || !is.list(spec) || is.null(spec$method)) {
+    return(list(method = "fixed", mean_min = 0, sd_min = 0, distribution = "normal", observations = numeric()))
+  }
+  if (identical(spec$method, "empirical")) {
+    return(list(
+      method = "empirical", mean_min = 0, sd_min = 0, distribution = "normal",
+      observations = as.numeric(spec$observations)
+    ))
+  }
+  if (identical(spec$method, "distribution")) {
+    dist <- spec$distribution %||% "normal"
+    sd <- spec$sd_min %||% 0
+    if (!is.finite(sd) || identical(dist, "exponential")) sd <- 0
+    return(list(
+      method = "distribution", mean_min = as.numeric(spec$mean_min), sd_min = as.numeric(sd),
+      distribution = dist, observations = numeric()
+    ))
+  }
+  list(
+    method = "fixed", mean_min = as.numeric(spec$mean_min %||% 0), sd_min = 0,
+    distribution = "normal", observations = numeric()
+  )
+}
+params_signature <- function(p) {
+  st <- p$stations
+  list(
+    sim_length_min = as.numeric(p$sim_length_min),
+    n_replications = as.integer(p$n_replications),
+    base_seed = as.integer(p$base_seed),
+    warmup_min = as.numeric(p$warmup_min),
+    arrival_mean_min = as.numeric(p$arrival_mean_min),
+    grid_dt_min = as.numeric(p$grid_dt_min %||% 2),
+    repair_technicians = as.integer(p$repair_technicians %||% 1L),
+    operators = lapply(seq_len(nrow(p$operators)), function(i) {
+      list(pool = as.character(p$operators$pool[[i]]), count = as.integer(p$operators$count[[i]]))
+    }),
+    stations = lapply(seq_len(nrow(st)), function(i) {
+      mttr <- st$mttr_min[[i]]
+      mtbf <- st$mtbf_min[[i]]
+      if (!is.finite(mttr) || mttr <= 0) mtbf <- Inf
+      list(
+        name = as.character(st$name[[i]]),
+        capacity = as.integer(st$capacity[[i]]),
+        dist = as.character(st$dist[[i]]),
+        mean_min = as.numeric(st$mean_min[[i]]),
+        sd_min = if (is.finite(st$sd_min[[i]])) as.numeric(st$sd_min[[i]]) else NA_real_,
+        operator_pool = as.character(st$operator_pool[[i]]),
+        load_min = as.numeric(st$load_min[[i]]),
+        unload_min = as.numeric(st$unload_min[[i]]),
+        mtbf_min = as.numeric(mtbf),
+        mttr_min = as.numeric(mttr),
+        task_interval_min = as.numeric(st$task_interval_min[[i]]),
+        task_duration_min = as.numeric(st$task_duration_min[[i]]),
+        task_every_n = as.integer(st$task_every_n[[i]]),
+        load_timing = canonical_timing(st$load_timing[[i]]),
+        auto_timing = canonical_timing(st$auto_timing[[i]]),
+        unload_timing = canonical_timing(st$unload_timing[[i]]),
+        task_timing = canonical_timing(st$task_timing[[i]])
+      )
+    })
+  )
+}
+params_fingerprint <- function(p) rlang::hash(params_signature(p))
+cycle_time_mode <- function(spec, fallback_dist) {
+  if (is.null(spec) || !is.list(spec) || is.null(spec$method)) return(as.character(fallback_dist %||% "unknown"))
+  if (identical(spec$method, "distribution")) return(as.character(spec$distribution %||% "distribution"))
+  as.character(spec$method)
+}
+operator_mode_label <- function(operators) {
+  pools <- as.character(operators$pool)
+  if (length(pools) == 1L && identical(pools[[1]], "shared")) return("shared")
+  if (setequal(pools, c("upstream", "downstream"))) return("zones")
+  "dedicated"
+}
+format_run_settings <- function(p) {
+  st <- p$stations
+  bay_txt <- paste(sprintf("%s %d", unname(label_station(st$name)), as.integer(st$capacity)), collapse = ", ")
+  cycle_txt <- paste(vapply(seq_len(nrow(st)), function(i) {
+    sprintf("%s %s", unname(label_station(st$name[[i]])), cycle_time_mode(st$auto_timing[[i]], st$dist[[i]]))
+  }, character(1)), collapse = ", ")
+  op_txt <- if (nrow(p$operators)) {
+    paste(sprintf("%s %d", p$operators$pool, as.integer(p$operators$count)), collapse = ", ")
+  } else "none"
+  fail_on <- is.finite(st$mtbf_min) & st$mttr_min > 0
+  if (any(fail_on)) {
+    off <- unname(label_station(st$name[!fail_on]))
+    mtbf_txt <- if (length(off)) paste0("on (", paste(off, collapse = ", "), " off)") else "on"
+  } else {
+    mtbf_txt <- "off"
+  }
+  sprintf(
+    "Reps %d · seed %d · %g min run / %g min warm-up · interarrival %g min · bays: %s · cycle-time: %s · operators: %s (%s) · MTBF/MTTR %s · repair techs %d",
+    as.integer(p$n_replications), as.integer(p$base_seed),
+    p$sim_length_min, p$warmup_min, p$arrival_mean_min,
+    bay_txt, cycle_txt, operator_mode_label(p$operators), op_txt, mtbf_txt,
+    as.integer(p$repair_technicians %||% 1L)
+  )
+}
+stamp_run <- function(res, p, run_number, run_at = Sys.time(), fingerprint = NULL, summary = NULL) {
+  fp <- fingerprint %||% params_fingerprint(p)
+  summary <- summary %||% format_run_settings(p)
+  res$provenance <- list(
+    run_number = as.integer(run_number),
+    run_at = run_at,
+    fingerprint = fp,
+    summary = summary,
+    params = p
+  )
+  res$run_parameters <- res$run_parameters %>%
+    dplyr::mutate(
+      run_number = as.integer(run_number),
+      run_at = format(run_at, "%Y-%m-%d %H:%M:%S"),
+      settings_summary = summary,
+      params_fingerprint = fp
+    )
+  res
+}
+tag_comparison <- function(out, p, run_number, run_at = Sys.time(), fingerprint = NULL, summary = NULL) {
+  attr(out, "run_number") <- as.integer(run_number)
+  attr(out, "run_at") <- run_at
+  attr(out, "fingerprint") <- fingerprint %||% params_fingerprint(p)
+  attr(out, "summary") <- summary %||% format_run_settings(p)
+  attr(out, "params") <- p
+  out
+}
+comparison_caption <- function(comp) {
+  sprintf(
+    "Comparison run %d · %s · %s",
+    attr(comp, "run_number"),
+    format(attr(comp, "run_at"), "%Y-%m-%d %H:%M:%S"),
+    attr(comp, "summary")
+  )
+}
+# One ridge per group, metric on x, every replication. A group with no
+# spread (all reps identical, or a single rep) is a vertical marker:
+# density estimation has no bandwidth there.
+replication_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, fill_values = NULL) {
+  y_sym <- rlang::sym(y)
+  x_sym <- rlang::sym(x)
+  df <- df %>%
+    dplyr::filter(is.finite(!!x_sym)) %>%
+    dplyr::mutate(ridge_label = !!y_sym)
+  if (is.factor(df$ridge_label)) {
+    df$ridge <- factor(df$ridge_label, levels = levels(df$ridge_label))
+  } else {
+    df$ridge <- factor(df$ridge_label, levels = unique(df$ridge_label))
+  }
+  if (!nrow(df)) {
+    return(ggplot() + theme_void() + labs(subtitle = "No replications to plot"))
+  }
+  df <- df %>% dplyr::mutate(y_num = nlevels(ridge) - as.numeric(ridge) + 1)
+  spread <- df %>%
+    dplyr::group_by(ridge) %>%
+    dplyr::summarise(
+      marker = stats::median(!!x_sym, na.rm = TRUE),
+      n = dplyr::n(),
+      s = stats::sd(!!x_sym, na.rm = TRUE),
+      y_num = dplyr::first(y_num),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(constant = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps))
+  varying <- df %>% dplyr::semi_join(dplyr::filter(spread, !constant), by = "ridge")
+  constant <- spread %>% dplyr::filter(constant)
+  colors <- if (is.null(fill_values)) {
+    stats::setNames(rep("#756bb1", nlevels(df$ridge)), levels(df$ridge))
+  } else fill_values
+  p <- ggplot(df, aes(x = .data[[x]], y = y_num))
+  if (nrow(varying)) {
+    bw <- stats::bw.nrd0(varying[[x]])
+    if (!is.finite(bw) || bw <= 0) bw <- stats::mad(varying[[x]], constant = 1)
+    if (!is.finite(bw) || bw <= 0) bw <- diff(range(varying[[x]])) / 10
+    if (!is.finite(bw) || bw <= 0) bw <- 1e-3
+    p <- p + ggridges::geom_density_ridges(
+      data = varying,
+      aes(fill = ridge),
+      alpha = 0.65,
+      color = "white",
+      linewidth = 0.35,
+      scale = 0.9,
+      rel_min_height = 0.01,
+      bandwidth = bw,
+      jittered_points = TRUE,
+      point_alpha = 0.28,
+      point_size = 1.5,
+      point_color = "#4a4a4a",
+      quantile_lines = TRUE,
+      quantiles = 0.5,
+      na.rm = TRUE
+    ) + scale_fill_manual(values = colors, drop = FALSE)
+  }
+  if (nrow(constant)) {
+    p <- p + geom_segment(
+      data = constant,
+      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.62, color = ridge),
+      inherit.aes = FALSE,
+      linewidth = 1.15,
+      lineend = "round"
+    ) + scale_color_manual(values = colors, drop = FALSE)
+  }
+  lv <- levels(df$ridge)
+  p +
+    scale_y_continuous(
+      breaks = nlevels(df$ridge) - seq_along(lv) + 1,
+      labels = lv,
+      expand = expansion(add = c(0.35, 0.95))
+    ) +
+    scale_x_continuous(
+      labels = if (percent) scales::percent_format(accuracy = 1) else waiver(),
+      expand = expansion(mult = 0.05)
+    ) +
+    labs(x = x_label, y = NULL, subtitle = subtitle) +
+    theme_minimal(base_size = 13) +
+    theme(legend.position = "none", plot.margin = margin(8, 16, 8, 8))
+}
+provenance_warning <- function(message, button_id = NULL) {
+  div(
+    class = "alert alert-warning provenance-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3",
+    role = "alert",
+    div(
+      class = "d-flex align-items-center gap-2",
+      bs_icon("exclamation-triangle-fill"),
+      span(message)
+    ),
+    if (!is.null(button_id)) actionButton(button_id, "Rerun comparison", class = "btn-warning btn-sm")
+  )
 }
 # plotOutput only accepts a single CSS length. The results stylesheet replaces it
 # with clamp(450px, 52vh, 550px) so the chart stays in that range as the window changes.
@@ -72,7 +303,7 @@ download_catalog <- function() {
     download_entry("dl_ops", "Operator utilization",
       "Time-weighted utilization and queue for each operator pool and replication."),
     download_entry("dl_params", "Run parameters",
-      "Horizon, seeds, crew pools, and each station's capacity, timing, MTBF/MTTR, and support settings.")
+      "Horizon, seeds, crew pools, and each station's capacity, timing, MTBF/MTTR, and support settings for this run, including the run number and settings summary.")
   )
 }
 plot_card <- function(title, ...) {
@@ -123,10 +354,11 @@ loads a bay, the automatic cycle runs without holding that operator, and an
 operator unloads. Shared teams, dedicated crews, support work, and equipment
 failures (MTBF/MTTR with shared repair technicians) are all inputs.
 
-Charts use **every replication**: faint points or lines, plus a mean, a loess
-ribbon, or a pooled density. Queue and WIP series are resampled onto a 2-minute
-grid. WIP counts each vehicle once. Downtime is machine-time in repair during
-the post-warmup window.
+Charts use **every replication**. Bay occupancy is a raincloud. Operator
+utilization and downtime are ridgelines, with a vertical spike when every
+replication is identical. Queue and WIP series are faint lines plus a loess
+ribbon, resampled onto a 2-minute grid. WIP counts each vehicle once. Downtime
+is machine-time in repair during the post-warmup window.
 
 **Placeholder example values.** Capacities, crew sizes, cycle times, MTBF/MTTR,
 and support-task times are examples, not real plant data.
@@ -187,18 +419,31 @@ uiOutput("station_controls")
 
 ```{r}
 #| echo: false
-layout_columns(
-  value_box(title = "Throughput", value = textOutput("kpi_throughput", inline = TRUE),
-            showcase = bs_icon("speedometer2"), theme = "primary",
-            p("departures / hour")),
-  value_box(title = "Mean cycle time", value = textOutput("kpi_cycle", inline = TRUE),
-            showcase = bs_icon("hourglass-split"), theme = "info", p("minutes")),
-  value_box(title = "Avg WIP", value = textOutput("kpi_wip", inline = TRUE),
-            showcase = bs_icon("boxes"), theme = "warning",
-            p("vehicles in system, counted once")),
-  value_box(title = "Bottleneck", value = textOutput("kpi_bottleneck", inline = TRUE),
-            showcase = bs_icon("exclamation-triangle"), theme = "danger",
-            p("highest bay occupancy — see the first tab"))
+tagList(
+  uiOutput("result_freshness_style"),
+  uiOutput("main_stale_notice"),
+  div(
+    id = "headline_kpis",
+    layout_columns(
+      value_box(title = "Throughput", value = textOutput("kpi_throughput", inline = TRUE),
+                showcase = bs_icon("speedometer2"), theme = "primary",
+                p("departures / hour")),
+      value_box(title = "Mean cycle time", value = textOutput("kpi_cycle", inline = TRUE),
+                showcase = bs_icon("hourglass-split"), theme = "info", p("minutes")),
+      value_box(title = "Avg WIP", value = textOutput("kpi_wip", inline = TRUE),
+                showcase = bs_icon("boxes"), theme = "warning",
+                p("vehicles in system, counted once")),
+      value_box(title = "Bottleneck", value = textOutput("kpi_bottleneck", inline = TRUE),
+                showcase = bs_icon("exclamation-triangle"), theme = "danger",
+                p("highest bay occupancy — see the first tab"))
+    )
+  ),
+  tags$details(
+    class = "run-settings border rounded mb-3",
+    open = NA,
+    tags$summary(class = "px-3 py-2", "Run settings"),
+    div(class = "px-3 pb-2", uiOutput("run_settings_body"))
+  )
 )
 ```
 
@@ -228,6 +473,16 @@ tags$style(HTML("
   #lead_tabs.nav-pills > .nav-item {
     flex: 0 0 auto;
     width: auto;
+  }
+  .provenance-warning {
+    border-left: 6px solid #8a4b08;
+    font-weight: 500;
+  }
+  .run-settings summary { cursor: pointer; font-weight: 600; }
+  #headline_kpis, #plot_util, #plot_labor, #plot_down, #plot_wip,
+  #plot_queue, #plot_cycle, #labor_table, #reliability_table, #table_metrics,
+  #scenario_table_wrap, #timing_table_wrap {
+    transition: opacity 0.15s ease;
   }
 "))
 navset_card_underline(
@@ -288,9 +543,11 @@ navset_card_underline(
           card_header("Staffing experiments"),
           card_body(
             fill = FALSE,
-            p("Uses the current station settings. The interval is a 95% Student-t interval for mean throughput across replications. Multiple replications are needed. Scenarios reuse base seeds; random draws are not synchronized by event."),
+            p("Uses the station settings from the comparison run, not later sidebar edits. The interval is a 95% Student-t interval for mean throughput across replications. Multiple replications are needed. Scenarios reuse base seeds; random draws are not synchronized by event."),
             p(class = "text-muted small", "Click Compare staffing to fill this table."),
-            DTOutput("scenario_table")
+            uiOutput("staffing_warning"),
+            uiOutput("staffing_meta"),
+            div(id = "scenario_table_wrap", DTOutput("scenario_table"))
           )
         )
       )
@@ -370,9 +627,11 @@ navset_card_underline(
           card_header("Same work content, different variability"),
           card_body(
             fill = FALSE,
-            p("Compare current timing, fixed expected times, and lognormal durations with SD equal to half the mean. Staffing, arrivals, failures, and trigger rules remain the same. Mean-throughput confidence intervals use independent replications."),
+            p("Compare current timing, fixed expected times, and lognormal durations with SD equal to half the mean. Staffing, arrivals, failures, and trigger rules remain the same. Mean-throughput confidence intervals use independent replications. The table keeps the settings from the comparison run."),
             p(class = "text-muted small", "Click Compare timing variability to fill this table."),
-            DTOutput("timing_table")
+            uiOutput("timing_warning"),
+            uiOutput("timing_meta"),
+            div(id = "timing_table_wrap", DTOutput("timing_table"))
           )
         )
       ),
@@ -498,19 +757,46 @@ build_params <- reactive({
   validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
   p
 })
-comparison <- reactive({
+run_seq <- new.env(parent = emptyenv())
+run_seq$main <- 0L
+run_seq$staffing <- 0L
+run_seq$timing <- 0L
+staffing_trigger <- reactiveVal(0L)
+timing_trigger <- reactiveVal(0L)
+# ignoreInit would swallow the first click when the input is created late.
+# Value 0 is the button's initial state, not a request to rerun.
+bump <- function(value, trigger) {
+  if (is.null(value) || value < 1) return()
+  trigger(isolate(trigger()) + 1L)
+}
+observeEvent(input$compare, bump(input$compare, staffing_trigger), ignoreNULL = TRUE)
+observeEvent(input$rerun_staffing, bump(input$rerun_staffing, staffing_trigger), ignoreNULL = TRUE)
+observeEvent(input$compare_timing, bump(input$compare_timing, timing_trigger), ignoreNULL = TRUE)
+observeEvent(input$rerun_timing, bump(input$rerun_timing, timing_trigger), ignoreNULL = TRUE)
+comparison <- eventReactive(staffing_trigger(), {
+  req(isTRUE(staffing_trigger() > 0))
   p <- build_params()
+  fp <- params_fingerprint(p)
+  settings <- format_run_settings(p)
   alternatives <- list(p,p,p,p)
   alternatives[[2]]$operators$count[[1]] <- alternatives[[2]]$operators$count[[1]]+1L
   alternatives[[3]]$operators$count[[nrow(p$operators)]] <- alternatives[[3]]$operators$count[[nrow(p$operators)]]+1L
   alternatives[[4]]$operators <- tibble(pool="shared",count=sum(p$operators$count))
   alternatives[[4]]$stations$operator_pool <- "shared"
-  withProgress(message="Comparing staffing…",run_scenarios(tibble(
+  out <- withProgress(message="Comparing staffing…",run_scenarios(tibble(
     scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives)))
-}) %>% bindEvent(input$compare)
-timing_comparison <- reactive({
-  withProgress(message="Comparing variability…",run_scenarios(variability_scenarios(build_params())))
-}) %>% bindEvent(input$compare_timing)
+  run_seq$staffing <- run_seq$staffing + 1L
+  tag_comparison(out, p, run_seq$staffing, fingerprint=fp, summary=settings)
+}, ignoreNULL = TRUE)
+timing_comparison <- eventReactive(timing_trigger(), {
+  req(isTRUE(timing_trigger() > 0))
+  p <- build_params()
+  fp <- params_fingerprint(p)
+  settings <- format_run_settings(p)
+  out <- withProgress(message="Comparing variability…",run_scenarios(variability_scenarios(p)))
+  run_seq$timing <- run_seq$timing + 1L
+  tag_comparison(out, p, run_seq$timing, fingerprint=fp, summary=settings)
+}, ignoreNULL = TRUE)
 observeEvent(input$compare, {
   nav_select("results_tabs", "capacity", session = session)
   nav_select("capacity_tabs", "staffing", session = session)
@@ -519,9 +805,16 @@ observeEvent(input$compare_timing, {
   nav_select("results_tabs", "lead", session = session)
   nav_select("lead_tabs", "timing", session = session)
 }, ignoreInit = TRUE)
-output$timing_table <- renderDT({timing_comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>%
-  datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)})
-output$scenario_table <- renderDT({comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>% datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)})
+output$timing_table <- renderDT({
+  req(isTRUE(timing_trigger() > 0))
+  timing_comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>%
+    datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)
+})
+output$scenario_table <- renderDT({
+  req(isTRUE(staffing_trigger() > 0))
+  comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>%
+    datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)
+})
 output$labor_table <- renderDT({sim_result()$labor %>% group_by(resource) %>% summarise(utilization=mean(avg_util),queue=mean(avg_queue),.groups="drop") %>% datatable(rownames=FALSE,options=list(dom="t")) %>% formatPercentage("utilization",1)})
 
 output$reliability_table <- renderDT({
@@ -531,12 +824,94 @@ output$reliability_table <- renderDT({
     mutate(observed_failures=replace_na(observed_failures,0L)) %>%
     datatable(rownames=FALSE,options=list(dom="t"))
 })
-# Run on button click; also fire once on load so KPIs appear immediately
+# Run on button click; also fire once on load so KPIs appear immediately.
+# The parameter snapshot is taken before the run so later sidebar edits can be flagged.
 sim_result <- reactive({
-  withProgress(message = "Running simulation…", value = 0.3, {
-    run_line_sim(build_params())
+  p <- build_params()
+  fp <- params_fingerprint(p)
+  settings <- format_run_settings(p)
+  res <- withProgress(message = "Running simulation…", value = 0.3, {
+    run_line_sim(p)
   })
+  run_seq$main <- run_seq$main + 1L
+  stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings)
 }) %>% bindEvent(input$run, ignoreNULL = FALSE)
+
+current_fingerprint <- reactive(params_fingerprint(build_params()))
+main_settings_stale <- reactive({
+  !identical(sim_result()$provenance$fingerprint, current_fingerprint())
+})
+snapshot_is_stale <- function(comp) {
+  fp <- attr(comp, "fingerprint")
+  if (is.null(fp)) return(FALSE)
+  !identical(fp, current_fingerprint()) || !identical(fp, sim_result()$provenance$fingerprint)
+}
+staffing_stale <- reactive({
+  if (!isTRUE(staffing_trigger() > 0)) return(FALSE)
+  snapshot_is_stale(comparison())
+})
+timing_stale <- reactive({
+  if (!isTRUE(timing_trigger() > 0)) return(FALSE)
+  snapshot_is_stale(timing_comparison())
+})
+output$main_stale_flag <- renderText(if (isTRUE(main_settings_stale())) "stale" else "fresh")
+output$staffing_stale_flag <- renderText(if (isTRUE(staffing_stale())) "stale" else "fresh")
+output$timing_stale_flag <- renderText(if (isTRUE(timing_stale())) "stale" else "fresh")
+output$main_stale_notice <- renderUI({
+  if (!isTRUE(main_settings_stale())) return(NULL)
+  provenance_warning("Settings changed. Click Run to update results.")
+})
+output$run_settings_body <- renderUI({
+  prov <- sim_result()$provenance
+  tagList(
+    p(
+      class = "mb-1",
+      tags$strong(sprintf("Run %d", prov$run_number)),
+      sprintf(" · %s", format(prov$run_at, "%Y-%m-%d %H:%M:%S"))
+    ),
+    p(class = "small mb-0", prov$summary)
+  )
+})
+output$run_settings_text <- renderText({
+  prov <- sim_result()$provenance
+  paste0("Run ", prov$run_number, " · ", format(prov$run_at, "%Y-%m-%d %H:%M:%S"), " · ", prov$summary)
+})
+output$result_freshness_style <- renderUI({
+  opacity <- function(stale) if (isTRUE(stale)) "0.45" else "1"
+  main_ids <- c(
+    "headline_kpis", "plot_util", "plot_labor", "plot_down", "plot_wip",
+    "plot_queue", "plot_cycle", "labor_table", "reliability_table", "table_metrics"
+  )
+  css <- paste0("#", main_ids, "{opacity:", opacity(main_settings_stale()), ";}", collapse = "")
+  css <- paste0(
+    css,
+    "#scenario_table_wrap{opacity:", opacity(staffing_stale()), ";}",
+    "#timing_table_wrap{opacity:", opacity(timing_stale()), ";}"
+  )
+  tags$style(HTML(css))
+})
+output$staffing_warning <- renderUI({
+  if (!isTRUE(staffing_stale())) return(NULL)
+  provenance_warning(
+    "Settings changed since this comparison was run. Rerun comparison.",
+    "rerun_staffing"
+  )
+})
+output$staffing_meta <- renderUI({
+  if (!isTRUE(staffing_trigger() > 0)) return(NULL)
+  p(class = "small text-muted mb-2", comparison_caption(comparison()))
+})
+output$timing_warning <- renderUI({
+  if (!isTRUE(timing_stale())) return(NULL)
+  provenance_warning(
+    "Settings changed since this comparison was run. Rerun comparison.",
+    "rerun_timing"
+  )
+})
+output$timing_meta <- renderUI({
+  if (!isTRUE(timing_trigger() > 0)) return(NULL)
+  p(class = "small text-muted mb-2", comparison_caption(timing_comparison()))
+})
 
 output$kpi_throughput <- renderText({
   res <- sim_result()
@@ -600,21 +975,20 @@ output$plot_util <- renderPlot({
 output$plot_labor <- renderPlot({
   res <- sim_result()
   req(nrow(res$operator_by_rep) > 0)
+  pools <- sub("^operator_", "", res$operator_by_rep$resource)
+  levels <- if (all(pools %in% c("upstream", "downstream"))) {
+    c("upstream", "downstream")
+  } else if (all(pools %in% names(station_labels))) {
+    names(station_labels)[names(station_labels) %in% unique(pools)]
+  } else unique(pools)
   df <- res$operator_by_rep %>%
-    mutate(label = factor(sub("^operator_", "", resource)))
-  means <- df %>% group_by(label) %>%
-    summarise(mean = mean(avg_util), sd = sd(avg_util), .groups = "drop")
-  ggplot() +
-    geom_jitter(data = df, aes(x = label, y = avg_util),
-                width = 0.12, height = 0, alpha = 0.35, size = 2.2, color = "#4a4a4a") +
-    geom_errorbar(data = means, aes(x = label,
-        ymin = pmax(0, mean - sd), ymax = pmin(1, mean + sd)),
-        width = 0.15, linewidth = 0.6, color = "#756bb1") +
-    geom_point(data = means, aes(x = label, y = mean), size = 3.2, color = "#756bb1") +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
-    labs(x = NULL, y = "Operator utilization",
-         subtitle = "Points = each replication; purple = mean ± SD") +
-    theme_minimal(base_size = 13)
+    mutate(label = factor(sub("^operator_", "", resource), levels = levels))
+  replication_ridges(
+    df, "label", "avg_util",
+    x_label = "Operator utilization",
+    subtitle = "One ridge per pool; faint points = each rep; line = median. Spike = no spread.",
+    percent = TRUE
+  )
 })
 
 output$plot_queue <- renderPlot({
@@ -660,22 +1034,13 @@ output$plot_down <- renderPlot({
   res <- sim_result()
   per_rep <- res$downtime_by_rep %>%
     mutate(label = factor(label_station(station), levels = unname(station_labels)))
-  means <- res$station_metrics %>%
-    mutate(label = factor(label_station(station), levels = unname(station_labels)))
-  ggplot() +
-    geom_jitter(data = per_rep, aes(x = label, y = downtime_fraction),
-                width = 0.12, height = 0, alpha = 0.35, size = 2.2, color = "#4a4a4a") +
-    geom_errorbar(data = means, aes(x = label,
-        ymin = pmax(0, downtime_fraction_mean - downtime_fraction_sd),
-        ymax = pmin(1, downtime_fraction_mean + downtime_fraction_sd)),
-        width = 0.15, linewidth = 0.6, color = "#e34a33") +
-    geom_point(data = means, aes(x = label, y = downtime_fraction_mean),
-               size = 3.2, color = "#e34a33") +
-    scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 1)) +
-    labs(x = NULL, y = "Downtime fraction",
-         subtitle = "Machine-time in repair after warmup; points = each replication") +
-    theme_minimal(base_size = 13) +
-    theme(axis.text.x = element_text(angle = 15, hjust = 1))
+  replication_ridges(
+    per_rep, "label", "downtime_fraction",
+    x_label = "Downtime fraction",
+    subtitle = "One ridge per station; faint points = each rep; line = median. Spike = no spread.",
+    percent = TRUE,
+    fill_values = station_colors
+  )
 })
 
 output$plot_cycle <- renderPlot({
