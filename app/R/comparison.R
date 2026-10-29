@@ -226,7 +226,7 @@ comparison_raincloud <- function(df, value, label) {
 }
 
 # One ridge per station or pool, both sets overlaid. A set with no spread is a
-# vertical spike, matching the Simulate page ridgelines.
+# rug tick at that value, matching the Simulate page ridgelines.
 comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
   df <- df %>%
     filter(is.finite(.data[[x]])) %>%
@@ -272,14 +272,18 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
       scale = 0.9,
       rel_min_height = 0.01,
       bandwidth = bw,
-      jittered_points = TRUE,
-      point_alpha = 0.28,
-      point_size = 1.5,
-      point_color = "#4a4a4a",
       quantile_lines = TRUE,
       quantiles = 0.5,
       na.rm = TRUE
     ) +
+      # Rug ticks sit on each station or pool baseline. Color follows the set.
+      geom_segment(
+        data = varying,
+        aes(x = .data[[x]], xend = .data[[x]], y = y_num, yend = y_num + 0.16, color = set),
+        inherit.aes = FALSE,
+        linewidth = 0.55,
+        lineend = "butt"
+      ) +
       scale_fill_manual(
         values = comparison_colors,
         limits = names(comparison_colors),
@@ -289,17 +293,19 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
   if (nrow(constant)) {
     p <- p + geom_segment(
       data = constant,
-      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.62, color = set),
+      aes(x = marker, xend = marker, y = y_num, yend = y_num + 0.42, color = set),
       inherit.aes = FALSE,
-      linewidth = 1.15,
-      lineend = "round"
-    ) +
-      scale_color_manual(
-        values = comparison_colors,
-        limits = names(comparison_colors),
-        name = NULL,
-        guide = if (nrow(varying)) "none" else "legend"
-      )
+      linewidth = 1.05,
+      lineend = "butt"
+    )
+  }
+  if (nrow(varying) || nrow(constant)) {
+    p <- p + scale_color_manual(
+      values = comparison_colors,
+      limits = names(comparison_colors),
+      name = NULL,
+      guide = if (nrow(varying)) "none" else "legend"
+    )
   }
   lv <- levels(df$ridge)
   p +
@@ -545,7 +551,7 @@ comparison_page_ui <- function(id) {
           ),
           nav_panel(
             "Operators",
-            p(class = "text-muted small", "One ridge per pool. Faint points are every replication."),
+            p(class = "text-muted small", "One ridge per pool. Rug ticks are every replication."),
             uiOutput(ns("labor_frame"))
           ),
           nav_panel(
@@ -794,7 +800,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_ridges(
         df, "label", "avg_util",
         x_label = "Bay occupancy",
-        subtitle = "One ridge per station; both sets overlaid. Faint points = each rep; line = median. Spike = no spread.",
+        subtitle = "One ridge per station; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
         percent = TRUE
       )
     })
@@ -813,7 +819,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_ridges(
         df, "label", "avg_util",
         x_label = "Operator utilization",
-        subtitle = "One ridge per pool; both sets overlaid. Faint points = each rep; line = median. Spike = no spread.",
+        subtitle = "One ridge per pool; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
         percent = TRUE
       )
     })
@@ -823,7 +829,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_ridges(
         df, "label", "downtime_fraction",
         x_label = "Active repair fraction",
-        subtitle = "One ridge per station; both sets overlaid. Faint points = each rep; line = median. Spike = no spread.",
+        subtitle = "One ridge per station; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
         percent = TRUE
       )
     })

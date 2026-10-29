@@ -144,10 +144,24 @@ flat <- tibble::tibble(
   station = "Inspection",
   downtime_fraction = 0
 )
+ridge_geoms <- function(built) {
+  vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
+}
+ridge_rugs <- function(built) {
+  geoms <- ridge_geoms(built)
+  stopifnot(!any(grepl("Point", geoms)))
+  idx <- which(grepl("Segment", geoms))
+  stopifnot(length(idx) >= 1L)
+  seg <- dplyr::bind_rows(built$data[idx])
+  stopifnot(nrow(seg) >= 1L, all(seg$yend > seg$y))
+  seg
+}
 built <- ggplot2::ggplot_build(e$comparison_ridges(
   flat, "station", "downtime_fraction", "Active repair fraction", "check"
 ))
 stopifnot(length(built$data) >= 1L)
+flat_seg <- ridge_rugs(built)
+stopifnot(all(c("#2474A5", "#D46B25") %in% unique(flat_seg$colour)))
 mixed <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 8),
   station = rep(rep(c("Paint", "Inspection"), each = 4), 2),
@@ -157,6 +171,9 @@ built <- ggplot2::ggplot_build(e$comparison_ridges(
   mixed, "station", "downtime_fraction", "Active repair fraction", "check"
 ))
 stopifnot(length(built$data) >= 1L)
+mixed_seg <- ridge_rugs(built)
+stopifnot(length(unique(round(mixed_seg$y, 5))) >= 2L)
+stopifnot(all(c("#2474A5", "#D46B25") %in% unique(mixed_seg$colour)))
 # Height grows with the number of ridges and stays above the 550px app-wide clamp
 # once there are enough stations for Inspection to be crowded.
 heights <- vapply(1:6, e$comparison_ridge_height, integer(1))

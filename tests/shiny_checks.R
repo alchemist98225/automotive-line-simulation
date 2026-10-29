@@ -218,9 +218,32 @@ ridge_mixed <- tibble::tibble(
   group = factor(rep(c("Paint", "Inspection"), each = 6), levels = c("Paint", "Inspection")),
   metric = c(stats::rnorm(6, 0.2, 0.02), rep(0, 6))
 )
+ridge_geoms <- function(built) {
+  vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
+}
+ridge_rugs <- function(built) {
+  geoms <- ridge_geoms(built)
+  stopifnot(!any(grepl("Point", geoms)))
+  idx <- which(grepl("Segment", geoms))
+  stopifnot(length(idx) >= 1L)
+  seg <- dplyr::bind_rows(built$data[idx])
+  stopifnot(nrow(seg) >= 1L, all(seg$yend > seg$y))
+  seg
+}
 for (d in list(ridge_zero, ridge_mixed)) {
   built <- ggplot2::ggplot_build(e$replication_ridges(d, "group", "metric", "Downtime fraction", "check"))
   stopifnot(length(built$data) >= 1L)
+  ridge_rugs(built)
 }
+built <- ggplot2::ggplot_build(e$replication_ridges(ridge_mixed, "group", "metric", "Downtime fraction", "check"))
+seg <- ridge_rugs(built)
+stopifnot(length(unique(round(seg$y, 5))) >= 2L)
+palette <- c(Paint = "#d95f0e", Inspection = "#756bb1")
+built <- ggplot2::ggplot_build(e$replication_ridges(
+  ridge_mixed, "group", "metric", "Downtime fraction", "check", fill_values = palette
+))
+seg <- ridge_rugs(built)
+stopifnot(length(unique(seg$colour)) >= 2L)
+stopifnot(all(unique(seg$colour) %in% unname(palette)))
 cat("Ridgeline checks passed\n")
 cat("Shiny server checks passed\n")
