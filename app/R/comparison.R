@@ -1,5 +1,12 @@
 # Two editable parameter snapshots; no changes to the simulation engine.
+# "Set 1" / "Set 2" stay the internal keys. Charts, tables, and downloads
+# show the sanitized titles, which default to those keys.
 comparison_colors <- c("Set 1"="#2474A5", "Set 2"="#D46B25")
+comparison_default_labels <- names(comparison_colors)
+comparison_guided_labels <- c("Baseline: 1 paint bay", "Experiment: 2 paint bays")
+comparison_label_max <- 60L
+comparison_highlight_n <- 4L
+comparison_identical_note <- "The two sets have identical settings."
 comparison_activities <- c(load="Loading",auto="Automatic processing",unload="Unloading",task="Support work")
 comparison_globals <- c(shift_length_min="Shift duration (production minutes)",n_shifts="Number of measured shifts",warmup_min="Initial settling period (min)",
   n_replications="Simulation runs",base_seed="Base seed",planned_rate="Planned work rate (vehicles/hour)",entry_buffer="Entrance waiting positions",wip_limit="Maximum WIP (CONWIP)",
@@ -25,11 +32,329 @@ comparison_flatten <- function(p) {
   bind_rows(run,ops,stations,tibble(parameter=c("Run / Admission policy","Run / Order spacing"),value=c(p$release_policy,p$order_spacing))) %>% arrange(parameter)
 }
 comparison_same <- function(a,b) identical(comparison_flatten(a),comparison_flatten(b))
-comparison_diff <- function(a,b) {
-  full_join(comparison_flatten(a) %>% rename(`Set 1`=value),
-    comparison_flatten(b) %>% rename(`Set 2`=value),by="parameter") %>%
-    mutate(across(c(`Set 1`,`Set 2`),~replace_na(.x,"Not used"))) %>%
-    filter(`Set 1`!=`Set 2`)
+# Blank titles fall back. Control characters and extra whitespace are removed.
+# A very long title is cut so legends and column headers stay readable.
+sanitize_set_label <- function(text, fallback) {
+  fallback <- as.character(fallback)[[1]]
+  text <- paste(as.character(text %||% ""), collapse = " ")
+  text <- gsub("[[:cntrl:]]+", " ", text)
+  text <- gsub("[[:space:]]+", " ", text)
+  text <- trimws(text)
+  if (!nzchar(text)) return(fallback)
+  if (nchar(text) > comparison_label_max) {
+    text <- trimws(substr(text, 1L, comparison_label_max))
+  }
+  if (!nzchar(text)) fallback else text
+}
+# Column headers and scale limits have to stay distinct, so a repeated title
+# gets a short suffix instead of collapsing both sets into one level.
+sanitize_set_labels <- function(labels, fallback = comparison_default_labels) {
+  fallback <- as.character(fallback)
+  if (length(fallback) < 2L) fallback <- comparison_default_labels
+  first <- sanitize_set_label(if (length(labels) >= 1L) labels[[1]] else "", fallback[[1]])
+  second <- sanitize_set_label(if (length(labels) >= 2L) labels[[2]] else "", fallback[[2]])
+  if (identical(first, second)) {
+    suffix <- " (2)"
+    room <- comparison_label_max - nchar(suffix)
+    base <- if (room > 0L && nchar(second) > room) trimws(substr(second, 1L, room)) else second
+    second <- paste0(base, suffix)
+    if (!nzchar(base)) second <- paste0(fallback[[2]], suffix)
+  }
+  c(first, second)
+}
+comparison_palette <- function(labels = comparison_default_labels) {
+  labels <- as.character(labels)
+  stats::setNames(unname(comparison_colors)[seq_along(labels)], labels)
+}
+pretty_parameter <- function(x) {
+  x <- sub("^Run / ", "", x)
+  gsub(" / ", " — ", x, fixed = TRUE)
+}
+# Policy codes stay in the lossless snapshot. The difference table shows the
+# same words as the editors, with units already in the parameter name.
+comparison_display_value <- function(parameter, value) {
+  value <- as.character(value)
+  if (identical(parameter, "Run / Admission policy")) {
+    labels <- c(
+      space = "Entrance space",
+      conwip = "WIP-limited (CONWIP)",
+      scheduled = "Release all planned work"
+    )
+    hit <- unname(labels[value])
+    return(if (length(hit) == 1L && !is.na(hit)) hit else value)
+  }
+  if (identical(parameter, "Run / Order spacing")) {
+    labels <- c(fixed = "Evenly scheduled", exponential = "Random")
+    hit <- unname(labels[value])
+    return(if (length(hit) == 1L && !is.na(hit)) hit else value)
+  }
+  if (grepl("Incoming waiting positions", parameter, fixed = TRUE) && value %in% c("Inf", "inf")) {
+    return("Unlimited")
+  }
+  value
+}
+comparison_diff <- function(a, b, labels = comparison_default_labels) {
+  labels <- sanitize_set_labels(labels)
+  diff <- full_join(
+    comparison_flatten(a) %>% rename(value_1 = value),
+    comparison_flatten(b) %>% rename(value_2 = value),
+    by = "parameter"
+  ) %>%
+    mutate(
+      value_1 = replace_na(value_1, "Not used"),
+      value_2 = replace_na(value_2, "Not used")
+    ) %>%
+    filter(value_1 != value_2) %>%
+    arrange(parameter) %>%
+    mutate(
+      value_1 = map2_chr(parameter, value_1, comparison_display_value),
+      value_2 = map2_chr(parameter, value_2, comparison_display_value)
+    ) %>%
+    transmute(Parameter = pretty_parameter(parameter), value_1, value_2)
+  names(diff)[2:3] <- labels
+  diff
+}
+# Compact HTML table of the draft difference. No rows means the sets match.
+comparison_diff_table <- function(a, b, labels = comparison_default_labels) {
+  diff <- comparison_diff(a, b, labels)
+  if (!nrow(diff)) {
+    return(div(
+      class = "alert alert-light border py-2 mb-3 comparison-draft-diff",
+      comparison_identical_note
+    ))
+  }
+  headers <- names(diff)
+  div(
+    class = "table-responsive mb-3 comparison-draft-diff",
+    tags$table(
+      class = "table table-sm table-striped align-middle mb-0",
+      tags$caption(class = "caption-top text-start pb-1", "Settings that differ"),
+      tags$thead(tags$tr(lapply(headers, tags$th))),
+      tags$tbody(lapply(seq_len(nrow(diff)), function(i) {
+        tags$tr(lapply(as.list(diff[i, ]), function(cell) tags$td(as.character(cell))))
+      }))
+    )
+  )
+}
+# Paint-bay experiment: same seeds, replications, and every other setting.
+comparison_baseline_params <- function(experiment) {
+  p <- normalize_params(experiment)
+  idx <- which(p$stations$name == "paint")
+  if (length(idx) != 1L) stop("Baseline needs one paint station.", call. = FALSE)
+  p$stations$capacity[idx] <- 1L
+  validate_params(p)
+}
+# Relative size of a shift between two replication vectors.
+# score = |mean2 - mean1| / |mean1| when the first set's mean is larger than
+# the pooled replication SD: a percent change on a stable baseline.
+# When that mean is near zero or smaller than the noise (an empty queue),
+# divide by the larger of |mean2| and the pooled SD. The score then stays on
+# a 0–1 relative scale instead of exploding, and standardized change is still
+# reported for the CSV. Ranking uses score only.
+comparison_shift <- function(x1, x2) {
+  x1 <- x1[is.finite(x1)]
+  x2 <- x2[is.finite(x2)]
+  empty <- tibble(
+    mean_1 = NA_real_, mean_2 = NA_real_, delta = NA_real_,
+    relative = NA_real_, standardized = NA_real_, score = NA_real_
+  )
+  if (!length(x1) || !length(x2)) return(empty)
+  m1 <- mean(x1)
+  m2 <- mean(x2)
+  delta <- m2 - m1
+  n1 <- length(x1)
+  n2 <- length(x2)
+  s1 <- if (n1 >= 2L) stats::sd(x1) else NA_real_
+  s2 <- if (n2 >= 2L) stats::sd(x2) else NA_real_
+  pooled <- if (n1 >= 2L && n2 >= 2L && is.finite(s1) && is.finite(s2)) {
+    sqrt(((n1 - 1) * s1^2 + (n2 - 1) * s2^2) / (n1 + n2 - 2))
+  } else {
+    NA_real_
+  }
+  noise <- if (is.finite(pooled)) pooled else 0
+  relative <- if (abs(m1) > 1e-8) abs(delta) / abs(m1) else NA_real_
+  standardized <- if (is.finite(pooled) && pooled > 1e-8) {
+    abs(delta) / pooled
+  } else if (abs(delta) > 1e-8) {
+    Inf
+  } else {
+    0
+  }
+  stable <- abs(m1) > max(noise, 1e-8)
+  denom <- if (stable) abs(m1) else max(abs(m2), noise, 1e-8)
+  tibble(
+    mean_1 = m1, mean_2 = m2, delta = delta,
+    relative = relative, standardized = standardized,
+    score = abs(delta) / denom
+  )
+}
+comparison_metric_frame <- function(runs) {
+  line <- tibble::tribble(
+    ~metric_id, ~label, ~x_label, ~percent, ~priority, ~column,
+    "throughput_per_hr", "Throughput", "Throughput (vehicles/hour)", FALSE, 1L, "throughput_per_hr",
+    "cycle_time_mean", "Mean lead time", "Mean lead time (min)", FALSE, 2L, "cycle_time_mean",
+    "avg_wip", "Average WIP", "Average WIP (vehicles)", FALSE, 3L, "avg_wip"
+  )
+  line_df <- purrr::map_dfr(seq_along(runs), function(i) {
+    summaries <- runs[[i]]$summaries
+    purrr::map_dfr(seq_len(nrow(line)), function(k) {
+      tibble(
+        metric_id = line$metric_id[[k]],
+        label = line$label[[k]],
+        x_label = line$x_label[[k]],
+        percent = line$percent[[k]],
+        priority = line$priority[[k]],
+        set_index = i,
+        replication = summaries$replication,
+        value = summaries[[line$column[[k]]]]
+      )
+    })
+  })
+  station_priority <- function(station, offset) {
+    offset + replace_na(match(station, names(station_labels)), 50L)
+  }
+  station_df <- purrr::map_dfr(seq_along(runs), function(i) {
+    util <- runs[[i]]$utilization_by_rep
+    if (is.null(util) || !nrow(util)) return(tibble())
+    bind_rows(
+      util %>% transmute(
+        metric_id = paste0("util_", station),
+        label = paste(label_station(station), "bay occupancy"),
+        x_label = "Bay occupancy",
+        percent = TRUE,
+        priority = station_priority(station, 10L),
+        set_index = i,
+        replication = replication,
+        value = avg_util
+      ),
+      util %>% transmute(
+        metric_id = paste0("queue_", station),
+        label = paste(label_station(station), "queue"),
+        x_label = "Mean queue (vehicles)",
+        percent = FALSE,
+        priority = station_priority(station, 20L),
+        set_index = i,
+        replication = replication,
+        value = avg_queue
+      )
+    )
+  })
+  bind_rows(line_df, station_df)
+}
+comparison_rank_changes <- function(runs, n = comparison_highlight_n) {
+  frame <- comparison_metric_frame(runs)
+  n <- suppressWarnings(as.integer(n[[1]]))
+  if (length(n) != 1L || is.na(n) || n < 1L) n <- comparison_highlight_n
+  if (!nrow(frame)) {
+    empty <- tibble(
+      metric_id = character(), label = character(), x_label = character(),
+      percent = logical(), priority = integer(), mean_1 = double(), mean_2 = double(),
+      delta = double(), relative = double(), standardized = double(), score = double()
+    )
+    return(list(frame = frame, scores = empty, shown = empty))
+  }
+  scores <- frame %>%
+    group_by(metric_id, label, x_label, percent, priority) %>%
+    summarise(
+      shift = list(comparison_shift(value[set_index == 1L], value[set_index == 2L])),
+      .groups = "drop"
+    ) %>%
+    tidyr::unnest(shift) %>%
+    mutate(score = if_else(is.na(score), 0, score)) %>%
+    arrange(desc(score), priority, metric_id)
+  shown <- scores %>%
+    filter(score > 0) %>%
+    slice_head(n = n)
+  list(frame = frame, scores = scores, shown = shown)
+}
+comparison_highlight_export <- function(state, labels, metric_id = NULL) {
+  labels <- as.character(labels)
+  shown <- state$shown
+  empty <- tibble(
+    rank = integer(), metric = character(), set = character(),
+    replication = integer(), value = double(),
+    relative_change = double(), standardized_change = double(), score = double()
+  )
+  if (!nrow(shown)) return(empty)
+  if (!is.null(metric_id)) shown <- shown %>% filter(.data$metric_id == metric_id)
+  if (!nrow(shown)) return(empty)
+  state$frame %>%
+    inner_join(
+      shown %>% transmute(
+        metric_id,
+        rank = row_number(),
+        relative_change = relative,
+        standardized_change = standardized,
+        score,
+        metric = label
+      ),
+      by = "metric_id"
+    ) %>%
+    transmute(
+      rank,
+      metric,
+      set = labels[set_index],
+      replication,
+      value,
+      relative_change,
+      standardized_change,
+      score
+    ) %>%
+    arrange(rank, set, replication)
+}
+# Plain language from the two runs. Station names and directions come from
+# the results; the sentence frames are the only fixed wording.
+comparison_change_caption <- function(runs, scores) {
+  station_name <- function(x) {
+    x <- as.character(x)
+    if (!length(x) || is.na(x[[1]]) || !nzchar(x[[1]])) return(NULL)
+    if (exists("label_station", inherits = TRUE)) unname(label_station(x[[1]])) else x[[1]]
+  }
+  parts <- character()
+  b1 <- station_name(runs[[1]]$bottleneck)
+  b2 <- station_name(runs[[2]]$bottleneck)
+  if (!is.null(b1) && !is.null(b2)) {
+    parts <- c(parts, if (!identical(b1, b2)) {
+      sprintf("The busiest station shifted from %s to %s.", b1, b2)
+    } else {
+      sprintf("The busiest station stayed at %s.", b1)
+    })
+  }
+  line_word <- c(
+    throughput_per_hr = "throughput",
+    cycle_time_mean = "mean lead time",
+    avg_wip = "WIP"
+  )
+  bits <- character()
+  for (id in names(line_word)) {
+    row <- scores[scores$metric_id == id, ]
+    if (!nrow(row) || !is.finite(row$delta[[1]]) || abs(row$delta[[1]]) <= 1e-8) next
+    verb <- if (row$delta[[1]] > 0) "rose" else "fell"
+    bits <- c(bits, paste(line_word[[id]], verb))
+  }
+  if (length(bits)) {
+    bits[[1]] <- paste0(toupper(substr(bits[[1]], 1, 1)), substr(bits[[1]], 2, nchar(bits[[1]])))
+    sentence <- if (length(bits) == 1L) {
+      paste0(bits, ".")
+    } else if (length(bits) == 2L) {
+      paste0(bits[[1]], " and ", bits[[2]], ".")
+    } else {
+      paste0(paste(bits[-length(bits)], collapse = ", "), ", and ", bits[[length(bits)]], ".")
+    }
+    parts <- c(parts, sentence)
+  }
+  if (nrow(scores)) {
+    top <- scores[1, ]
+    if (is.finite(top$score) && top$score > 0 && !top$metric_id %in% names(line_word)) {
+      verb <- if (!is.finite(top$delta)) "changed" else if (top$delta > 0) "rose" else if (top$delta < 0) "fell" else "stayed flat"
+      parts <- c(parts, sprintf("The largest shift was %s, which %s.", top$label, verb))
+    }
+  }
+  if (!length(parts)) {
+    "Throughput, lead time, WIP, bay occupancy, and queues did not move."
+  } else {
+    paste(parts, collapse = " ")
+  }
 }
 
 parameter_editor_ui <- function(id) uiOutput(NS(id,"controls"))
@@ -151,11 +476,11 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
 # Horizontal raincloud for replication-level summaries. A set with no spread,
 # or fewer than three replications, does not become a strip of points: a flat
 # set is a line at its median, and a short set with spread is a box.
-comparison_raincloud <- function(df, value, label) {
+comparison_raincloud <- function(df, value, label, palette = comparison_colors) {
   df <- df %>%
     mutate(
       value = .data[[value]],
-      set = factor(set, levels = names(comparison_colors))
+      set = factor(set, levels = names(palette))
     ) %>%
     filter(is.finite(value))
   if (!nrow(df)) {
@@ -222,8 +547,8 @@ comparison_raincloud <- function(df, value, label) {
       size = 3.8,
       color = "#08306b"
     ) +
-    scale_fill_manual(values = comparison_colors, drop = FALSE, name = NULL) +
-    scale_color_manual(values = comparison_colors, drop = FALSE, name = NULL) +
+    scale_fill_manual(values = palette, drop = FALSE, name = NULL) +
+    scale_color_manual(values = palette, drop = FALSE, name = NULL) +
     scale_x_discrete(limits = rev, drop = FALSE) +
     scale_y_continuous(expand = expansion(mult = 0.05, add = pad)) +
     coord_flip(clip = "off") +
@@ -236,11 +561,12 @@ comparison_raincloud <- function(df, value, label) {
 
 # One ridge per station or pool, both sets overlaid. A set with no spread is a
 # rug tick at that value, matching the Simulate page ridgelines.
-comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
+comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, palette = comparison_colors,
+                              subtitle_width = 68L, bounds = NULL) {
   df <- df %>%
     filter(is.finite(.data[[x]])) %>%
     mutate(
-      set = factor(set, levels = names(comparison_colors)),
+      set = factor(set, levels = names(palette)),
       ridge_label = .data[[y]]
     )
   if (!nrow(df)) {
@@ -265,18 +591,36 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
   varying <- df %>% semi_join(filter(spread, !constant), by = c("ridge", "set"))
   constant <- spread %>% filter(constant)
   # Scale names are the set levels on this chart, not an unrelated palette.
-  colors <- ridge_fill_values(levels(df$set), comparison_colors)
+  colors <- ridge_fill_values(levels(df$set), palette)
   p <- ggplot(df, aes(x = .data[[x]], y = y_num))
   if (nrow(varying)) {
     bw <- stats::bw.nrd0(varying[[x]])
     if (!is.finite(bw) || bw <= 0) bw <- stats::mad(varying[[x]], constant = 1)
     if (!is.finite(bw) || bw <= 0) bw <- diff(range(varying[[x]])) / 10
     if (!is.finite(bw) || bw <= 0) bw <- 1e-3
-    p <- p + ggridges::geom_density_ridges(
+    # from/to keep the kernel grid inside the valid range, so a queue near
+    # zero does not draw a bell below zero and occupancy stays in [0, 1].
+    # Quantiles and rugs still use the original replications.
+    from <- NULL
+    to <- NULL
+    if (!is.null(bounds)) {
+      lo <- bounds[[1]]
+      hi <- bounds[[2]]
+      if (is.finite(lo)) from <- lo
+      if (is.finite(hi)) {
+        to <- hi
+      } else if (is.finite(lo)) {
+        to <- max(varying[[x]], na.rm = TRUE) + 3 * bw
+        if (!is.finite(to) || to <= from) to <- from + max(bw, 1e-3)
+      }
+    }
+    # Omit from/to when unset. Passing NULL makes ggplot compare the
+    # density's fixed white outline to the set color scale.
+    ridge_args <- rlang::list2(
       data = varying,
       # y is numeric so spikes can share the scale. Group by ridge and set,
       # or ggplot drops y when one set spans several ridges.
-      aes(fill = set, group = interaction(ridge, set)),
+      mapping = aes(fill = set, group = interaction(ridge, set)),
       alpha = 0.55,
       color = "white",
       linewidth = 0.35,
@@ -286,7 +630,10 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
       quantile_lines = TRUE,
       quantiles = 0.5,
       na.rm = TRUE
-    ) +
+    )
+    if (!is.null(from)) ridge_args$from <- from
+    if (!is.null(to)) ridge_args$to <- to
+    p <- p + rlang::exec(ggridges::geom_density_ridges, !!!ridge_args) +
       # Rug ticks sit on each station or pool baseline. Color follows the set.
       geom_segment(
         data = varying,
@@ -315,7 +662,7 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
     )
   }
   lv <- levels(df$ridge)
-  p +
+  p <- p +
     scale_y_continuous(
       breaks = nlevels(df$ridge) - seq_along(lv) + 1,
       labels = lv,
@@ -324,10 +671,21 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
     ) +
     scale_x_continuous(
       labels = if (percent) scales::percent_format(accuracy = 1) else waiver(),
-      expand = expansion(mult = 0.05)
+      expand = if (is.null(bounds)) expansion(mult = 0.05) else expansion(mult = c(0, 0.05))
     ) +
-    labs(x = x_label, y = NULL, subtitle = plot_subtitle(subtitle)) +
+    labs(
+      x = x_label, y = NULL,
+      subtitle = paste(strwrap(subtitle, width = subtitle_width), collapse = "\n")
+    ) +
     theme_sim(legend.position = "bottom", plot.margin = margin(12, 20, 18, 12))
+  if (!is.null(bounds)) {
+    hi <- bounds[[2]]
+    p <- p + coord_cartesian(
+      xlim = c(bounds[[1]], if (is.finite(hi)) hi else NA),
+      expand = FALSE
+    )
+  }
+  p
 }
 
 # The Simulate page clamps .shiny-plot-output at 720px. That still crowds four
@@ -350,10 +708,48 @@ comparison_ridge_plot <- function(id, n_ridges) {
     plotOutput(id, height = paste0(h, "px"), width = "100%", fill = FALSE)
   )
 }
+# Two ridges (one per set) for a single ranked metric. Same rug convention as
+# the station ridgelines: every replication with spread is a tick on its set's
+# baseline, colored with the set palette. A set with no spread is one spike.
+comparison_highlight_height <- 460L
+# One decimal at or above 1; two significant digits below 1 (0.000338 -> 0.00034).
+format_highlight_mean <- function(x) {
+  if (!is.finite(x)) return("unavailable")
+  if (abs(x) >= 1) sprintf("%.1f", x) else formatC(signif(x, 2), format = "fg", digits = 2)
+}
+# Short enough to wrap inside a half-width chart at base size 16. Means follow
+# ridge order (top set, then lower set) and omit the full titles.
+comparison_highlight_subtitle <- function(mean_1, mean_2, delta = NA_real_) {
+  text <- sprintf(
+    "Rug ticks are every replication. A spike means no spread. Means %s then %s.",
+    format_highlight_mean(mean_1),
+    format_highlight_mean(mean_2)
+  )
+  pct <- if (is.finite(mean_1) && abs(mean_1) > 1e-8 && is.finite(delta)) 100 * delta / mean_1 else NA_real_
+  if (is.finite(pct) && abs(pct) <= 1000) text <- sprintf("%s Change %+.0f%%.", text, pct)
+  text
+}
+comparison_highlight_plot <- function(df, x_label, subtitle, palette, percent = FALSE, bounds = c(0, Inf)) {
+  df <- df %>% mutate(set = factor(.data$set, levels = names(palette)))
+  if (isTRUE(percent)) bounds <- c(0, 1)
+  comparison_ridges(
+    df, "set", "value", x_label, subtitle,
+    percent = percent, palette = palette,
+    subtitle_width = 36L, bounds = bounds
+  )
+}
+comparison_highlight_frame <- function(id) {
+  h <- comparison_highlight_height
+  div(
+    class = "comparison-ridge-plot",
+    style = sprintf("--ridge-h:%dpx;", h),
+    plotOutput(id, height = paste0(h, "px"), width = "100%", fill = FALSE)
+  )
+}
 
 # Every replication is a faint line. The ribbon is a loess fit on all of them.
-comparison_flow <- function(df, column, y_label, facet = NULL) {
-  df <- df %>% mutate(set = factor(set, levels = names(comparison_colors)))
+comparison_flow <- function(df, column, y_label, facet = NULL, palette = comparison_colors) {
+  df <- df %>% mutate(set = factor(set, levels = names(palette)))
   if (!nrow(df)) {
     return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No time-series observations.")))
   }
@@ -370,8 +766,8 @@ comparison_flow <- function(df, column, y_label, facet = NULL) {
       method = "loess", formula = y ~ x, se = TRUE,
       linewidth = 1.15, alpha = 0.18, span = 0.35, na.rm = TRUE
     ) +
-    scale_color_manual(values = comparison_colors, drop = FALSE, name = NULL) +
-    scale_fill_manual(values = comparison_colors, drop = FALSE, name = NULL) +
+    scale_color_manual(values = palette, drop = FALSE, name = NULL) +
+    scale_fill_manual(values = palette, drop = FALSE, name = NULL) +
     labs(
       x = "Simulation time (min)",
       y = y_label,
@@ -426,6 +822,10 @@ comparison_download_catalog <- function(ns) {
       "dl_metrics", "Station metrics",
       "Across-replication mean and SD of occupancy, queue, and downtime fraction."
     ),
+    entry(
+      "dl_highlights", "Largest changes",
+      "Every replication behind the ranked charts: throughput, lead time, WIP, bay occupancy, and queues."
+    ),
     div(
       class = "mt-3",
       downloadButton(ns("download"), "Download both runs and exact inputs (.rds)", class = "btn-secondary")
@@ -447,6 +847,9 @@ comparison_page_ui <- function(id) {
           min-height: var(--ridge-h) !important;
           max-height: none !important;
         }
+        .comparison-set-title .form-group { margin-bottom: 0; }
+        .comparison-draft-diff { max-width: 100%; }
+        .comparison-change-story { border-left: 4px solid #1b4f72; padding-left: 0.9rem; }
       ")),
       tags$script(HTML("
         (function() {
@@ -496,7 +899,7 @@ comparison_page_ui <- function(id) {
         })();
       ")),
       h3("Compare two parameter sets"),
-      p("Start from the main page, change one parameter at a time, and compare output and flow. Set 1 and Set 2 stay independent of the main page after import."),
+      p("Start from the main page, change one parameter at a time, and compare output and flow. The two sets stay independent of the main page after import. Each title is editable and is used on the charts, tables, and downloads."),
       p("Results are illustrative only. They are not predictions for any employer."),
       div(
         class = "d-flex flex-wrap gap-2 mb-3",
@@ -507,17 +910,30 @@ comparison_page_ui <- function(id) {
       ),
       uiOutput(ns("status")),
       uiOutput(ns("result_fade")),
+      uiOutput(ns("draft_diff")),
       layout_columns(
         col_widths = c(6, 6),
         fill = FALSE,
         card(
           fill = FALSE,
-          card_header(tags$span(style = "color:#2474A5", "Set 1 — baseline")),
+          card_header(
+            tags$div(
+              class = "comparison-set-title",
+              style = "color:#2474A5",
+              textInput(ns("title_one"), "Title", value = comparison_default_labels[[1]], width = "100%")
+            )
+          ),
           parameter_editor_ui(ns("one"))
         ),
         card(
           fill = FALSE,
-          card_header(tags$span(style = "color:#D46B25", "Set 2 — study")),
+          card_header(
+            tags$div(
+              class = "comparison-set-title",
+              style = "color:#D46B25",
+              textInput(ns("title_two"), "Title", value = comparison_default_labels[[2]], width = "100%")
+            )
+          ),
           parameter_editor_ui(ns("two"))
         )
       ),
@@ -531,6 +947,8 @@ comparison_page_ui <- function(id) {
       ),
       div(
         id = ns("saved_results"),
+        uiOutput(ns("change_story")),
+        uiOutput(ns("highlights")),
         uiOutput(ns("kpis")),
         uiOutput(ns("captured_settings")),
         navset_card_tab(
@@ -553,7 +971,7 @@ comparison_page_ui <- function(id) {
           nav_panel("Lead-time curves", roomy_plot(ns("cycles"))),
           nav_panel(
             "Bay occupancy",
-            p(class = "text-muted small", "One ridge per station. Blue is Set 1 and orange is Set 2. A spike means that set did not vary."),
+            p(class = "text-muted small", "One ridge per station. Blue is the first set and orange is the second. A spike means that set did not vary."),
             uiOutput(ns("occupancy_frame"))
           ),
           nav_panel(
@@ -591,6 +1009,23 @@ comparison_page_server <- function(id, main_params, active_page) {
     initialized <- reactiveVal(FALSE)
     results <- reactiveVal(NULL)
     error <- reactiveVal(NULL)
+    # Titles are display state. Editing one does not rerun the simulation
+    # and does not mark a saved comparison stale.
+    titles <- reactiveVal(comparison_default_labels)
+    observeEvent(input$title_one, {
+      updated <- sanitize_set_labels(c(input$title_one, isolate(titles())[[2]]))
+      if (!identical(updated, isolate(titles()))) titles(updated)
+    }, ignoreInit = TRUE, ignoreNULL = TRUE)
+    observeEvent(input$title_two, {
+      updated <- sanitize_set_labels(c(isolate(titles())[[1]], input$title_two))
+      if (!identical(updated, isolate(titles()))) titles(updated)
+    }, ignoreInit = TRUE, ignoreNULL = TRUE)
+    palette <- reactive(comparison_palette(titles()))
+    present_sets <- function(df, labels = titles()) {
+      if (is.null(df) || !nrow(df) || !"set" %in% names(df)) return(df)
+      mapped <- stats::setNames(as.character(labels), names(comparison_colors))
+      df %>% mutate(set = unname(mapped[as.character(.data$set)]))
+    }
     import_main <- function() {
       p <- isolate(main_params()) %>% normalize_params() %>% validate_params()
       one$set_params(p)
@@ -634,9 +1069,9 @@ comparison_page_server <- function(id, main_params, active_page) {
       tryCatch({
         r <- withProgress(message = "Running both parameter sets…", value = 0, {
           a <- run_line_sim(d$one)
-          incProgress(0.5, detail = "Set 1 complete")
+          incProgress(0.5, detail = paste(titles()[[1]], "complete"))
           b <- run_line_sim(d$two)
-          incProgress(0.5, detail = "Set 2 complete")
+          incProgress(0.5, detail = paste(titles()[[2]], "complete"))
           list(
             params = list(a$params, b$params),
             runs = list(a, b),
@@ -648,19 +1083,39 @@ comparison_page_server <- function(id, main_params, active_page) {
       }, error = function(e) error(conditionMessage(e)))
       # Invalid input returns before this, and a failed sim leaves succeeded FALSE,
       # so open editors stay open when the run does not update.
-      if (isTRUE(succeeded)) {
-        # bslib queues a close on the next flush; also close in the browser
-        # immediately so a finished run does not leave the editors open.
-        one$collapse()
-        two$collapse()
-        session$sendCustomMessage(
-          "two-set-collapse-editors",
-          list(
-            ids = c(session$ns("one-editor_panels"), session$ns("two-editor_panels")),
-            scrollId = session$ns("saved_results")
-          )
+      if (isTRUE(succeeded)) collapse_editors(scroll = TRUE)
+    }
+    # Close both editors after a saved comparison. Scroll only when this page
+    # is the one on screen, so a guided run started from Simulate does not
+    # pull that page down to a hidden tab.
+    collapse_editors <- function(scroll = TRUE) {
+      one$collapse()
+      two$collapse()
+      if (!isTRUE(scroll)) return(invisible())
+      session$sendCustomMessage(
+        "two-set-collapse-editors",
+        list(
+          ids = c(session$ns("one-editor_panels"), session$ns("two-editor_panels")),
+          scrollId = session$ns("saved_results")
         )
-      }
+      )
+    }
+    load_pair <- function(run_one, run_two, labels = comparison_guided_labels) {
+      labels <- sanitize_set_labels(labels)
+      one$set_params(run_one$params)
+      two$set_params(run_two$params)
+      titles(labels)
+      updateTextInput(session, "title_one", value = labels[[1]])
+      updateTextInput(session, "title_two", value = labels[[2]])
+      error(NULL)
+      initialized(TRUE)
+      results(list(
+        params = list(run_one$params, run_two$params),
+        runs = list(run_one, run_two),
+        at = format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
+      ))
+      collapse_editors(scroll = identical(isolate(active_page()), "compare_sets"))
+      invisible(results())
     }
     # Value 0 is the button's initial state, not a request to run.
     observeEvent(input$run, {
@@ -718,16 +1173,111 @@ comparison_page_server <- function(id, main_params, active_page) {
         session$ns("saved_results"), opacity
       )))
     })
+    output$draft_diff <- renderUI({
+      d <- draft()
+      if (inherits(d, "error")) {
+        return(div(
+          class = "alert alert-light border py-2 mb-3 comparison-draft-diff",
+          "Fix the parameter inputs to compare settings."
+        ))
+      }
+      comparison_diff_table(d$one, d$two, titles())
+    })
     output$differences <- renderDT({
       d <- draft()
       req(!inherits(d, "error"))
-      datatable(comparison_diff(d$one, d$two), rownames = FALSE, options = list(dom = "t", scrollX = TRUE))
+      datatable(comparison_diff(d$one, d$two, titles()), rownames = FALSE, options = list(dom = "t", scrollX = TRUE))
     })
     table_for <- function(field) {
       r <- results()
       req(!is.null(r))
-      bind_runs(r, field)
+      present_sets(bind_runs(r, field))
     }
+    highlight_state <- reactive({
+      r <- results()
+      req(!is.null(r))
+      comparison_rank_changes(r$runs, n = comparison_highlight_n)
+    })
+    output$change_story <- renderUI({
+      r <- results()
+      req(!is.null(r))
+      div(
+        class = "comparison-change-story mb-3",
+        h4("What changed most"),
+        p(class = "mb-2", comparison_change_caption(r$runs, highlight_state()$scores)),
+        p(class = "text-muted small mb-0", "Results are illustrative only. They are not predictions for any employer.")
+      )
+    })
+    output$highlights <- renderUI({
+      state <- highlight_state()
+      shown <- state$shown
+      if (!nrow(shown)) {
+        return(p("These two sets match on throughput, lead time, WIP, bay occupancy, and queues."))
+      }
+      n <- nrow(shown)
+      intro <- if (n == 1L) {
+        "The metric below moved the most between the two sets."
+      } else {
+        "The metrics below moved the most between the two sets."
+      }
+      plots <- lapply(seq_len(n), function(i) {
+        tagList(
+          comparison_highlight_frame(session$ns(paste0("highlight_plot_", i))),
+          downloadButton(
+            session$ns(paste0("dl_highlight_", i)),
+            "Download this chart's data",
+            class = "btn-outline-secondary btn-sm mb-3"
+          )
+        )
+      })
+      tagList(
+        p(class = "mb-1", intro),
+        p(
+          class = "text-muted small",
+          "Ranked by percent change from the first set. When that mean is smaller than the spread across replications, the change is measured against the second set's mean instead. Every replication is drawn."
+        ),
+        layout_columns(col_widths = if (n == 1L) 12 else 6, !!!plots)
+      )
+    })
+    highlight_subtitle <- function(row) {
+      comparison_highlight_subtitle(row$mean_1, row$mean_2, row$delta)
+    }
+    local({
+      for (i in seq_len(comparison_highlight_n)) {
+        local({
+          ii <- i
+          output[[paste0("highlight_plot_", ii)]] <- renderPlot({
+            state <- highlight_state()
+            req(nrow(state$shown) >= ii)
+            row <- state$shown[ii, ]
+            df <- state$frame %>%
+              filter(.data$metric_id == row$metric_id) %>%
+              mutate(set = titles()[.data$set_index])
+            comparison_highlight_plot(
+              df,
+              x_label = row$x_label,
+              subtitle = highlight_subtitle(row),
+              palette = palette(),
+              percent = isTRUE(row$percent)
+            ) +
+              labs(title = row$label)
+          })
+          output[[paste0("dl_highlight_", ii)]] <- downloadHandler(
+            filename = function() sprintf("comparison_largest_change_%d.csv", ii),
+            content = function(file) {
+              r <- isolate(results())
+              if (is.null(r)) stop("Run the comparison before downloading.", call. = FALSE)
+              state <- comparison_rank_changes(r$runs, n = comparison_highlight_n)
+              if (ii > nrow(state$shown)) stop("That chart is not in this comparison.", call. = FALSE)
+              readr::write_csv(
+                comparison_highlight_export(state, isolate(titles()), state$shown$metric_id[[ii]]),
+                file
+              )
+            }
+          )
+        })
+      }
+    })
     output$kpis <- renderUI({
       r <- results()
       req(!is.null(r))
@@ -748,10 +1298,10 @@ comparison_page_server <- function(id, main_params, active_page) {
             title = metrics[[m]],
             value = tags$div(
               style = "font-size:1.1rem",
-              tags$div(style = "color:#2474A5", paste("Set 1:", show(values[[1]]))),
-              tags$div(style = "color:#D46B25", paste("Set 2:", show(values[[2]])))
+              tags$div(style = "color:#2474A5", paste0(titles()[[1]], ": ", show(values[[1]]))),
+              tags$div(style = "color:#D46B25", paste0(titles()[[2]], ": ", show(values[[2]])))
             ),
-            p(paste("Set 2 − Set 1:", show(delta))),
+            p(paste0(titles()[[2]], " − ", titles()[[1]], ": ", show(delta))),
             p(if (is.finite(values[[1]]) && values[[1]] != 0 && is.finite(delta)) {
               sprintf("Change: %+.1f%%", 100 * delta / values[[1]])
             } else {
@@ -767,8 +1317,8 @@ comparison_page_server <- function(id, main_params, active_page) {
       div(
         class = "small text-muted mb-3",
         p(class = "mb-1", tags$strong(paste("Results captured:", r$at))),
-        p(class = "mb-1", tags$strong("Set 1"), " · ", format_run_settings(r$params[[1]])),
-        p(class = "mb-0", tags$strong("Set 2"), " · ", format_run_settings(r$params[[2]]))
+        p(class = "mb-1", tags$strong(titles()[[1]]), " · ", format_run_settings(r$params[[1]])),
+        p(class = "mb-0", tags$strong(titles()[[2]]), " · ", format_run_settings(r$params[[2]]))
       )
     })
     ridge_frame <- function(output_name, plot_name, field, column, fallback_n) {
@@ -800,7 +1350,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       metric <- input$metric %||% "throughput_per_hr"
       df <- table_for("summaries")
       validate(need(any(is.finite(df[[metric]])), "No completed observations for this metric."))
-      comparison_raincloud(df, metric, labels[[metric]])
+      comparison_raincloud(df, metric, labels[[metric]], palette = palette())
     })
     output$occupancy <- renderPlot({
       df <- table_for("utilization_by_rep") %>%
@@ -809,7 +1359,8 @@ comparison_page_server <- function(id, main_params, active_page) {
         df, "label", "avg_util",
         x_label = "Bay occupancy",
         subtitle = "One ridge per station; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
-        percent = TRUE
+        percent = TRUE,
+        palette = palette()
       )
     })
     output$labor <- renderPlot({
@@ -828,7 +1379,8 @@ comparison_page_server <- function(id, main_params, active_page) {
         df, "label", "avg_util",
         x_label = "Operator utilization",
         subtitle = "One ridge per pool; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
-        percent = TRUE
+        percent = TRUE,
+        palette = palette()
       )
     })
     output$downtime <- renderPlot({
@@ -838,13 +1390,14 @@ comparison_page_server <- function(id, main_params, active_page) {
         df, "label", "downtime_fraction",
         x_label = "Active repair fraction",
         subtitle = "One ridge per station; both sets overlaid. Rug = each rep at the baseline; line = median. Spike = no spread.",
-        percent = TRUE
+        percent = TRUE,
+        palette = palette()
       )
     })
     output$cycles <- renderPlot({
       df <- table_for("cycle_times") %>%
         filter(is.finite(cycle_time)) %>%
-        mutate(set = factor(set, levels = names(comparison_colors)))
+        mutate(set = factor(set, levels = names(palette())))
       validate(need(nrow(df) > 0, "No completed vehicles in either set."))
       counts <- df %>% count(set)
       p <- ggplot(df, aes(x = cycle_time, fill = set, color = set))
@@ -854,8 +1407,8 @@ comparison_page_server <- function(id, main_params, active_page) {
         p <- p + geom_histogram(position = "identity", alpha = 0.3, bins = 20)
       }
       p +
-        scale_fill_manual(values = comparison_colors, drop = FALSE, name = NULL) +
-        scale_color_manual(values = comparison_colors, drop = FALSE, name = NULL) +
+        scale_fill_manual(values = palette(), drop = FALSE, name = NULL) +
+        scale_color_manual(values = palette(), drop = FALSE, name = NULL) +
         labs(
           x = "Vehicle lead time (min)",
           y = "Density",
@@ -866,16 +1419,18 @@ comparison_page_server <- function(id, main_params, active_page) {
     output$shift_output <- renderPlot({
       df<-table_for("shift_summaries") %>% group_by(set,shift) %>% summarise(output=mean(n_completed),.groups="drop")
       ggplot(df,aes(shift,output,color=set))+(if(dplyr::n_distinct(df$shift)>1) geom_line(linewidth=1) else NULL)+geom_point()+
-        scale_color_manual(values=comparison_colors)+labs(x="Measured shift",y="Mean completed vehicles",color=NULL)+theme_sim()
+        scale_color_manual(values = palette(), drop = FALSE, name = NULL) +
+        labs(x = "Measured shift", y = "Mean completed vehicles", color = NULL) +
+        theme_sim()
     })
     output$backlog <- renderPlot({comparison_flow(table_for("release_timeseries"),"unreleased_backlog","Orders waiting for admission")})
     output$wip <- renderPlot({
-      comparison_flow(table_for("wip_timeseries"), "wip", "WIP (vehicles)")
+      comparison_flow(table_for("wip_timeseries"), "wip", "WIP (vehicles)", palette = palette())
     })
     output$queues <- renderPlot({
       df <- table_for("queue_timeseries") %>%
         mutate(label = factor(label_station(resource), levels = unname(station_labels)))
-      comparison_flow(df, "queue", "Queue (vehicles)", facet = "label")
+      comparison_flow(df, "queue", "Queue (vehicles)", facet = "label", palette = palette())
     })
     summary_data <- reactive({
       table_for("summaries") %>%
@@ -926,7 +1481,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         content = function(file) {
           r <- isolate(results())
           if (is.null(r)) stop("Run the comparison before downloading.", call. = FALSE)
-          readr::write_csv(bind_runs(r, field), file)
+          readr::write_csv(present_sets(bind_runs(r, field), isolate(titles())), file)
         }
       )
     }
@@ -941,6 +1496,15 @@ comparison_page_server <- function(id, main_params, active_page) {
     write_comparison_csv("dl_down", "comparison_downtime_by_rep.csv", "downtime_by_rep")
     write_comparison_csv("dl_repairs", "comparison_repair_events.csv", "repair_events")
     write_comparison_csv("dl_metrics", "comparison_station_metrics.csv", "station_metrics")
+    output$dl_highlights <- downloadHandler(
+      filename = function() "comparison_largest_changes.csv",
+      content = function(file) {
+        r <- isolate(results())
+        if (is.null(r)) stop("Run the comparison before downloading.", call. = FALSE)
+        state <- comparison_rank_changes(r$runs, n = comparison_highlight_n)
+        readr::write_csv(comparison_highlight_export(state, isolate(titles())), file)
+      }
+    )
     output$download <- downloadHandler(
       filename = function() "two_parameter_sets.rds",
       content = function(file) {
@@ -955,7 +1519,9 @@ comparison_page_server <- function(id, main_params, active_page) {
       results = results,
       draft = draft,
       dirty = dirty,
-      summary = summary_data
+      summary = summary_data,
+      titles = titles,
+      load_pair = load_pair
     )
   })
 }
