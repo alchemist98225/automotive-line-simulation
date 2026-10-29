@@ -1,4 +1,11 @@
 e<-new.env();source("app/app.R",local=e,chdir=TRUE)
+# Every flow chart must preserve renamed and guided scenario labels.
+flow_original <- e$comparison_flow
+e$comparison_flow <- function(...) {
+  chart <- flow_original(...)
+  stopifnot(!anyNA(chart$data$set))
+  chart
+}
 p<-e$default_params();p$n_replications<-3L
 shiny::testServer(e$parameter_editor_server,{
   set_params(p)
@@ -102,6 +109,7 @@ shiny::testServer(e$comparison_page_server,args=list(main_params=shiny::reactive
   session$flushReact()
   stopifnot(identical(results(), r))
   stopifnot(identical(titles(), c("Alpha line", "Beta line")))
+  invisible(output$backlog)
   diff_named <- paste(as.character(output$draft_diff), collapse = "")
   stopifnot(grepl("Alpha line", diff_named, fixed = TRUE), grepl("Beta line", diff_named, fixed = TRUE))
   kpis <- paste(as.character(output$kpis), collapse = " ")
