@@ -76,7 +76,7 @@ shiny::testServer(e$comparison_page_server,args=list(main_params=shiny::reactive
   expect_collapse_message(1L)
   occ_h <- e$comparison_ridge_height(4L)
   labor_h <- e$comparison_ridge_height(2L)
-  stopifnot(occ_h > 550L, labor_h >= 520L, occ_h > labor_h)
+  stopifnot(occ_h > 720L, labor_h >= 520L, occ_h > labor_h)
   stopifnot(frame_has_height(output$occupancy_frame, occ_h))
   stopifnot(frame_has_height(output$labor_frame, labor_h))
   stopifnot(frame_has_height(output$downtime_frame, occ_h))
@@ -139,6 +139,18 @@ rain_df <- tibble::tibble(
 )
 built <- ggplot2::ggplot_build(e$comparison_raincloud(rain_df, "throughput_per_hr", "Throughput (vehicles/hour)"))
 stopifnot(length(built$data) >= 1L)
+# A tight set used to erase the wider set's cloud (violin scale = "area").
+set.seed(1)
+peaked <- tibble::tibble(
+  set = rep(c("Set 1", "Set 2"), each = 50),
+  throughput_per_hr = c(stats::rnorm(50, 12, 0.02), stats::rnorm(50, 9, 1.1))
+)
+peaked_built <- ggplot2::ggplot_build(e$comparison_raincloud(peaked, "throughput_per_hr", "Throughput (vehicles/hour)"))
+peaked_geoms <- vapply(peaked_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
+peaked_violin <- which(grepl("Violin", peaked_geoms))
+stopifnot(length(peaked_violin) >= 1L)
+peaked_widths <- tapply(peaked_built$data[[peaked_violin[[1]]]]$violinwidth, peaked_built$data[[peaked_violin[[1]]]]$group, max, na.rm = TRUE)
+stopifnot(length(peaked_widths) >= 2L, all(peaked_widths > 0.5))
 flat <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 4),
   station = "Inspection",
@@ -192,11 +204,11 @@ cmp_geoms <- vapply(cmp_built$plot$layers, function(layer) class(layer$geom)[1],
 cmp_fills <- unique(cmp_built$data[[which(cmp_geoms == "GeomDensityRidges")[1]]]$fill)
 stopifnot(setequal(cmp_fills[!is.na(cmp_fills)], unname(e$comparison_colors)))
 stopifnot(!any(grepl("No shared levels found", cmp_warns, fixed = TRUE)))
-# Height grows with the number of ridges and stays above the 550px app-wide clamp
+# Height grows with the number of ridges and stays above the 720px app-wide clamp
 # once there are enough stations for Inspection to be crowded.
 heights <- vapply(1:6, e$comparison_ridge_height, integer(1))
 stopifnot(all(diff(heights) >= 0L))
-stopifnot(heights[[4]] > 550L, heights[[4]] > heights[[2]], heights[[1]] >= 520L)
+stopifnot(heights[[4]] > 720L, heights[[4]] > heights[[2]], heights[[1]] >= 520L)
 stopifnot(identical(e$comparison_ridge_height(0), e$comparison_ridge_height(1)))
 stopifnot(e$comparison_ridge_n(c("Paint", "Paint", "Inspection", NA)) == 2L)
 stopifnot(e$comparison_ridge_n(character()) == 1L)

@@ -210,6 +210,19 @@ ridge_fill_values <- function(levels, fill_values = NULL) {
   }
   out
 }
+# Charts share one text size. 16 is about half again the ggplot2 default (11).
+# theme_minimal carries that size through axis text, titles, legends, and strips.
+theme_sim <- function(...) {
+  theme_minimal(base_size = 16) +
+    theme(
+      plot.subtitle = element_text(margin = margin(0, 0, 8, 0)),
+      ...
+    )
+}
+# Long subtitles wrap so larger type does not run off a narrow results column.
+plot_subtitle <- function(text) {
+  paste(strwrap(text, width = 68), collapse = "\n")
+}
 # One ridge per group, metric on x, every replication. A group with no
 # spread (all reps identical, or a single rep) is a rug tick at that value:
 # density estimation has no bandwidth there.
@@ -225,7 +238,7 @@ replication_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, fill
     df$ridge <- factor(df$ridge_label, levels = unique(df$ridge_label))
   }
   if (!nrow(df)) {
-    return(ggplot() + theme_void() + labs(subtitle = "No replications to plot"))
+    return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No replications to plot")))
   }
   df <- df %>% dplyr::mutate(y_num = nlevels(ridge) - as.numeric(ridge) + 1)
   spread <- df %>%
@@ -287,15 +300,53 @@ replication_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, fill
     scale_y_continuous(
       breaks = nlevels(df$ridge) - seq_along(lv) + 1,
       labels = lv,
-      expand = expansion(add = c(0.35, 0.95))
+      # Extra room so larger station names clear the axis title and the top ridge.
+      expand = expansion(add = c(0.6, 1.15))
     ) +
     scale_x_continuous(
       labels = if (percent) scales::percent_format(accuracy = 1) else waiver(),
       expand = expansion(mult = 0.05)
     ) +
-    labs(x = x_label, y = NULL, subtitle = subtitle) +
-    theme_minimal(base_size = 13) +
-    theme(legend.position = "none", plot.margin = margin(8, 16, 8, 8))
+    labs(x = x_label, y = NULL, subtitle = plot_subtitle(subtitle)) +
+    theme_sim(legend.position = "none", plot.margin = margin(10, 18, 14, 12))
+}
+# Horizontal raincloud of bay occupancy across replications.
+# geom_rain's violin uses scale = "area", which divides every density by the
+# tallest peak on the panel. A station piled at 100% (only a couple of distinct
+# occupancies) produces that peak and shrinks the other half-violins until the
+# clouds disappear. scale = "width" gives each station its own full cloud.
+# A station with no spread keeps the points and the flat box; its density has
+# no range, so it does not grow a cloud.
+occupancy_raincloud <- function(per_rep, means) {
+  ggplot(per_rep, aes(x = label, y = avg_util, fill = label)) +
+    geom_rain(
+      rain.side = "r",
+      seed = 42,
+      point.args = list(alpha = 0.35, size = 1.8, color = "#4a4a4a"),
+      point.args.pos = list(position = position_jitter(width = 0.06, height = 0, seed = 42)),
+      boxplot.args = list(outlier.shape = NA, color = "#225ea8", linewidth = 0.4),
+      violin.args = list(alpha = 0.55, color = NA, scale = "width")
+    ) +
+    geom_point(
+      data = means,
+      aes(x = label, y = avg_util_mean),
+      inherit.aes = FALSE,
+      shape = 18, size = 3.8, color = "#08306b"
+    ) +
+    scale_fill_manual(values = station_colors, guide = "none") +
+    scale_x_discrete(limits = rev) +
+    # Occupancy is the y aesthetic; coord_flip draws it horizontally.
+    # No 0–100 limits, so the axis follows the data and a point at 100% stays visible.
+    scale_y_continuous(
+      labels = scales::percent_format(accuracy = 1),
+      expand = expansion(mult = 0.05)
+    ) +
+    coord_flip(clip = "off") +
+    labs(
+      x = NULL, y = "Bay occupancy",
+      subtitle = plot_subtitle("Half-violin and box across replications; faint points = each rep; diamond = mean")
+    ) +
+    theme_sim(legend.position = "none", plot.margin = margin(10, 22, 14, 12))
 }
 provenance_warning <- function(message, button_id = NULL) {
   div(
@@ -311,8 +362,9 @@ provenance_warning <- function(message, button_id = NULL) {
 }
 
 # plotOutput only accepts a single CSS length. The theme rule below replaces it
-# with clamp(450px, 52vh, 550px) so the chart stays in that range as the window changes.
-plot_height <- "520px"
+# with clamp(520px, 60vh, 720px). The extra height keeps larger station names,
+# wrapped subtitles, and the occupancy clouds from crowding each other.
+plot_height <- "640px"
 
 download_entry <- function(id, label, description) {
   div(
@@ -449,12 +501,12 @@ ui <- page_navbar(
     primary = "#2c7fb8",
     "navbar-bg" = "#1b4f72"
   ),
-  # plotOutput cannot take clamp() directly. This overrides the 520px fallback.
+  # plotOutput cannot take clamp() directly. This overrides the 640px fallback.
   header = tags$style(HTML("
     .shiny-plot-output {
       width: 100% !important;
-      height: clamp(450px, 52vh, 550px) !important;
-      min-height: 450px !important;
+      height: clamp(520px, 60vh, 720px) !important;
+      min-height: 520px !important;
     }
     /* Sub-tab pills wrap instead of collapsing into one run-on label. */
     #capacity_tabs.nav-pills,
@@ -602,12 +654,6 @@ ui <- page_navbar(
           p("highest bay occupancy — see the first tab")
         )
         )
-      ),
-      tags$details(
-        class = "run-settings border rounded mb-3",
-        open = NA,
-        tags$summary(class = "px-3 py-2", "Run settings"),
-        div(class = "px-3 pb-2", uiOutput("run_settings_body"))
       ),
 
       navset_card_underline(
@@ -779,6 +825,11 @@ ui <- page_navbar(
             )
           )
         )
+      ),
+      tags$details(
+        class = "run-settings border rounded mt-3 mb-2",
+        tags$summary(class = "px-3 py-2", "Run settings"),
+        div(class = "px-3 pb-2", uiOutput("run_settings_body"))
       )
     )
   ),
@@ -1131,36 +1182,7 @@ server <- function(input, output, session) {
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
     means <- res$station_metrics %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
-    ggplot(per_rep, aes(x = label, y = avg_util, fill = label)) +
-      geom_rain(
-        rain.side = "r",
-        seed = 42,
-        point.args = list(alpha = 0.35, size = 1.8, color = "#4a4a4a"),
-        point.args.pos = list(position = position_jitter(width = 0.06, height = 0, seed = 42)),
-        boxplot.args = list(outlier.shape = NA, color = "#225ea8", linewidth = 0.4),
-        violin.args = list(alpha = 0.55, color = NA)
-      ) +
-      geom_point(
-        data = means,
-        aes(x = label, y = avg_util_mean),
-        inherit.aes = FALSE,
-        shape = 18, size = 3.8, color = "#08306b"
-      ) +
-      scale_fill_manual(values = station_colors, guide = "none") +
-      scale_x_discrete(limits = rev) +
-      # Occupancy is the y aesthetic; coord_flip draws it horizontally.
-      # No 0–100 limits, so the axis follows the data and a point at 100% stays visible.
-      scale_y_continuous(
-        labels = scales::percent_format(accuracy = 1),
-        expand = expansion(mult = 0.05)
-      ) +
-      coord_flip(clip = "off") +
-      labs(
-        x = NULL, y = "Bay occupancy",
-        subtitle = "Half-violin and box across replications; faint points = each rep; diamond = mean"
-      ) +
-      theme_minimal(base_size = 13) +
-      theme(legend.position = "none", plot.margin = margin(8, 16, 8, 8))
+    occupancy_raincloud(per_rep, means)
   })
 
   output$plot_labor <- renderPlot({
@@ -1199,9 +1221,8 @@ server <- function(input, output, session) {
                   linewidth = 1.15, alpha = 0.18, span = 0.35, na.rm = TRUE) +
       scale_color_manual(values = station_colors) +
       labs(x = "Time (minutes)", y = "Queue length", color = "Station",
-           subtitle = "Faint lines = each replication; bold = loess + ribbon") +
-      theme_minimal(base_size = 13) +
-      theme(legend.position = "bottom")
+           subtitle = plot_subtitle("Faint lines = each replication; bold = loess + ribbon")) +
+      theme_sim(legend.position = "bottom")
     if (identical(layout, "facet") && identical(station, "all")) {
       p <- p + facet_wrap(~label, ncol = 2) + theme(legend.position = "none")
     }
@@ -1217,8 +1238,8 @@ server <- function(input, output, session) {
                   linewidth = 1.2, color = "#b35900", fill = "#fdcc8a",
                   alpha = 0.25, span = 0.35, na.rm = TRUE) +
       labs(x = "Time (minutes)", y = "WIP (vehicles)",
-           subtitle = "Faint lines = each replication; bold = loess + ribbon") +
-      theme_minimal(base_size = 13)
+           subtitle = plot_subtitle("Faint lines = each replication; bold = loess + ribbon")) +
+      theme_sim()
   })
 
   output$plot_down <- renderPlot({
@@ -1247,9 +1268,9 @@ server <- function(input, output, session) {
       geom_density(linewidth = 1.15, color = "#253494", na.rm = TRUE) +
       geom_vline(xintercept = mean_ct, linetype = "dashed", color = "#253494") +
       labs(x = "Cycle time (minutes)", y = "Density",
-           subtitle = paste0("Faint = per-rep density; bold = pooled; mean = ",
-                             round(mean_ct, 1), " min")) +
-      theme_minimal(base_size = 13)
+           subtitle = plot_subtitle(paste0("Faint = per-rep density; bold = pooled; mean = ",
+                                           round(mean_ct, 1), " min"))) +
+      theme_sim()
   })
 
   output$table_metrics <- renderDT({
