@@ -368,6 +368,51 @@ stopifnot(!any(grepl("base_size = 13", readLines("app/app.R"), fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", readLines("app/R/comparison.R"), fixed = TRUE)))
 stopifnot(any(grepl("theme_sim", qmd_lines, fixed = TRUE)))
 cat("Occupancy boxplot checks passed\n")
+one_shift <- tibble::tibble(shift = 1L, n_completed = c(48, 50, 51, 49, 52, 47))
+shift_built <- ggplot2::ggplot_build(e$shift_output_plot(one_shift, 53.3))
+shift_geoms <- vapply(shift_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
+shift_stats <- vapply(shift_built$plot$layers, function(layer) class(layer$stat)[1], character(1))
+stopifnot(any(shift_stats == "StatBin"), any(shift_geoms == "GeomDensity"), any(shift_geoms == "GeomRug"))
+stopifnot(any(shift_geoms == "GeomVline"))
+hist_layer <- shift_built$plot$layers[[which(shift_stats == "StatBin")[1]]]
+stopifnot(identical(hist_layer$aes_params$fill, "#41b6c4"))
+stopifnot(identical(hist_layer$aes_params$alpha, 0.55))
+dens_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomDensity")[1]]]
+stopifnot(identical(dens_layer$aes_params$colour, "#253494"))
+stopifnot(abs(dens_layer$aes_params$linewidth - 1.15) < 1e-8)
+hist_breaks <- hist_layer$stat_params$breaks
+stopifnot(length(hist_breaks) >= 2L, all(abs(diff(hist_breaks) - round(diff(hist_breaks))) < 1e-8))
+stopifnot(nrow(shift_built$data[[which(shift_geoms == "GeomRug")[1]]]) == nrow(one_shift))
+shift_labels <- unlist(lapply(shift_built$data, function(d) if ("label" %in% names(d)) d$label else character()))
+stopifnot(any(grepl("Theoretical capacity", shift_labels, fixed = TRUE)))
+stopifnot(any(grepl("53 vehicles", shift_labels, fixed = TRUE)))
+x_breaks <- shift_built$layout$panel_params[[1]]$x$breaks
+x_breaks <- x_breaks[is.finite(x_breaks)]
+stopifnot(length(x_breaks) >= 2L, all(abs(x_breaks - round(x_breaks)) < 1e-8))
+cap_lines <- strsplit(shift_built$plot$labels$caption, "\n", fixed = TRUE)[[1]]
+stopifnot(any(grepl("ignoring labor", cap_lines, fixed = TRUE)))
+stopifnot(any(grepl("blocking", cap_lines, fixed = TRUE)))
+stopifnot(length(cap_lines) >= 2L, all(nchar(cap_lines) <= 32L))
+title_lines <- strsplit(shift_built$plot$labels$title, "\n", fixed = TRUE)[[1]]
+stopifnot(all(nchar(title_lines) <= 32L))
+stopifnot(identical(shift_built$plot$theme$text$size, 16))
+many_shift <- tibble::tibble(shift = rep(1:3, each = 4), n_completed = 40 + seq_len(12))
+many_built <- ggplot2::ggplot_build(e$shift_output_plot(many_shift, 53))
+stopifnot(inherits(many_built$plot$facet, "FacetWrap"))
+cmp_shift <- tibble::tibble(
+  set = rep(c("Set 1", "Set 2"), each = 6),
+  shift = 1L,
+  n_completed = c(48, 49, 50, 51, 47, 52, 70, 72, 74, 71, 69, 73)
+)
+cmp_built <- ggplot2::ggplot_build(e$shift_output_plot(
+  cmp_shift,
+  tibble::tibble(set = c("Set 1", "Set 2"), capacity = c(53, 80)),
+  e$comparison_colors
+))
+cmp_stats <- vapply(cmp_built$plot$layers, function(layer) class(layer$stat)[1], character(1))
+cmp_hist <- cmp_built$data[[which(cmp_stats == "StatBin")[1]]]
+stopifnot(all(c("#2474A5", "#D46B25") %in% unique(cmp_hist$fill)))
+cat("Shift output chart checks passed\n")
 # Try it raises Paint to 2 bays and runs. Reset returns the placeholder line and runs.
 shiny::testServer(e$server, {
   base <- sim_result()

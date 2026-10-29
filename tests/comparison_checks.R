@@ -213,7 +213,8 @@ stopifnot(length(peaked_line) == 1L)
 peaked_cols <- unique(peaked_built$data[[peaked_line]]$colour)
 stopifnot(length(peaked_cols) == 2L)
 peaked_height <- tapply(peaked_built$data[[peaked_line]]$y, peaked_built$data[[peaked_line]]$group, max, na.rm = TRUE)
-stopifnot(length(peaked_height) >= 2L, all(peaked_height > 0))
+stopifnot(length(peaked_height) >= 2L, all(peaked_height > 0.8))
+stopifnot(max(peaked_height) / min(peaked_height) < 1.25)
 flat <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 4),
   station = "Inspection",
@@ -235,6 +236,8 @@ built <- ggplot2::ggplot_build(e$comparison_densities(
 stopifnot(length(built$data) >= 1L)
 stopifnot(!any(layer_geoms(built) == "GeomDensity"))
 stopifnot(any(layer_geoms(built) == "GeomVline"))
+flat_text <- dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomText")])
+stopifnot(nrow(flat_text) >= 1L, all(flat_text$label == "No spread"))
 flat_rug <- rug_colours(built)
 stopifnot(nrow(flat_rug) == nrow(flat))
 stopifnot(all(c("#2474A5", "#D46B25") %in% unique(flat_rug$colour)))
@@ -428,9 +431,9 @@ stopifnot(nrow(rug) >= 16L)
 stopifnot(all(c("#2474A5", "#D46B25") %in% unique(rug$colour)))
 sub <- e$comparison_highlight_subtitle(0.000338, 3.998, 3.998 - 0.000338)
 sub_lines <- strsplit(sub, "\n", fixed = TRUE)[[1]]
-# The highlight plot wraps this subtitle at 36 characters for the half-width charts.
-wrapped <- strwrap(sub, width = 36)
-stopifnot(length(wrapped) >= 2L, all(nchar(wrapped) <= 36L))
+# The highlight plot wraps this subtitle at 32 characters for a 390px card.
+wrapped <- strwrap(sub, width = 32)
+stopifnot(length(wrapped) >= 2L, all(nchar(wrapped) <= 32L))
 stopifnot(grepl("0.00034", sub, fixed = TRUE))
 stopifnot(grepl("4.0", sub, fixed = TRUE))
 stopifnot(!grepl("Baseline", sub, fixed = TRUE))

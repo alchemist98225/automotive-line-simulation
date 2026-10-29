@@ -220,15 +220,14 @@ ridge_fill_values <- function(levels, fill_values = NULL) {
   out
 }
 # Charts share one text size. 16 is about half again the ggplot2 default (11).
-# Titles, subtitles, axes, legends, strips, and captions stay near-black so
-# larger type does not turn into low-contrast grey.
+# Titles, subtitles, axes, legends, strips, and captions stay near-black.
 theme_sim <- function(...) {
   theme_minimal(base_size = 16) +
     theme(
       text = element_text(colour = "#1a1a1a"),
-      plot.title = element_text(colour = "#1a1a1a"),
+      plot.title = element_text(colour = "#1a1a1a", margin = margin(0, 0, 6, 0)),
       plot.subtitle = element_text(colour = "#1a1a1a", margin = margin(0, 0, 8, 0)),
-      plot.caption = element_text(colour = "#1a1a1a", hjust = 0),
+      plot.caption = element_text(colour = "#1a1a1a", hjust = 0, margin = margin(10, 0, 0, 0)),
       axis.title = element_text(colour = "#1a1a1a"),
       axis.text = element_text(colour = "#1a1a1a"),
       legend.title = element_text(colour = "#1a1a1a"),
@@ -237,9 +236,9 @@ theme_sim <- function(...) {
       ...
     )
 }
-# Long subtitles wrap so larger type does not run off a narrow results column.
-plot_subtitle <- function(text) {
-  paste(strwrap(text, width = 68), collapse = "\n")
+# 32 characters fits a 390px plot at base size 16, including a half-width card.
+plot_subtitle <- function(text, width = 32L) {
+  paste(strwrap(text, width = width), collapse = "\n")
 }
 # Finite kernel window. An infinite upper bound becomes a little past the data
 # so stats::density never receives Inf. Occupancy passes both ends already finite.
@@ -258,11 +257,12 @@ density_bounds <- function(x, bounds) {
   c(lo, hi)
 }
 # Overlaid densities, one curve per series, plus one rug tick per row.
-# A series with no spread is a vertical line: the kernel has no bandwidth.
+# Each curve is scaled to its own peak so a tight set cannot flatten the other.
+# A series with no spread is a labeled vertical line: the kernel has no bandwidth.
 # The line is opaque; the fill uses the same color at alpha 0.30.
 overlay_densities <- function(df, value, series, colors, x_label, subtitle,
                               percent = FALSE, bounds = NULL, facet = NULL,
-                              subtitle_width = 68L) {
+                              subtitle_width = 32L) {
   empty <- ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No replications to plot"))
   if (!nrow(df) || !value %in% names(df) || !series %in% names(df)) return(empty)
   df <- df %>% dplyr::filter(is.finite(.data[[value]]))
@@ -293,7 +293,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     p <- p +
       geom_density(
         data = varying,
-        mapping = aes(x = .value, fill = series, group = series),
+        mapping = aes(x = .value, y = after_stat(scaled), fill = series, group = series),
         inherit.aes = FALSE,
         colour = NA,
         alpha = 0.30,
@@ -304,7 +304,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
       ) +
       geom_density(
         data = varying,
-        mapping = aes(x = .value, colour = series, group = series),
+        mapping = aes(x = .value, y = after_stat(scaled), colour = series, group = series),
         inherit.aes = FALSE,
         fill = NA,
         alpha = 1,
@@ -314,13 +314,43 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
       )
   }
   if (nrow(constant)) {
-    p <- p + geom_vline(
-      data = constant,
-      aes(xintercept = marker, colour = series),
-      inherit.aes = FALSE,
-      linewidth = 1,
-      show.legend = !nrow(varying)
-    )
+    x_mid <- mean(range(df$.value))
+    if (is.null(facet)) {
+      constant <- constant %>%
+        dplyr::arrange(marker, series) %>%
+        dplyr::mutate(label_i = dplyr::row_number())
+    } else {
+      constant <- constant %>%
+        dplyr::group_by(.data[[facet]]) %>%
+        dplyr::arrange(marker, series, .by_group = TRUE) %>%
+        dplyr::mutate(label_i = dplyr::row_number()) %>%
+        dplyr::ungroup()
+    }
+    constant <- constant %>%
+      dplyr::mutate(
+        label_x = dplyr::if_else(marker <= x_mid, marker, marker),
+        label_y = 1.12 - (label_i - 1L) * 0.16,
+        label_hjust = dplyr::if_else(marker <= x_mid, -0.08, 1.08)
+      )
+    p <- p +
+      geom_vline(
+        data = constant,
+        aes(xintercept = marker, colour = series),
+        inherit.aes = FALSE,
+        linewidth = 1,
+        show.legend = !nrow(varying)
+      ) +
+      geom_text(
+        data = constant,
+        aes(
+          x = label_x, y = label_y, label = "No spread",
+          colour = series, hjust = label_hjust
+        ),
+        inherit.aes = FALSE,
+        vjust = 0,
+        size = 4.2,
+        show.legend = FALSE
+      )
   }
   p <- p +
     geom_rug(
@@ -342,12 +372,12 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     ) +
     labs(
       x = x_label,
-      y = "Density",
+      y = "Scaled density",
       colour = NULL,
       fill = NULL,
       subtitle = paste(strwrap(subtitle, width = subtitle_width), collapse = "\n")
     ) +
-    theme_sim(legend.position = "bottom", plot.margin = margin(12, 20, 18, 12))
+    theme_sim(legend.position = "bottom", plot.margin = margin(12, 16, 14, 8))
   if (!is.null(facet) && dplyr::n_distinct(df[[facet]]) > 1L) {
     p <- p + facet_wrap(vars(.data[[facet]]), ncol = 2)
   }
@@ -363,7 +393,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     hi <- bounds[[2]]
     xlim <- c(if (is.finite(bounds[[1]])) bounds[[1]] else NA, if (is.finite(hi)) hi else NA)
   }
-  p + coord_cartesian(xlim = xlim, expand = FALSE, clip = "off")
+  p + coord_cartesian(xlim = xlim, ylim = c(0, 1.32), expand = FALSE, clip = "off")
 }
 # One overlaid density per category. A category with no spread is a vertical line.
 replication_densities <- function(df, y, x, x_label, subtitle, percent = TRUE, fill_values = NULL) {

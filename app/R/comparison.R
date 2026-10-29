@@ -478,7 +478,7 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
 # own panel so the sets stay blue and orange. A set with no spread is a vertical
 # line. Non-negative metrics start at 0; occupancy stays inside [0, 1].
 comparison_densities <- function(df, y, x, x_label, subtitle, percent = TRUE, palette = comparison_colors,
-                                 subtitle_width = 68L, bounds = NULL) {
+                                 subtitle_width = 32L, bounds = NULL) {
   df <- df %>%
     filter(is.finite(.data[[x]])) %>%
     mutate(set = factor(set, levels = names(palette)))
@@ -533,7 +533,7 @@ format_highlight_mean <- function(x) {
 # ridge order (top set, then lower set) and omit the full titles.
 comparison_highlight_subtitle <- function(mean_1, mean_2, delta = NA_real_) {
   text <- sprintf(
-    "Rug ticks are every replication. A vertical line means no spread. Means %s then %s.",
+    "Rug ticks are every replication. A vertical line means no spread. Each curve is scaled to its own peak. Means %s then %s.",
     format_highlight_mean(mean_1),
     format_highlight_mean(mean_2)
   )
@@ -547,7 +547,7 @@ comparison_highlight_plot <- function(df, x_label, subtitle, palette, percent = 
   comparison_densities(
     df, "set", "value", x_label, subtitle,
     percent = percent, palette = palette,
-    subtitle_width = 36L, bounds = bounds
+    subtitle_width = 32L, bounds = bounds
   )
 }
 comparison_highlight_frame <- function(id) {
