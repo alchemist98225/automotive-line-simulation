@@ -609,7 +609,7 @@ restore_default_inputs <- function(session) {
   updateNumericInput(session, "arrival_mean", value = 4)
   updateNumericInput(session, "sim_length", value = 780)
   updateNumericInput(session, "warmup", value = 300)
-  updateNumericInput(session, "n_reps", value = 32)
+  updateNumericInput(session, "n_reps", value = 5)
   updateNumericInput(session, "seed", value = 20261027)
   updateNumericInput(session, "body_cap", value = 2)
   updateNumericInput(session, "paint_cap", value = 1)
@@ -670,7 +670,7 @@ replication. Operator utilization and downtime are overlaid densities, with a
 rug tick for every replication and a vertical line when every replication is
 identical. Queue and WIP series are faint lines plus a loess ribbon, resampled
 onto a 2-minute grid. WIP counts each vehicle once. Downtime is machine-time in
-repair during the post-warmup window. The opening defaults are 32 replications
+repair during the post-warmup window. The opening defaults are 5 replications
 and 300 minutes of settling before the measured window.
 
 **Placeholder example values.** Capacities, crew sizes, cycle times, MTBF/MTTR,
@@ -689,7 +689,7 @@ accordion(
     numericInput("arrival_mean", "Mean interarrival (min)", value = 4, min = 0.5, max = 60, step = 0.5),
     numericInput("sim_length", "Sim length (min)", value = 780, min = 60, max = 4800, step = 30),
     numericInput("warmup", "Warmup (min)", value = 300, min = 0, max = 2400, step = 15),
-    numericInput("n_reps", "Replications", value = 32, min = 1, max = 100, step = 1),
+    numericInput("n_reps", "Replications", value = 5, min = 1, max = 100, step = 1),
     numericInput("seed", "Base seed", value = 20261027, min = 1, step = 1),
     actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
     actionButton("compare_timing", "Compare timing variability", class = "w-100"),

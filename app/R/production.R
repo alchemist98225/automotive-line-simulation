@@ -36,11 +36,18 @@ shift_binwidth <- function(x) {
   max(1L, as.integer(round(bw)))
 }
 # Bins centered on integers when the width is 1, so each vehicle count is one bar.
+# seq(from, to, by) stops before `to` when the next step would pass it. A wide
+# Freedman–Diaconis width (few replications, large IQR) then leaves the largest
+# counts outside every bin, and the empty group draws a bar with a missing height.
 shift_hist_breaks <- function(x, bw) {
   x <- x[is.finite(x)]
   if (!length(x)) return(c(-0.5, 0.5))
   bw <- max(1L, as.integer(bw))
-  seq(floor(min(x)) - bw / 2, ceiling(max(x)) + bw / 2, by = bw)
+  start <- floor(min(x)) - bw / 2
+  n_steps <- max(1L, as.integer(ceiling((max(x) - start) / bw)))
+  # ceiling can undershoot by a hair when the span is just under a whole step.
+  if (start + bw * n_steps < max(x)) n_steps <- n_steps + 1L
+  start + bw * seq(0, n_steps)
 }
 # Same fill, outline, and line as the cycle-time chart. Comparison uses the set palette.
 shift_hist_fill <- "#41b6c4"
