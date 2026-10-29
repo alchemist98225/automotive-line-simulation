@@ -1,13 +1,13 @@
 # Two editable parameter snapshots; no changes to the simulation engine.
 comparison_colors <- c("Set 1"="#2474A5", "Set 2"="#D46B25")
 comparison_activities <- c(load="Loading",auto="Automatic processing",unload="Unloading",task="Support work")
-comparison_globals <- c(sim_length_min="Run length (min)",warmup_min="Warmup (min)",
-  n_replications="Replications",base_seed="Base seed",arrival_mean_min="Mean interarrival (min)",
+comparison_globals <- c(shift_length_min="Shift duration (production minutes)",n_shifts="Number of measured shifts",warmup_min="Initial settling period (min)",
+  n_replications="Simulation runs",base_seed="Base seed",planned_rate="Planned work rate (vehicles/hour)",entry_buffer="Entrance waiting positions",wip_limit="Maximum WIP (CONWIP)",
   grid_dt_min="Time-series interval (min)",repair_technicians="Repair technicians")
 comparison_pools <- function(p) unique(c(p$operators$pool,"upstream","downstream","shared",p$stations$name))
 # Lossless representations are also used to detect stale results, including empirical vectors.
 comparison_flatten <- function(p) {
-  p <- normalize_params(p)
+  p <- normalize_params(p);p$planned_rate<-60/p$arrival_mean_min
   scalar <- function(x) paste(format(x,digits=17,trim=TRUE),collapse=", ")
   timing <- function(x) switch(x$method,
     fixed=paste("fixed",scalar(x$mean_min)),
@@ -17,12 +17,12 @@ comparison_flatten <- function(p) {
   ops <- p$operators %>% transmute(parameter=paste0("Operators / ",pool),value=map_chr(count,scalar))
   stations <- map_dfr(seq_len(nrow(p$stations)),function(i) {
     st <- p$stations[i,]
-    cols <- c("capacity","operator_pool","mtbf_min","mttr_min","task_interval_min","task_every_n")
-    bind_rows(tibble(parameter=paste(label_station(st$name),c("Parallel bays","Operator pool","Mean up-time (min)","Mean repair (min)","Task interval (min)","Task every N units"),sep=" / "),value=map_chr(cols,~scalar(st[[.x]]))),
+    cols <- c("capacity","buffer_before","operator_pool","mtbf_min","mttr_min","task_interval_min","task_every_n")
+    bind_rows(tibble(parameter=paste(label_station(st$name),c("Parallel bays","Incoming waiting positions","Operator pool","Mean up-time (min)","Mean repair (min)","Task interval (min)","Task every N units"),sep=" / "),value=map_chr(cols,~scalar(st[[.x]]))),
       tibble(parameter=paste(label_station(st$name),unname(comparison_activities),sep=" / "),
         value=map_chr(names(comparison_activities),~timing(activity_timing(st,.x)))))
   })
-  bind_rows(run,ops,stations) %>% arrange(parameter)
+  bind_rows(run,ops,stations,tibble(parameter=c("Run / Admission policy","Run / Order spacing"),value=c(p$release_policy,p$order_spacing))) %>% arrange(parameter)
 }
 comparison_same <- function(a,b) identical(comparison_flatten(a),comparison_flatten(b))
 comparison_diff <- function(a,b) {
@@ -40,7 +40,7 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
     state(list(revision=isolate(state()$revision)+1L,params=p))
   }
   output$controls <- renderUI({
-    p <- state()$params; revision <- state()$revision
+    p <- state()$params;p$planned_rate<-60/p$arrival_mean_min; revision <- state()$revision
     key <- function(x) paste0("v",revision,"_",x)
     ns <- function(x) session$ns(key(x))
     pools <- comparison_pools(p)
@@ -64,9 +64,12 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
     accordion(id=session$ns("editor_panels"),open=FALSE,multiple=TRUE,
       accordion_panel("Run settings",tagList(map(names(comparison_globals),function(n) {
         numericInput(ns(n),comparison_globals[[n]],p[[n]] %||% 2,
-          min=if(n %in% c("warmup_min","base_seed")) 0 else if(n %in% c("sim_length_min","arrival_mean_min","grid_dt_min")) .001 else 1,
-          step=if(n %in% c("arrival_mean_min","grid_dt_min")) .1 else 1)
-      }))),
+          min=if(n %in% c("warmup_min","base_seed","entry_buffer")) 0 else if(n %in% c("shift_length_min","planned_rate","grid_dt_min")) .001 else 1,
+          step=if(n %in% c("planned_rate","grid_dt_min")) .1 else 1)
+      })),
+        selectInput(ns("release_policy"),"Admission policy",c("Entrance space"="space","WIP-limited (CONWIP)"="conwip","Release all planned work"="scheduled"),selected=p$release_policy),
+        selectInput(ns("order_spacing"),"Order spacing",c("Evenly scheduled"="fixed","Random"="exponential"),selected=p$order_spacing),
+        helpText("Shifts are consecutive production periods after settling, without nights or weekends. Release-all leaves the entrance queue unlimited.")),
       accordion_panel("Operators & assignments",
         p("A pool can serve several stations. Count 0 removes an unused pool. Every assigned pool needs at least one operator."),
         tagList(map(pools,function(pool) numericInput(ns(paste0("pool_",pool)),paste(pool,"operators"),
@@ -77,6 +80,7 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
         st <- p$stations[i,]
         accordion(open=FALSE,multiple=TRUE,accordion_panel(label_station(st$name),
           numericInput(ns(paste0("capacity_",st$name)),"Parallel bays",st$capacity,min=1,step=1),
+          if(i>1) numericInput(ns(paste0("buffer_",st$name)),"Incoming waiting positions",if(is.finite(st$buffer_before)) st$buffer_before else 3,min=0,step=1),
           accordion(open=FALSE,multiple=TRUE,!!!map(names(comparison_activities),function(a)
             accordion_panel(comparison_activities[[a]],activity_ui(st,a))))))
       }))),
@@ -93,10 +97,13 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
   })
   outputOptions(output,"controls",suspendWhenHidden=FALSE)
   params <- reactive({
-    p <- state()$params; revision <- state()$revision
+    p <- state()$params;p$planned_rate<-60/p$arrival_mean_min; revision <- state()$revision
     val <- function(id,fallback) input[[paste0("v",revision,"_",id)]] %||% fallback
     pools <- comparison_pools(p)
     walk(names(comparison_globals),function(n) p[[n]] <<- val(n,p[[n]] %||% 2))
+    p$time_mode<-"shifts";p$arrival_mean_min<-60/p$planned_rate;p$planned_rate<-NULL
+    p$release_policy<-val("release_policy",p$release_policy);p$order_spacing<-val("order_spacing",p$order_spacing)
+    p<-normalize_params(p)
     p$operators <- tibble(pool=pools,count=map_dbl(pools,function(pool)
       val(paste0("pool_",pool),if(pool %in% p$operators$pool) p$operators$count[match(pool,p$operators$pool)] else 0)))
     stopifnot(all(is.finite(p$operators$count) & p$operators$count>=0 & p$operators$count==floor(p$operators$count)))
@@ -113,6 +120,7 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
     }
     walk(seq_len(nrow(st)),function(i) {
       n <- st$name[i]
+      if(i>1) p$stations$buffer_before[i] <<- val(paste0("buffer_",n),st$buffer_before[i])
       p$stations$capacity[i] <<- val(paste0("capacity_",n),st$capacity[i])
       pool <- val(paste0("assignment_",n),if(is.na(st$operator_pool[i])) "" else st$operator_pool[i])
       p$stations$operator_pool[i] <<- if(pool=="") NA_character_ else pool
@@ -540,6 +548,8 @@ comparison_page_ui <- function(id) {
             ),
             roomy_plot(ns("distribution"))
           ),
+          nav_panel("Production schedule",p("Shifts retain WIP. An order backlog outside production is not included in shop-floor WIP."),
+            plotOutput(ns("shift_output"),height=400),plotOutput(ns("backlog"),height=400)),
           nav_panel("Lead-time curves", roomy_plot(ns("cycles"))),
           nav_panel(
             "Bay occupancy",
@@ -670,7 +680,8 @@ comparison_page_server <- function(id, main_params, active_page) {
       if (inherits(d, "error")) {
         return(div(class = "alert alert-warning", paste("Check the parameter inputs:", conditionMessage(d))))
       }
-      design <- c("sim_length_min", "warmup_min", "n_replications", "arrival_mean_min")
+      design <- c("shift_length_min", "n_shifts", "warmup_min", "n_replications", "planned_rate")
+      d$one$planned_rate<-60/d$one$arrival_mean_min;d$two$planned_rate<-60/d$two$arrival_mean_min
       mismatches <- design[map_lgl(design, ~ !identical(as.numeric(d$one[[.x]]), as.numeric(d$two[[.x]])))]
       tagList(
         if (dirty()) {
@@ -852,6 +863,12 @@ comparison_page_server <- function(id, main_params, active_page) {
         ) +
         theme_sim(legend.position = "bottom")
     })
+    output$shift_output <- renderPlot({
+      df<-table_for("shift_summaries") %>% group_by(set,shift) %>% summarise(output=mean(n_completed),.groups="drop")
+      ggplot(df,aes(shift,output,color=set))+(if(dplyr::n_distinct(df$shift)>1) geom_line(linewidth=1) else NULL)+geom_point()+
+        scale_color_manual(values=comparison_colors)+labs(x="Measured shift",y="Mean completed vehicles",color=NULL)+theme_sim()
+    })
+    output$backlog <- renderPlot({comparison_flow(table_for("release_timeseries"),"unreleased_backlog","Orders waiting for admission")})
     output$wip <- renderPlot({
       comparison_flow(table_for("wip_timeseries"), "wip", "WIP (vehicles)")
     })
@@ -913,6 +930,8 @@ comparison_page_server <- function(id, main_params, active_page) {
         }
       )
     }
+    write_comparison_csv("dl_shifts","comparison_shift_summaries.csv","shift_summaries")
+    write_comparison_csv("dl_orders","comparison_order_ledger.csv","orders")
     write_comparison_csv("dl_summaries", "comparison_summaries.csv", "summaries")
     write_comparison_csv("dl_cycle", "comparison_cycle_times.csv", "cycle_times")
     write_comparison_csv("dl_util", "comparison_utilization_by_rep.csv", "utilization_by_rep")
