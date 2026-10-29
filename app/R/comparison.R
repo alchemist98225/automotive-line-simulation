@@ -255,6 +255,8 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
     mutate(constant = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps))
   varying <- df %>% semi_join(filter(spread, !constant), by = c("ridge", "set"))
   constant <- spread %>% filter(constant)
+  # Scale names are the set levels on this chart, not an unrelated palette.
+  colors <- ridge_fill_values(levels(df$set), comparison_colors)
   p <- ggplot(df, aes(x = .data[[x]], y = y_num))
   if (nrow(varying)) {
     bw <- stats::bw.nrd0(varying[[x]])
@@ -284,11 +286,7 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
         linewidth = 0.55,
         lineend = "butt"
       ) +
-      scale_fill_manual(
-        values = comparison_colors,
-        limits = names(comparison_colors),
-        name = NULL
-      )
+      scale_fill_manual(values = colors, limits = names(colors), name = NULL)
   }
   if (nrow(constant)) {
     p <- p + geom_segment(
@@ -301,8 +299,8 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
   }
   if (nrow(varying) || nrow(constant)) {
     p <- p + scale_color_manual(
-      values = comparison_colors,
-      limits = names(comparison_colors),
+      values = colors,
+      limits = names(colors),
       name = NULL,
       guide = if (nrow(varying)) "none" else "legend"
     )

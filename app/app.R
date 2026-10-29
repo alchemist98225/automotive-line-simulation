@@ -167,6 +167,49 @@ comparison_caption <- function(comp) {
     attr(comp, "summary")
   )
 }
+# Colors for the categories on one ridgeline. Names are the levels in the
+# data, so a manual scale is never keyed only to station labels when the
+# ridges are operator pools. Known stations and pools keep their colors;
+# anything else gets its own distinct fallback.
+ridge_fill_values <- function(levels, fill_values = NULL) {
+  levels <- as.character(levels)
+  known <- c(upstream = "#2c7fb8", downstream = "#d95f0e", shared = "#31a354")
+  if (exists("station_colors", inherits = TRUE)) {
+    sc <- get("station_colors", inherits = TRUE)
+    known <- c(known, sc)
+    if (exists("station_labels", inherits = TRUE)) {
+      labs <- get("station_labels", inherits = TRUE)
+      for (id in names(labs)) {
+        label <- unname(labs[[id]])
+        if (label %in% names(sc)) known[[id]] <- unname(sc[[label]])
+      }
+    }
+  }
+  if (!is.null(fill_values)) {
+    fv <- fill_values
+    if (is.null(names(fv))) names(fv) <- levels[seq_along(fv)]
+    known[names(fv)] <- unname(fv)
+  }
+  known <- known[!duplicated(names(known), fromLast = TRUE)]
+  fallback <- c("#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a",
+                "#66a61e", "#e6ab02", "#a6761d", "#1f78b4", "#6a3d9a")
+  out <- stats::setNames(character(length(levels)), levels)
+  used <- character()
+  fb <- 1L
+  for (lv in levels) {
+    col <- if (lv %in% names(known)) unname(known[[lv]]) else NA_character_
+    if (!length(col) || is.na(col) || !nzchar(col) || col %in% used) {
+      repeat {
+        col <- if (fb <= length(fallback)) fallback[[fb]] else grDevices::hcl((fb * 37) %% 360, 75, 48)
+        fb <- fb + 1L
+        if (!col %in% used) break
+      }
+    }
+    out[[lv]] <- col
+    used <- c(used, col)
+  }
+  out
+}
 # One ridge per group, metric on x, every replication. A group with no
 # spread (all reps identical, or a single rep) is a rug tick at that value:
 # density estimation has no bandwidth there.
@@ -197,9 +240,7 @@ replication_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE, fill
     dplyr::mutate(constant = n < 2L | !is.finite(s) | s <= sqrt(.Machine$double.eps))
   varying <- df %>% dplyr::semi_join(dplyr::filter(spread, !constant), by = "ridge")
   constant <- spread %>% dplyr::filter(constant)
-  colors <- if (is.null(fill_values)) {
-    stats::setNames(rep("#756bb1", nlevels(df$ridge)), levels(df$ridge))
-  } else fill_values
+  colors <- ridge_fill_values(levels(df$ridge), fill_values)
   p <- ggplot(df, aes(x = .data[[x]], y = y_num))
   if (nrow(varying)) {
     bw <- stats::bw.nrd0(varying[[x]])

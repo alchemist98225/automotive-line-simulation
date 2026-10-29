@@ -174,6 +174,24 @@ stopifnot(length(built$data) >= 1L)
 mixed_seg <- ridge_rugs(built)
 stopifnot(length(unique(round(mixed_seg$y, 5))) >= 2L)
 stopifnot(all(c("#2474A5", "#D46B25") %in% unique(mixed_seg$colour)))
+# Set colors stay on the set levels. A station-name palette must not be required.
+cmp_warns <- character()
+cmp <- tibble::tibble(
+  set = rep(c("Set 1", "Set 2"), each = 6),
+  station = "Paint",
+  avg_util = c(stats::rnorm(6, 0.4, 0.03), stats::rnorm(6, 0.7, 0.03))
+)
+cmp_built <- withCallingHandlers(
+  ggplot2::ggplot_build(e$comparison_ridges(cmp, "station", "avg_util", "Operator utilization", "sets")),
+  warning = function(w) {
+    cmp_warns <<- c(cmp_warns, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  }
+)
+cmp_geoms <- vapply(cmp_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
+cmp_fills <- unique(cmp_built$data[[which(cmp_geoms == "GeomDensityRidges")[1]]]$fill)
+stopifnot(setequal(cmp_fills[!is.na(cmp_fills)], unname(e$comparison_colors)))
+stopifnot(!any(grepl("No shared levels found", cmp_warns, fixed = TRUE)))
 # Height grows with the number of ridges and stays above the 550px app-wide clamp
 # once there are enough stations for Inspection to be crowded.
 heights <- vapply(1:6, e$comparison_ridge_height, integer(1))
