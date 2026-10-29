@@ -63,11 +63,28 @@ for (label in c(
   "Bottleneck & capacity", "Flow over time", "Lead time & data",
   "Station occupancy", "Operators", "Downtime", "Staffing comparison",
   "WIP", "Queues", "Cycle time", "Station metrics", "Timing comparison", "Downloads",
-  "520px", "clamp(450px, 52vh, 550px)", "gap: 0.5rem", "Run settings",
+  "640px", "clamp(520px, 60vh, 720px)", "gap: 0.5rem", "Run settings",
   "Compare two sets", "Results are illustrative only"
 )) stopifnot(page_has(label))
 # Downloads moved out of the sidebar accordion into the Lead time tab.
 stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
+# Run settings sits under the results tabs and starts collapsed.
+kpi_at <- regexpr('id="headline_kpis"', ui_html)
+tabs_at <- regexpr('id="results_tabs"', ui_html)
+settings_at <- regexpr('class="run-settings', ui_html)
+guide_at <- regexpr('id="guided_example"', ui_html)
+stopifnot(kpi_at[[1]] > 0L, tabs_at[[1]] > kpi_at[[1]], settings_at[[1]] > tabs_at[[1]])
+stopifnot(guide_at[[1]] > 0L, guide_at[[1]] < kpi_at[[1]])
+# Run settings stays closed. The guided example is the disclosure that starts open.
+stopifnot(!grepl('class="run-settings[^"]*" open', ui_html))
+stopifnot(grepl("<details open>", ui_html, fixed = TRUE))
+stopifnot(page_has("Guided example"))
+stopifnot(page_has("Try it"))
+stopifnot(page_has("Reset to defaults"))
+stopifnot(page_has("not a prediction for any real plant or company"))
+stopifnot(page_has("fixed duration"))
+stopifnot(page_has("measured observations"))
+stopifnot(!page_has("exponential or normal distributions"))
 cat("Results tab layout check passed\n")
 cat("First-load check passed\n")
 
@@ -285,6 +302,99 @@ qcols <- qenv$ridge_fill_values(c("upstream", "downstream"))
 stopifnot(length(unique(unname(qcols))) == 2L)
 stopifnot(identical(names(qcols), c("upstream", "downstream")))
 cat("Ridgeline checks passed\n")
+# 50 replications. Paint's occupancy piles up at 100%. geom_rain's default
+# violin scale ("area") divides every density by that peak, so the stations
+# that still have spread lose their half-violins. scale = "width" keeps a cloud
+# for each of those stations. A station with no spread keeps its points.
+p50 <- e$default_params()
+p50$n_replications <- 50L
+res50 <- e$run_line_sim(p50)
+per50 <- res50$utilization_by_rep %>%
+  dplyr::mutate(label = factor(e$label_station(station), levels = unname(e$station_labels)))
+means50 <- res50$station_metrics %>%
+  dplyr::mutate(label = factor(e$label_station(station), levels = unname(e$station_labels)))
+spread_labels <- per50 %>%
+  dplyr::group_by(label) %>%
+  dplyr::summarise(s = stats::sd(avg_util), .groups = "drop") %>%
+  dplyr::filter(is.finite(s), s > sqrt(.Machine$double.eps)) %>%
+  dplyr::pull(label)
+stopifnot(length(spread_labels) >= 1L)
+built50 <- ggplot2::ggplot_build(e$occupancy_raincloud(per50, means50))
+geoms50 <- vapply(built50$plot$layers, function(layer) class(layer$geom)[1], character(1))
+violin_idx <- which(grepl("Violin", geoms50))
+stopifnot(length(violin_idx) >= 1L)
+vd <- built50$data[[violin_idx[[1]]]]
+clouds <- vd %>%
+  dplyr::mutate(station = levels(per50$label)[group]) %>%
+  dplyr::group_by(station) %>%
+  dplyr::summarise(
+    n = dplyr::n(),
+    max_vw = max(violinwidth, na.rm = TRUE),
+    yrange = diff(range(y, na.rm = TRUE)),
+    .groups = "drop"
+  )
+for (station in spread_labels) {
+  row <- clouds[clouds$station == station, ]
+  stopifnot(nrow(row) == 1L, row$n >= 3L, is.finite(row$max_vw), row$max_vw > 0.5, row$yrange > 0)
+}
+flat <- tibble::tibble(
+  label = factor(rep(c("Body shop", "Paint"), each = 8), levels = c("Body shop", "Paint")),
+  avg_util = c(stats::rnorm(8, 0.5, 0.04), rep(1, 8))
+)
+flat_means <- flat %>%
+  dplyr::group_by(label) %>%
+  dplyr::summarise(avg_util_mean = mean(avg_util), .groups = "drop")
+built_flat <- ggplot2::ggplot_build(e$occupancy_raincloud(flat, flat_means))
+flat_geoms <- vapply(built_flat$plot$layers, function(layer) class(layer$geom)[1], character(1))
+point_idx <- which(grepl("Point", flat_geoms))
+stopifnot(length(point_idx) >= 1L)
+stopifnot(any(abs(built_flat$data[[point_idx[[1]]]]$y - 1) < 1e-8))
+# Quarto draws the same cloud and the same text size.
+qmd_lines <- readLines("quarto/line_sim.qmd")
+stopifnot(any(grepl('scale = "width"', qmd_lines, fixed = TRUE)))
+stopifnot(!any(grepl("base_size = 13", qmd_lines, fixed = TRUE)))
+stopifnot(!any(grepl("base_size = 13", readLines("app/app.R"), fixed = TRUE)))
+stopifnot(!any(grepl("base_size = 13", readLines("app/R/comparison.R"), fixed = TRUE)))
+stopifnot(any(grepl("theme_sim", qmd_lines, fixed = TRUE)))
+cat("Occupancy raincloud checks passed\n")
+# Try it raises Paint to 2 bays and runs. Reset returns the placeholder line and runs.
+shiny::testServer(e$server, {
+  base <- sim_result()
+  paint_cap <- function(res) res$params$stations$capacity[res$params$stations$name == "paint"]
+  body_cap <- function(res) res$params$stations$capacity[res$params$stations$name == "body_shop"]
+  stopifnot(base$provenance$run_number == 1L)
+  stopifnot(paint_cap(base) == 1L, body_cap(base) == 2L)
+  stopifnot(identical(base$bottleneck, "paint"))
+  session$setInputs(guide_try = 1)
+  tried <- sim_result()
+  stopifnot(tried$provenance$run_number == 2L)
+  stopifnot(paint_cap(tried) == 2L)
+  stopifnot(identical(tried$bottleneck, "final_assembly"))
+  stopifnot(tried$headline$throughput_per_hr_mean > base$headline$throughput_per_hr_mean)
+  stopifnot(tried$headline$avg_wip_mean < base$headline$avg_wip_mean)
+  stopifnot(tried$headline$cycle_time_mean_mean < base$headline$cycle_time_mean_mean)
+  stopifnot(identical(output$main_stale_flag, "fresh"))
+  session$setInputs(body_cap = 4, n_reps = 2)
+  session$setInputs(guide_reset = 1)
+  reset <- sim_result()
+  stopifnot(reset$provenance$run_number == 3L)
+  stopifnot(paint_cap(reset) == 1L, body_cap(reset) == 2L)
+  stopifnot(reset$params$n_replications == 15L)
+  stopifnot(identical(reset$bottleneck, base$bottleneck))
+  stopifnot(isTRUE(all.equal(reset$headline$throughput_per_hr_mean, base$headline$throughput_per_hr_mean)))
+  stopifnot(isTRUE(all.equal(reset$headline$avg_wip_mean, base$headline$avg_wip_mean)))
+  stopifnot(identical(output$main_stale_flag, "fresh"))
+  stopifnot(grepl("Paint 1", reset$provenance$summary, fixed = TRUE))
+  stopifnot(grepl("Reps 15", reset$provenance$summary, fixed = TRUE))
+})
+qmd_guide <- readLines("quarto/line_sim.qmd")
+stopifnot(any(grepl('id = "guided_example"', qmd_guide, fixed = TRUE)))
+stopifnot(any(grepl("Try it", qmd_guide, fixed = TRUE)))
+stopifnot(any(grepl("Reset to defaults", qmd_guide, fixed = TRUE)))
+stopifnot(any(grepl("guide_try", qmd_guide, fixed = TRUE)))
+stopifnot(any(grepl("guide_reset", qmd_guide, fixed = TRUE)))
+stopifnot(any(grepl("guided_example_ui()", qmd_guide, fixed = TRUE)))
+cat("Guided example checks passed\n")
 cat("Manual-scale level-mismatch warnings:", length(scale_warns$msgs), "\n")
 stopifnot(length(scale_warns$msgs) == 0L)
 cat("Shiny server checks passed\n")

@@ -151,7 +151,7 @@ comparison_raincloud <- function(df, value, label) {
     ) %>%
     filter(is.finite(value))
   if (!nrow(df)) {
-    return(ggplot() + theme_void() + labs(subtitle = "No completed observations for this metric."))
+    return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No completed observations for this metric.")))
   }
   spread <- df %>%
     group_by(set) %>%
@@ -183,7 +183,9 @@ comparison_raincloud <- function(df, value, label) {
       point.args = list(alpha = 0.35, size = 1.8, color = "#4a4a4a"),
       point.args.pos = list(position = position_jitter(width = 0.06, height = 0, seed = 42)),
       boxplot.args = list(outlier.shape = NA, linewidth = 0.4),
-      violin.args = list(alpha = 0.55, color = NA)
+      # scale = "width": a tight set must not shrink the other set's cloud.
+      # geom_rain's default "area" divides every density by the panel maximum.
+      violin.args = list(alpha = 0.55, color = NA, scale = "width")
     )
   }
   if (nrow(box_df)) {
@@ -219,10 +221,9 @@ comparison_raincloud <- function(df, value, label) {
     coord_flip(clip = "off") +
     labs(
       x = NULL, y = label, fill = NULL, color = NULL,
-      subtitle = "Half-violin and box across replications; faint points = each rep; diamond = mean"
+      subtitle = plot_subtitle("Half-violin and box across replications; faint points = each rep; diamond = mean")
     ) +
-    theme_minimal(base_size = 13) +
-    theme(legend.position = "none", plot.margin = margin(8, 16, 8, 8))
+    theme_sim(legend.position = "none", plot.margin = margin(10, 22, 14, 12))
 }
 
 # One ridge per station or pool, both sets overlaid. A set with no spread is a
@@ -235,7 +236,7 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
       ridge_label = .data[[y]]
     )
   if (!nrow(df)) {
-    return(ggplot() + theme_void() + labs(subtitle = "No replications to plot"))
+    return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No replications to plot")))
   }
   if (is.factor(df$ridge_label)) {
     df$ridge <- factor(df$ridge_label, levels = levels(df$ridge_label))
@@ -311,19 +312,18 @@ comparison_ridges <- function(df, y, x, x_label, subtitle, percent = TRUE) {
       breaks = nlevels(df$ridge) - seq_along(lv) + 1,
       labels = lv,
       # Extra room under the lowest ridge (Inspection) and above the highest density.
-      expand = expansion(add = c(0.85, 1.2))
+      expand = expansion(add = c(0.95, 1.35))
     ) +
     scale_x_continuous(
       labels = if (percent) scales::percent_format(accuracy = 1) else waiver(),
       expand = expansion(mult = 0.05)
     ) +
-    labs(x = x_label, y = NULL, subtitle = subtitle) +
-    theme_minimal(base_size = 13) +
-    theme(legend.position = "bottom", plot.margin = margin(10, 18, 16, 8))
+    labs(x = x_label, y = NULL, subtitle = plot_subtitle(subtitle)) +
+    theme_sim(legend.position = "bottom", plot.margin = margin(12, 20, 18, 12))
 }
 
-# The Simulate page clamps .shiny-plot-output at 550px. That crowds four
-# overlaid ridges and leaves the lowest station (Inspection) against the axis.
+# The Simulate page clamps .shiny-plot-output at 720px. That still crowds four
+# overlaid ridges once the text is larger, and leaves Inspection against the axis.
 # Scale the comparison ridgelines with the number of stations or pools.
 comparison_ridge_n <- function(x) {
   n <- length(unique(x[!is.na(x)]))
@@ -332,7 +332,7 @@ comparison_ridge_n <- function(x) {
 comparison_ridge_height <- function(n_ridges) {
   n <- suppressWarnings(as.integer(n_ridges[[1]]))
   if (length(n) != 1L || is.na(n) || n < 1L) n <- 1L
-  as.integer(max(560L, 170L * n + 180L))
+  as.integer(max(640L, 190L * n + 210L))
 }
 comparison_ridge_plot <- function(id, n_ridges) {
   h <- comparison_ridge_height(n_ridges)
@@ -347,7 +347,7 @@ comparison_ridge_plot <- function(id, n_ridges) {
 comparison_flow <- function(df, column, y_label, facet = NULL) {
   df <- df %>% mutate(set = factor(set, levels = names(comparison_colors)))
   if (!nrow(df)) {
-    return(ggplot() + theme_void() + labs(subtitle = "No time-series observations."))
+    return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No time-series observations.")))
   }
   df$.line <- interaction(
     df$set,
@@ -367,10 +367,9 @@ comparison_flow <- function(df, column, y_label, facet = NULL) {
     labs(
       x = "Simulation time (min)",
       y = y_label,
-      subtitle = "Faint lines = each replication; bold = loess + ribbon. Each set uses its own window."
+      subtitle = plot_subtitle("Faint lines = each replication; bold = loess + ribbon. Each set uses its own window.")
     ) +
-    theme_minimal(base_size = 13) +
-    theme(legend.position = "bottom")
+    theme_sim(legend.position = "bottom")
   if (!is.null(facet)) p <- p + facet_wrap(vars(.data[[facet]]), ncol = 2)
   p
 }
@@ -433,7 +432,7 @@ comparison_page_ui <- function(id) {
     value = "compare_sets",
     div(
       class = "p-3 two-set-study",
-      # Beats the app-wide 550px plot clamp for these ridgelines only.
+      # Beats the app-wide plot clamp for these ridgelines only.
       tags$style(HTML("
         .comparison-ridge-plot > .shiny-plot-output {
           height: var(--ridge-h) !important;
@@ -849,10 +848,9 @@ comparison_page_server <- function(id, main_params, active_page) {
         labs(
           x = "Vehicle lead time (min)",
           y = "Density",
-          subtitle = "Pooled departures from every replication. Unfinished vehicles are excluded."
+          subtitle = plot_subtitle("Pooled departures from every replication. Unfinished vehicles are excluded.")
         ) +
-        theme_minimal(base_size = 13) +
-        theme(legend.position = "bottom")
+        theme_sim(legend.position = "bottom")
     })
     output$wip <- renderPlot({
       comparison_flow(table_for("wip_timeseries"), "wip", "WIP (vehicles)")
