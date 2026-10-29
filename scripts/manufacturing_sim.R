@@ -1,7 +1,7 @@
 #!/usr/bin/env Rscript
 # Run from the repository root, or from any working directory:
 #   Rscript scripts/manufacturing_sim.R
-# Sources app/R/model.R, runs placeholder defaults for 32 replications,
+# Sources app/R/model.R, runs placeholder defaults for 5 replications,
 # and writes all-replication plots plus the CSV/zip export bundle.
 
 suppressPackageStartupMessages(library(tidyverse))

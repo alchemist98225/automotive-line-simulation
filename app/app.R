@@ -626,7 +626,7 @@ restore_default_inputs <- function(session) {
   walk(default_params()$stations$name[-1],~updateNumericInput(session,paste0("buffer_",.x),value=3))
   updateNumericInput(session, "sim_length", value = 480)
   updateNumericInput(session, "warmup", value = 300)
-  updateNumericInput(session, "n_reps", value = 32)
+  updateNumericInput(session, "n_reps", value = 5)
   updateNumericInput(session, "seed", value = 20261027)
   updateNumericInput(session, "body_cap", value = 2)
   updateNumericInput(session, "paint_cap", value = 1)
@@ -754,7 +754,7 @@ ui <- page_navbar(
             numericInput("warmup", "Initial settling period (minutes)",
                          value = 300, min = 0, max = 10080, step = 15),
             numericInput("n_reps", "Simulation runs",
-                         value = 32, min = 1, max = 100, step = 1),
+                         value = 5, min = 1, max = 100, step = 1),
             numericInput("seed", "Base seed",
                          value = 20261027, min = 1, step = 1),
             actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
@@ -1061,7 +1061,7 @@ reproducibility, runs the settling period first, then measures every complete pr
 
 **All default numeric inputs are placeholder example values**, chosen so the
 demo has a clear bottleneck (paint) and responsive run times. The opening
-defaults are 32 replications, 300 minutes of settling, and a CONWIP limit of
+defaults are 5 replications, 300 minutes of settling, and a CONWIP limit of
 20 vehicles. They are **not** real plant data. Results are illustrative only.
 They are not predictions for any employer. Swap in your own stations,
 capacities, and time distributions before using this for any decision.

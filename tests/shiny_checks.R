@@ -24,7 +24,7 @@ shiny::testServer(e$server, {
   stopifnot(all(res$params$operators$count==2))
   stopifnot(res$params$stations$mttr_min[res$params$stations$name=="inspection"]==0)
   stopifnot(all(res$params$stations$mttr_min[res$params$stations$name!="inspection"]>0))
-  stopifnot(d$n_replications == 32L)
+  stopifnot(d$n_replications == 5L)
   stopifnot(d$warmup_min == 300)
   stopifnot(d$wip_limit == 20L)
   stopifnot(nrow(res$utilization_by_rep) == d$n_replications * nrow(d$stations))
@@ -37,7 +37,7 @@ shiny::testServer(e$server, {
   stopifnot(identical(output$timing_stale_flag, "fresh"))
   settings <- paste(as.character(output$run_settings_body), collapse = " ")
   stopifnot(grepl("Run 1", settings, fixed = TRUE))
-  stopifnot(grepl("Runs 32", settings, fixed = TRUE))
+  stopifnot(grepl("Runs 5", settings, fixed = TRUE))
   stopifnot(grepl("Paint 1", settings, fixed = TRUE))
   stopifnot(grepl("cycle-time:", settings, fixed = TRUE))
   stopifnot(grepl("operators:", settings, fixed = TRUE))
@@ -116,7 +116,7 @@ panel_open <- function(chunk) {
 stopifnot(panel_open(items[[1]]))
 stopifnot(!any(vapply(items[-1], panel_open, logical(1))))
 # Run settings live in the open panel. Capacity, timing, and crews are grouped by station.
-stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="32"', items[[1]], fixed = TRUE))
+stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="5"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="warmup" type="number" class="shiny-input-number form-control" value="300"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="wip_limit" type="number" class="shiny-input-number form-control" value="20"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="run"', items[[1]], fixed = TRUE), grepl('id="planned_rate"', items[[1]], fixed = TRUE))
@@ -215,7 +215,7 @@ stopifnot(inherits(try(e$parse_observations("1, bad, 2"),silent=TRUE),"try-error
 shiny::testServer(e$server, {
   fp0 <- e$params_fingerprint(build_params())
   session$setInputs(staffing="zones", op_a=2, op_b=2, repair_staff=1, reliability=TRUE, noncyclic=TRUE,
-    sim_length=480, warmup=300, planned_rate=15, n_reps=32, seed=20261027,
+    sim_length=480, warmup=300, planned_rate=15, n_reps=5, seed=20261027,
     body_cap=2, body_mean=6, paint_cap=1, paint_mean=8, fa_cap=2, fa_mean=7, insp_cap=1, insp_mean=3)
   for (i in seq_len(nrow(e$default_params()$stations))) {
     st <- e$default_params()$stations[i,]
@@ -426,6 +426,34 @@ cmp_built <- ggplot2::ggplot_build(e$shift_output_plot(
 cmp_stats <- vapply(cmp_built$plot$layers, function(layer) class(layer$stat)[1], character(1))
 cmp_hist <- cmp_built$data[[which(cmp_stats == "StatBin")[1]]]
 stopifnot(all(c("#2474A5", "#D46B25") %in% unique(cmp_hist$fill)))
+# Five replications can make the Freedman–Diaconis width wider than a seq()
+# grid that stops short of the largest count. Every count has to fall in a bin.
+wide5 <- c(10, 12, 14, 40, 42)
+br5 <- e$shift_hist_breaks(wide5, e$shift_binwidth(wide5))
+stopifnot(br5[[1]] <= min(wide5), tail(br5, 1) >= max(wide5), all(diff(br5) > 0))
+wide_df <- tibble::tibble(
+  set = rep(c("Set 1", "Set 2"), each = 2),
+  shift = 1L,
+  n_completed = c(50, 52, 88, 87)
+)
+wide_warns <- character()
+wide_built <- withCallingHandlers(
+  ggplot2::ggplot_build(e$shift_output_plot(
+    wide_df,
+    tibble::tibble(set = c("Set 1", "Set 2"), capacity = c(53, 96)),
+    e$comparison_colors
+  )),
+  warning = function(w) {
+    wide_warns <<- c(wide_warns, conditionMessage(w))
+    invokeRestart("muffleWarning")
+  }
+)
+stopifnot(length(wide_warns) == 0L)
+wide_stats <- vapply(wide_built$plot$layers, function(layer) class(layer$stat)[1], character(1))
+wide_hist <- wide_built$data[[which(wide_stats == "StatBin")[1]]]
+stopifnot(sum(wide_hist$count) == nrow(wide_df))
+stopifnot(any(wide_hist$count[wide_hist$fill == "#2474A5"] > 0))
+stopifnot(any(wide_hist$count[wide_hist$fill == "#D46B25"] > 0))
 cat("Shift output chart checks passed\n")
 # Try it raises Paint to 2 bays and runs. Reset returns the placeholder line and runs.
 shiny::testServer(e$server, {
@@ -494,7 +522,7 @@ shiny::testServer(e$server, {
   reset <- sim_result()
   stopifnot(reset$provenance$run_number == 5L)
   stopifnot(paint_cap(reset) == 1L, body_cap(reset) == 2L)
-  stopifnot(reset$params$n_replications == 32L)
+  stopifnot(reset$params$n_replications == 5L)
   stopifnot(reset$params$warmup_min == 300)
   stopifnot(reset$params$wip_limit == 20L)
   stopifnot(identical(reset$bottleneck, base$bottleneck))
@@ -502,7 +530,7 @@ shiny::testServer(e$server, {
   stopifnot(isTRUE(all.equal(reset$headline$avg_wip_mean, base$headline$avg_wip_mean)))
   stopifnot(identical(output$main_stale_flag, "fresh"))
   stopifnot(grepl("Paint 1", reset$provenance$summary, fixed = TRUE))
-  stopifnot(grepl("Runs 32", reset$provenance$summary, fixed = TRUE))
+  stopifnot(grepl("Runs 5", reset$provenance$summary, fixed = TRUE))
 })
 qmd_guide <- readLines("quarto/line_sim.qmd")
 stopifnot(any(grepl('id = "guided_example"', qmd_guide, fixed = TRUE)))
