@@ -521,7 +521,7 @@ guided_example_ui <- function() {
             actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
           ),
           p(class = "mb-2",
-            "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow."),
+            "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline."),
           p(class = "text-muted small mb-0",
             "All data is illustrative placeholder data, not a prediction for any real plant or company.")
         )
@@ -1003,10 +1003,14 @@ charts, including repair events, plus a zip of all of them. Staffing experiments
 sit under **Bottleneck & capacity**; the timing-variability comparison sits under
 **Lead time & data**.
 
-**Compare two sets** keeps two editable copies of the line. Throughput, lead
-time, WIP, and output per operator-hour are horizontal rainclouds. Bay occupancy,
-operator utilization, and active repair on that page are ridgelines, with a spike
-when a set has no spread. CSV files there are the data behind those charts.
+**Compare two sets** keeps two editable copies of the line. Each set has a title
+used on the charts, tables, and downloads. A table above the editors lists only
+the settings that differ. After a run, the metrics that moved the most are
+ridgelines of every replication. Throughput, lead time, WIP, and output per
+operator-hour stay horizontal rainclouds. Bay occupancy, operator utilization,
+and active repair are ridgelines, with a spike when a set has no spread. CSV
+files there are the data behind those charts. The guided example fills this page
+with the 1-bay baseline and the 2-bay experiment.
 
 **All default numbers are placeholder example values**, not real plant data.
       ")
@@ -1020,6 +1024,9 @@ server <- function(input, output, session) {
   # the widgets catch up, so the run is not marked stale during that round trip.
   guide_mode <- reactiveVal(NULL)
   guide_run <- reactiveVal(0L)
+  # Holds the 1-bay run until the Try it simulation finishes, then the
+  # comparison page consumes the pair. NULL means this run is not that experiment.
+  guide_pair <- reactiveVal(NULL)
 
   output$operator_controls <- renderUI({
     switch(input$staffing,
@@ -1122,9 +1129,27 @@ server <- function(input, output, session) {
   observeEvent(input$guide_try, {
     updateNumericInput(session, "paint_cap", value = 2)
     guide_mode("try")
+    exp_params <- tryCatch(assemble_params("try"), error = function(e) NULL)
+    if (!is.null(exp_params)) {
+      base_params <- comparison_baseline_params(exp_params)
+      current <- tryCatch(isolate(sim_result()), error = function(e) NULL)
+      # Reuse the run already on screen when it is the 1-bay line with the
+      # same seeds and replications. Otherwise simulate that baseline once.
+      baseline_run <- if (!is.null(current) && comparison_same(current$params, base_params)) {
+        current
+      } else {
+        withProgress(
+          message = "Running the 1-bay baseline…",
+          value = 0.2,
+          run_line_sim(base_params)
+        )
+      }
+      guide_pair(list(baseline = baseline_run, experiment_params = exp_params))
+    }
     guide_run(isolate(guide_run()) + 1L)
   })
   observeEvent(input$guide_reset, {
+    guide_pair(NULL)
     restore_default_inputs(session)
     guide_mode("defaults")
     guide_run(isolate(guide_run()) + 1L)
@@ -1220,6 +1245,20 @@ server <- function(input, output, session) {
     run_seq$main <- run_seq$main + 1L
     stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings)
   }) %>% bindEvent(input$run, guide_run(), ignoreNULL = FALSE)
+
+  # The experiment is the guided run that just finished. Pair it with the
+  # baseline captured above instead of simulating the 2-bay line again.
+  # ignoreInit is omitted on purpose: this observer is created after the
+  # initial simulation is scheduled, and skipping its first execution would
+  # drop the guided run when that run is the first time the observer fires.
+  observeEvent(sim_result(), {
+    pair <- isolate(guide_pair())
+    if (is.null(pair)) return()
+    guide_pair(NULL)
+    experiment <- sim_result()
+    if (!comparison_same(experiment$params, pair$experiment_params)) return()
+    two_set_study$load_pair(pair$baseline, experiment, comparison_guided_labels)
+  })
 
   current_fingerprint <- reactive(params_fingerprint(build_params()))
   production_page_server("production_results",sim_result,current_fingerprint)
