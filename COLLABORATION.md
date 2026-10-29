@@ -15,12 +15,12 @@ Finite buffers, blocking, and sensitivity-based bottleneck confirmation remain f
 Two-set comparison is the Shiny page **Compare two sets** (`app/R/comparison.R`).
 It was brought forward from `codex/two-set-comparison` onto main, which already
 has the sidebar accordion, stale-result flags, run-settings summary, and
-ridgelines. No engine changes and no production deployment. `app/R/model.R` and
+overlaid densities. No engine changes and no production deployment. `app/R/model.R` and
 `quarto/R/model.R` stay identical. Quarto keeps its existing controls. Snapshot
 imports use revision-specific input IDs so a reset cannot read stale controls.
-Bay occupancy, operator utilization, and active repair on the comparison page
-are ridgelines (a spike when a set has no spread). Replication summaries stay
-horizontal rainclouds. Results are illustrative only and are not predictions
+Bay occupancy, operator utilization, active repair, and the replication summaries
+on the comparison page are overlaid densities (a vertical line when a set has no
+spread, and a rug tick for every replication). Results are illustrative only and are not predictions
 for any employer. Tom: review the new page on desktop and mobile.
 
 Production plan/release work: codex/production-plan-release starts at merged PR #10.

@@ -24,7 +24,9 @@ shiny::testServer(e$server, {
   stopifnot(all(res$params$operators$count==2))
   stopifnot(res$params$stations$mttr_min[res$params$stations$name=="inspection"]==0)
   stopifnot(all(res$params$stations$mttr_min[res$params$stations$name!="inspection"]>0))
-  stopifnot(d$n_replications == 15L)
+  stopifnot(d$n_replications == 32L)
+  stopifnot(d$warmup_min == 300)
+  stopifnot(d$wip_limit == 20L)
   stopifnot(nrow(res$utilization_by_rep) == d$n_replications * nrow(d$stations))
   stopifnot(all(c("station", "replication", "avg_util") %in% names(res$utilization_by_rep)))
   stopifnot(nrow(res$queue_timeseries)>0, nrow(res$wip_timeseries)>0, nrow(res$downtime_by_rep)>0)
@@ -35,7 +37,7 @@ shiny::testServer(e$server, {
   stopifnot(identical(output$timing_stale_flag, "fresh"))
   settings <- paste(as.character(output$run_settings_body), collapse = " ")
   stopifnot(grepl("Run 1", settings, fixed = TRUE))
-  stopifnot(grepl("Runs 15", settings, fixed = TRUE))
+  stopifnot(grepl("Runs 32", settings, fixed = TRUE))
   stopifnot(grepl("Paint 1", settings, fixed = TRUE))
   stopifnot(grepl("cycle-time:", settings, fixed = TRUE))
   stopifnot(grepl("operators:", settings, fixed = TRUE))
@@ -114,7 +116,9 @@ panel_open <- function(chunk) {
 stopifnot(panel_open(items[[1]]))
 stopifnot(!any(vapply(items[-1], panel_open, logical(1))))
 # Run settings live in the open panel. Capacity, timing, and crews are grouped by station.
-stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="15"', items[[1]], fixed = TRUE))
+stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="32"', items[[1]], fixed = TRUE))
+stopifnot(grepl('id="warmup" type="number" class="shiny-input-number form-control" value="300"', items[[1]], fixed = TRUE))
+stopifnot(grepl('id="wip_limit" type="number" class="shiny-input-number form-control" value="20"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="run"', items[[1]], fixed = TRUE), grepl('id="planned_rate"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="body_cap"', items[[2]], fixed = TRUE), grepl(">Body shop<", items[[2]], fixed = TRUE))
 stopifnot(grepl('id="paint_cap"', items[[2]], fixed = TRUE), grepl('id="fa_cap"', items[[2]], fixed = TRUE), grepl('id="insp_cap"', items[[2]], fixed = TRUE))
@@ -211,7 +215,7 @@ stopifnot(inherits(try(e$parse_observations("1, bad, 2"),silent=TRUE),"try-error
 shiny::testServer(e$server, {
   fp0 <- e$params_fingerprint(build_params())
   session$setInputs(staffing="zones", op_a=2, op_b=2, repair_staff=1, reliability=TRUE, noncyclic=TRUE,
-    sim_length=480, warmup=60, planned_rate=15, n_reps=15, seed=20261027,
+    sim_length=480, warmup=300, planned_rate=15, n_reps=32, seed=20261027,
     body_cap=2, body_mean=6, paint_cap=1, paint_mean=8, fa_cap=2, fa_mean=7, insp_cap=1, insp_mean=3)
   for (i in seq_len(nrow(e$default_params()$stations))) {
     st <- e$default_params()$stations[i,]
@@ -245,55 +249,71 @@ ridge_mixed <- tibble::tibble(
   group = factor(rep(c("Paint", "Inspection"), each = 6), levels = c("Paint", "Inspection")),
   metric = c(stats::rnorm(6, 0.2, 0.02), rep(0, 6))
 )
-ridge_geoms <- function(built) {
+layer_geoms <- function(built) {
   vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
 }
-ridge_rugs <- function(built) {
-  geoms <- ridge_geoms(built)
-  stopifnot(!any(grepl("Point", geoms)))
-  idx <- which(grepl("Segment", geoms))
+density_xs <- function(built) {
+  geoms <- layer_geoms(built)
+  idx <- which(geoms == "GeomDensity")
   stopifnot(length(idx) >= 1L)
-  seg <- dplyr::bind_rows(built$data[idx])
-  stopifnot(nrow(seg) >= 1L, all(seg$yend > seg$y))
-  seg
+  dplyr::bind_rows(built$data[idx])
+}
+rug_rows <- function(built) {
+  geoms <- layer_geoms(built)
+  stopifnot(!any(geoms == "GeomPoint"))
+  idx <- which(geoms == "GeomRug")
+  stopifnot(length(idx) == 1L)
+  built$data[[idx]]
 }
 for (d in list(ridge_zero, ridge_mixed)) {
-  built <- ggplot2::ggplot_build(e$replication_ridges(d, "group", "metric", "Downtime fraction", "check"))
+  built <- ggplot2::ggplot_build(e$replication_densities(d, "group", "metric", "Downtime fraction", "check"))
   stopifnot(length(built$data) >= 1L)
-  ridge_rugs(built)
+  rugs <- rug_rows(built)
+  stopifnot(nrow(rugs) == nrow(d))
 }
-built <- ggplot2::ggplot_build(e$replication_ridges(ridge_mixed, "group", "metric", "Downtime fraction", "check"))
-seg <- ridge_rugs(built)
-stopifnot(length(unique(round(seg$y, 5))) >= 2L)
+built <- ggplot2::ggplot_build(e$replication_densities(ridge_zero, "group", "metric", "Downtime fraction", "check"))
+stopifnot(!any(layer_geoms(built) == "GeomDensity"))
+stopifnot(any(layer_geoms(built) == "GeomVline"))
+built <- ggplot2::ggplot_build(e$replication_densities(ridge_mixed, "group", "metric", "Downtime fraction", "check"))
+stopifnot(any(layer_geoms(built) == "GeomDensity"), any(layer_geoms(built) == "GeomVline"))
+dens <- density_xs(built)
+stopifnot(min(dens$x, na.rm = TRUE) >= -1e-8, max(dens$x, na.rm = TRUE) <= 1 + 1e-6)
 palette <- c(Paint = "#d95f0e", Inspection = "#756bb1")
-built <- ggplot2::ggplot_build(e$replication_ridges(
+built <- ggplot2::ggplot_build(e$replication_densities(
   ridge_mixed, "group", "metric", "Downtime fraction", "check", fill_values = palette
 ))
-seg <- ridge_rugs(built)
-stopifnot(length(unique(seg$colour)) >= 2L)
-stopifnot(all(unique(seg$colour) %in% unname(palette)))
-# Each operator pool has its own fill, and the rug uses that same color.
+rugs <- rug_rows(built)
+stopifnot(length(unique(rugs$colour)) >= 2L)
+stopifnot(all(unique(rugs$colour) %in% unname(palette)))
+# Each operator pool has its own color, and the rug uses that same color.
 # A station palette passed by mistake must not collapse both pools to one color
 # or warn that the manual scale shares no levels with the data.
 op <- tibble::tibble(
   label = factor(rep(c("upstream", "downstream"), each = 6), levels = c("upstream", "downstream")),
   avg_util = c(stats::rnorm(6, 0.25, 0.02), stats::rnorm(6, 0.55, 0.02))
 )
-built <- ggplot2::ggplot_build(e$replication_ridges(op, "label", "avg_util", "Operator utilization", "pools"))
-dens <- built$data[[which(ridge_geoms(built) == "GeomDensityRidges")[1]]]
-fills <- unique(dens$fill[!is.na(dens$fill)])
-stopifnot(length(fills) == 2L)
-seg <- ridge_rugs(built)
-stopifnot(setequal(unique(seg$colour), fills))
-built <- ggplot2::ggplot_build(e$replication_ridges(
+built <- ggplot2::ggplot_build(e$replication_densities(op, "label", "avg_util", "Operator utilization", "pools"))
+# The opaque line layer maps colour; the fill layer fixes colour to NA.
+line_idx <- which(vapply(seq_along(built$plot$layers), function(i) {
+  layer_geoms(built)[[i]] == "GeomDensity" && is.null(built$plot$layers[[i]]$aes_params$colour)
+}, logical(1)))
+stopifnot(length(line_idx) == 1L)
+line_cols <- unique(built$data[[line_idx]]$colour)
+stopifnot(length(line_cols) == 2L)
+rugs <- rug_rows(built)
+stopifnot(setequal(unique(rugs$colour), line_cols))
+stopifnot(nrow(rugs) == nrow(op))
+built <- ggplot2::ggplot_build(e$replication_densities(
   op, "label", "avg_util", "Operator utilization", "pools", fill_values = e$station_colors
 ))
-dens <- built$data[[which(ridge_geoms(built) == "GeomDensityRidges")[1]]]
-stopifnot(length(unique(dens$fill[!is.na(dens$fill)])) == 2L)
+line_idx <- which(vapply(seq_along(built$plot$layers), function(i) {
+  layer_geoms(built)[[i]] == "GeomDensity" && is.null(built$plot$layers[[i]]$aes_params$colour)
+}, logical(1)))
+stopifnot(length(unique(built$data[[line_idx]]$colour)) == 2L)
 # Quarto defines the same mapper. Upstream and downstream stay distinct there too.
 qmd <- readLines("quarto/line_sim.qmd")
 qstart <- grep("^ridge_fill_values <- function", qmd)[1]
-qend <- grep("^replication_ridges <- function", qmd)[1] - 1L
+qend <- grep("^density_bounds <- function", qmd)[1] - 1L
 qenv <- new.env(parent = baseenv())
 qenv$station_colors <- e$station_colors
 qenv$station_labels <- e$station_labels
@@ -301,62 +321,112 @@ eval(parse(text = qmd[qstart:qend]), qenv)
 qcols <- qenv$ridge_fill_values(c("upstream", "downstream"))
 stopifnot(length(unique(unname(qcols))) == 2L)
 stopifnot(identical(names(qcols), c("upstream", "downstream")))
-cat("Ridgeline checks passed\n")
-# 50 replications. Paint's occupancy piles up at 100%. geom_rain's default
-# violin scale ("area") divides every density by that peak, so the stations
-# that still have spread lose their half-violins. scale = "width" keeps a cloud
-# for each of those stations. A station with no spread keeps its points.
-p50 <- e$default_params()
-p50$n_replications <- 50L
-res50 <- e$run_line_sim(p50)
-per50 <- res50$utilization_by_rep %>%
-  dplyr::mutate(label = factor(e$label_station(station), levels = unname(e$station_labels)))
-means50 <- res50$station_metrics %>%
-  dplyr::mutate(label = factor(e$label_station(station), levels = unname(e$station_labels)))
-spread_labels <- per50 %>%
-  dplyr::group_by(label) %>%
-  dplyr::summarise(s = stats::sd(avg_util), .groups = "drop") %>%
-  dplyr::filter(is.finite(s), s > sqrt(.Machine$double.eps)) %>%
-  dplyr::pull(label)
-stopifnot(length(spread_labels) >= 1L)
-built50 <- ggplot2::ggplot_build(e$occupancy_raincloud(per50, means50))
-geoms50 <- vapply(built50$plot$layers, function(layer) class(layer$geom)[1], character(1))
-violin_idx <- which(grepl("Violin", geoms50))
-stopifnot(length(violin_idx) >= 1L)
-vd <- built50$data[[violin_idx[[1]]]]
-clouds <- vd %>%
-  dplyr::mutate(station = levels(per50$label)[group]) %>%
-  dplyr::group_by(station) %>%
-  dplyr::summarise(
-    n = dplyr::n(),
-    max_vw = max(violinwidth, na.rm = TRUE),
-    yrange = diff(range(y, na.rm = TRUE)),
-    .groups = "drop"
-  )
-for (station in spread_labels) {
-  row <- clouds[clouds$station == station, ]
-  stopifnot(nrow(row) == 1L, row$n >= 3L, is.finite(row$max_vw), row$max_vw > 0.5, row$yrange > 0)
-}
+cat("Density checks passed\n")
+# One station piled at 100% must not hide the station that still has spread.
+# Boxes and points share a color. Jitter stays on the station axis. Outliers
+# are not drawn a second time by the box.
 flat <- tibble::tibble(
   label = factor(rep(c("Body shop", "Paint"), each = 8), levels = c("Body shop", "Paint")),
   avg_util = c(stats::rnorm(8, 0.5, 0.04), rep(1, 8))
 )
-flat_means <- flat %>%
-  dplyr::group_by(label) %>%
-  dplyr::summarise(avg_util_mean = mean(avg_util), .groups = "drop")
-built_flat <- ggplot2::ggplot_build(e$occupancy_raincloud(flat, flat_means))
-flat_geoms <- vapply(built_flat$plot$layers, function(layer) class(layer$geom)[1], character(1))
-point_idx <- which(grepl("Point", flat_geoms))
-stopifnot(length(point_idx) >= 1L)
-stopifnot(any(abs(built_flat$data[[point_idx[[1]]]]$y - 1) < 1e-8))
-# Quarto draws the same cloud and the same text size.
+built_flat <- ggplot2::ggplot_build(e$occupancy_boxes(flat))
+flat_geoms <- layer_geoms(built_flat)
+box_idx <- which(flat_geoms == "GeomBoxplot")
+point_idx <- which(flat_geoms == "GeomPoint")
+stopifnot(length(box_idx) == 1L, length(point_idx) == 1L)
+outlier_shape <- built_flat$plot$layers[[box_idx]]$geom_params$outlier.shape
+if (is.null(outlier_shape)) outlier_shape <- built_flat$plot$layers[[box_idx]]$geom_params$outlier_gp$shape
+stopifnot(identical(outlier_shape, NA))
+stopifnot(identical(built_flat$plot$layers[[point_idx]]$aes_params$size, 3))
+stopifnot(identical(built_flat$plot$layers[[point_idx]]$aes_params$alpha, 0.5))
+stopifnot(identical(built_flat$plot$layers[[box_idx]]$aes_params$alpha, 0.5))
+stopifnot(identical(built_flat$plot$layers[[point_idx]]$position$height, 0))
+stopifnot(inherits(built_flat$plot$coordinates, "CoordFlip"))
+stopifnot(is.null(built_flat$plot$scales$get_scales("y")$limits))
+stopifnot(nrow(built_flat$data[[point_idx]]) == nrow(flat))
+stopifnot(any(abs(built_flat$data[[point_idx]]$y - 1) < 1e-8))
+point_cols <- built_flat$data[[point_idx]] %>%
+  dplyr::distinct(group, colour)
+box_cols <- built_flat$data[[box_idx]] %>%
+  dplyr::filter(!is.na(fill)) %>%
+  dplyr::distinct(group, colour, fill)
+stopifnot(nrow(point_cols) == 2L)
+stopifnot(all(box_cols$colour == box_cols$fill))
+stopifnot(setequal(point_cols$colour, box_cols$colour))
+# The spread station's box is not squashed by the station sitting at 100%.
+box_ranges <- built_flat$data[[box_idx]] %>%
+  dplyr::group_by(group) %>%
+  dplyr::summarise(span = diff(range(c(ymin, ymax), na.rm = TRUE)), .groups = "drop")
+stopifnot(any(box_ranges$span > 0), any(box_ranges$span < 1e-8))
 qmd_lines <- readLines("quarto/line_sim.qmd")
-stopifnot(any(grepl('scale = "width"', qmd_lines, fixed = TRUE)))
+stopifnot(any(grepl("outlier.shape = NA", qmd_lines, fixed = TRUE)))
+stopifnot(any(grepl("occupancy_boxes", qmd_lines, fixed = TRUE)))
+stopifnot(!any(grepl("ggridges", qmd_lines, fixed = TRUE)))
+stopifnot(!any(grepl("ggrain", qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", readLines("app/app.R"), fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", readLines("app/R/comparison.R"), fixed = TRUE)))
 stopifnot(any(grepl("theme_sim", qmd_lines, fixed = TRUE)))
-cat("Occupancy raincloud checks passed\n")
+cat("Occupancy boxplot checks passed\n")
+one_shift <- tibble::tibble(shift = 1L, n_completed = c(48, 50, 51, 49, 52, 47))
+shift_built <- ggplot2::ggplot_build(e$shift_output_plot(one_shift, 53.3))
+shift_geoms <- vapply(shift_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
+shift_stats <- vapply(shift_built$plot$layers, function(layer) class(layer$stat)[1], character(1))
+stopifnot(any(shift_stats == "StatBin"), any(shift_geoms == "GeomDensity"), any(shift_geoms == "GeomRug"))
+stopifnot(any(shift_geoms == "GeomVline"))
+hist_layer <- shift_built$plot$layers[[which(shift_stats == "StatBin")[1]]]
+stopifnot(identical(hist_layer$aes_params$fill, "#41b6c4"))
+stopifnot(identical(hist_layer$aes_params$alpha, 0.55))
+dens_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomDensity")[1]]]
+stopifnot(identical(dens_layer$aes_params$colour, "#253494"))
+stopifnot(abs(dens_layer$aes_params$linewidth - 1.15) < 1e-8)
+hist_breaks <- hist_layer$stat_params$breaks
+stopifnot(length(hist_breaks) >= 2L, all(abs(diff(hist_breaks) - 1) < 1e-8))
+stopifnot(identical(e$shift_binwidth(one_shift$n_completed), 1L))
+stopifnot(e$shift_binwidth(c(1, 10, 40, 80)) > 1L)
+rug_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomRug")[1]]]
+stopifnot(abs(rug_layer$aes_params$alpha - 0.6) < 1e-8)
+stopifnot(abs(rug_layer$position$width - 0.15) < 1e-8)
+stopifnot(identical(rug_layer$position$height, 0))
+stopifnot(nrow(shift_built$data[[which(shift_geoms == "GeomRug")[1]]]) == nrow(one_shift))
+stopifnot(isFALSE(dens_layer$stat_params$trim))
+label_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomText")[1]]]
+stopifnot(label_layer$aes_params$hjust > 0.9)
+x_range <- shift_built$layout$panel_params[[1]]$x.range
+x_edge <- max(one_shift$n_completed, 53.3)
+stopifnot(x_range[[2]] <= x_edge + 2.5, x_range[[2]] >= x_edge + 0.5)
+shift_labels <- unlist(lapply(shift_built$data, function(d) if ("label" %in% names(d)) d$label else character()))
+stopifnot(any(grepl("Theoretical capacity", shift_labels, fixed = TRUE)))
+stopifnot(any(grepl("53 vehicles", shift_labels, fixed = TRUE)))
+x_breaks <- shift_built$layout$panel_params[[1]]$x$breaks
+x_breaks <- x_breaks[is.finite(x_breaks)]
+stopifnot(length(x_breaks) >= 2L, all(abs(x_breaks - round(x_breaks)) < 1e-8))
+stopifnot(all(diff(sort(x_breaks)) %in% c(1, 2)))
+stopifnot(grepl("ignoring labor", shift_built$plot$labels$caption, fixed = TRUE))
+stopifnot(grepl("blocking", shift_built$plot$labels$caption, fixed = TRUE))
+stopifnot(!grepl("\n", shift_built$plot$labels$caption, fixed = TRUE))
+stopifnot(nchar(shift_built$plot$labels$caption) > 32L)
+stopifnot(inherits(shift_built$plot$theme$plot.caption, "element_textbox"))
+title_lines <- strsplit(shift_built$plot$labels$title, "\n", fixed = TRUE)[[1]]
+stopifnot(all(nchar(title_lines) <= 32L))
+stopifnot(identical(shift_built$plot$theme$text$size, 16))
+many_shift <- tibble::tibble(shift = rep(1:3, each = 4), n_completed = 40 + seq_len(12))
+many_built <- ggplot2::ggplot_build(e$shift_output_plot(many_shift, 53))
+stopifnot(inherits(many_built$plot$facet, "FacetWrap"))
+cmp_shift <- tibble::tibble(
+  set = rep(c("Set 1", "Set 2"), each = 6),
+  shift = 1L,
+  n_completed = c(48, 49, 50, 51, 47, 52, 70, 72, 74, 71, 69, 73)
+)
+cmp_built <- ggplot2::ggplot_build(e$shift_output_plot(
+  cmp_shift,
+  tibble::tibble(set = c("Set 1", "Set 2"), capacity = c(53, 80)),
+  e$comparison_colors
+))
+cmp_stats <- vapply(cmp_built$plot$layers, function(layer) class(layer$stat)[1], character(1))
+cmp_hist <- cmp_built$data[[which(cmp_stats == "StatBin")[1]]]
+stopifnot(all(c("#2474A5", "#D46B25") %in% unique(cmp_hist$fill)))
+cat("Shift output chart checks passed\n")
 # Try it raises Paint to 2 bays and runs. Reset returns the placeholder line and runs.
 shiny::testServer(e$server, {
   base <- sim_result()
@@ -424,13 +494,15 @@ shiny::testServer(e$server, {
   reset <- sim_result()
   stopifnot(reset$provenance$run_number == 5L)
   stopifnot(paint_cap(reset) == 1L, body_cap(reset) == 2L)
-  stopifnot(reset$params$n_replications == 15L)
+  stopifnot(reset$params$n_replications == 32L)
+  stopifnot(reset$params$warmup_min == 300)
+  stopifnot(reset$params$wip_limit == 20L)
   stopifnot(identical(reset$bottleneck, base$bottleneck))
   stopifnot(isTRUE(all.equal(reset$headline$throughput_per_hr_mean, base$headline$throughput_per_hr_mean)))
   stopifnot(isTRUE(all.equal(reset$headline$avg_wip_mean, base$headline$avg_wip_mean)))
   stopifnot(identical(output$main_stale_flag, "fresh"))
   stopifnot(grepl("Paint 1", reset$provenance$summary, fixed = TRUE))
-  stopifnot(grepl("Runs 15", reset$provenance$summary, fixed = TRUE))
+  stopifnot(grepl("Runs 32", reset$provenance$summary, fixed = TRUE))
 })
 qmd_guide <- readLines("quarto/line_sim.qmd")
 stopifnot(any(grepl('id = "guided_example"', qmd_guide, fixed = TRUE)))

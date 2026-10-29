@@ -188,55 +188,74 @@ rain_df <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 6),
   throughput_per_hr = c(stats::rnorm(6, 10, 0.4), rep(8, 6))
 )
-built <- ggplot2::ggplot_build(e$comparison_raincloud(rain_df, "throughput_per_hr", "Throughput (vehicles/hour)"))
+built <- ggplot2::ggplot_build(e$comparison_densities(
+  rain_df, "set", "throughput_per_hr", "Throughput (vehicles/hour)", "check",
+  percent = FALSE, bounds = c(0, Inf)
+))
 stopifnot(length(built$data) >= 1L)
-# A tight set used to erase the wider set's cloud (violin scale = "area").
+rain_geoms <- vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
+stopifnot(any(rain_geoms == "GeomDensity"), any(rain_geoms == "GeomVline"), any(rain_geoms == "GeomRug"))
+# A tight set must stay visible beside a wide set. Each density is its own curve.
 set.seed(1)
 peaked <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 50),
   throughput_per_hr = c(stats::rnorm(50, 12, 0.02), stats::rnorm(50, 9, 1.1))
 )
-peaked_built <- ggplot2::ggplot_build(e$comparison_raincloud(peaked, "throughput_per_hr", "Throughput (vehicles/hour)"))
+peaked_built <- ggplot2::ggplot_build(e$comparison_densities(
+  peaked, "set", "throughput_per_hr", "Throughput (vehicles/hour)", "check",
+  percent = FALSE, bounds = c(0, Inf)
+))
 peaked_geoms <- vapply(peaked_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-peaked_violin <- which(grepl("Violin", peaked_geoms))
-stopifnot(length(peaked_violin) >= 1L)
-peaked_widths <- tapply(peaked_built$data[[peaked_violin[[1]]]]$violinwidth, peaked_built$data[[peaked_violin[[1]]]]$group, max, na.rm = TRUE)
-stopifnot(length(peaked_widths) >= 2L, all(peaked_widths > 0.5))
+peaked_line <- which(vapply(seq_along(peaked_built$plot$layers), function(i) {
+  peaked_geoms[[i]] == "GeomDensity" && is.null(peaked_built$plot$layers[[i]]$aes_params$colour)
+}, logical(1)))
+stopifnot(length(peaked_line) == 1L)
+peaked_cols <- unique(peaked_built$data[[peaked_line]]$colour)
+stopifnot(length(peaked_cols) == 2L)
+peaked_height <- tapply(peaked_built$data[[peaked_line]]$y, peaked_built$data[[peaked_line]]$group, max, na.rm = TRUE)
+stopifnot(length(peaked_height) >= 2L, all(peaked_height > 0.8))
+stopifnot(max(peaked_height) / min(peaked_height) < 1.25)
 flat <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 4),
   station = "Inspection",
   downtime_fraction = 0
 )
-ridge_geoms <- function(built) {
+layer_geoms <- function(built) {
   vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
 }
-ridge_rugs <- function(built) {
-  geoms <- ridge_geoms(built)
-  stopifnot(!any(grepl("Point", geoms)))
-  idx <- which(grepl("Segment", geoms))
-  stopifnot(length(idx) >= 1L)
-  seg <- dplyr::bind_rows(built$data[idx])
-  stopifnot(nrow(seg) >= 1L, all(seg$yend > seg$y))
-  seg
+rug_colours <- function(built) {
+  geoms <- layer_geoms(built)
+  stopifnot(!any(geoms == "GeomPoint"))
+  idx <- which(geoms == "GeomRug")
+  stopifnot(length(idx) == 1L)
+  built$data[[idx]]
 }
-built <- ggplot2::ggplot_build(e$comparison_ridges(
-  flat, "station", "downtime_fraction", "Active repair fraction", "check"
+built <- ggplot2::ggplot_build(e$comparison_densities(
+  flat, "station", "downtime_fraction", "Active repair fraction", "check", percent = TRUE
 ))
 stopifnot(length(built$data) >= 1L)
-flat_seg <- ridge_rugs(built)
-stopifnot(all(c("#2474A5", "#D46B25") %in% unique(flat_seg$colour)))
+stopifnot(!any(layer_geoms(built) == "GeomDensity"))
+stopifnot(any(layer_geoms(built) == "GeomVline"))
+flat_text <- dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomText")])
+stopifnot(nrow(flat_text) >= 1L, all(flat_text$label == "No spread"))
+flat_rug <- rug_colours(built)
+stopifnot(nrow(flat_rug) == nrow(flat))
+stopifnot(all(c("#2474A5", "#D46B25") %in% unique(flat_rug$colour)))
 mixed <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 8),
   station = rep(rep(c("Paint", "Inspection"), each = 4), 2),
   downtime_fraction = c(stats::rnorm(4, 0.2, 0.03), rep(0, 4), stats::rnorm(4, 0.35, 0.03), rep(0, 4))
 )
-built <- ggplot2::ggplot_build(e$comparison_ridges(
-  mixed, "station", "downtime_fraction", "Active repair fraction", "check"
+built <- ggplot2::ggplot_build(e$comparison_densities(
+  mixed, "station", "downtime_fraction", "Active repair fraction", "check", percent = TRUE
 ))
 stopifnot(length(built$data) >= 1L)
-mixed_seg <- ridge_rugs(built)
-stopifnot(length(unique(round(mixed_seg$y, 5))) >= 2L)
-stopifnot(all(c("#2474A5", "#D46B25") %in% unique(mixed_seg$colour)))
+stopifnot(any(layer_geoms(built) == "GeomDensity"), any(layer_geoms(built) == "GeomVline"))
+mixed_rug <- rug_colours(built)
+stopifnot(nrow(mixed_rug) == nrow(mixed))
+stopifnot(all(c("#2474A5", "#D46B25") %in% unique(mixed_rug$colour)))
+mixed_dens <- dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomDensity")])
+stopifnot(min(mixed_dens$x, na.rm = TRUE) >= -1e-8, max(mixed_dens$x, na.rm = TRUE) <= 1 + 1e-6)
 # Set colors stay on the set levels. A station-name palette must not be required.
 cmp_warns <- character()
 cmp <- tibble::tibble(
@@ -245,15 +264,18 @@ cmp <- tibble::tibble(
   avg_util = c(stats::rnorm(6, 0.4, 0.03), stats::rnorm(6, 0.7, 0.03))
 )
 cmp_built <- withCallingHandlers(
-  ggplot2::ggplot_build(e$comparison_ridges(cmp, "station", "avg_util", "Operator utilization", "sets")),
+  ggplot2::ggplot_build(e$comparison_densities(cmp, "station", "avg_util", "Operator utilization", "sets", percent = TRUE)),
   warning = function(w) {
     cmp_warns <<- c(cmp_warns, conditionMessage(w))
     invokeRestart("muffleWarning")
   }
 )
-cmp_geoms <- vapply(cmp_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-cmp_fills <- unique(cmp_built$data[[which(cmp_geoms == "GeomDensityRidges")[1]]]$fill)
-stopifnot(setequal(cmp_fills[!is.na(cmp_fills)], unname(e$comparison_colors)))
+cmp_geoms <- layer_geoms(cmp_built)
+cmp_line <- which(vapply(seq_along(cmp_built$plot$layers), function(i) {
+  cmp_geoms[[i]] == "GeomDensity" && is.null(cmp_built$plot$layers[[i]]$aes_params$colour)
+}, logical(1)))
+cmp_cols <- unique(cmp_built$data[[cmp_line]]$colour)
+stopifnot(setequal(cmp_cols[!is.na(cmp_cols)], unname(e$comparison_colors)))
 stopifnot(!any(grepl("No shared levels found", cmp_warns, fixed = TRUE)))
 # Height grows with the number of ridges and stays above the 720px app-wide clamp
 # once there are enough stations for Inspection to be crowded.
@@ -397,22 +419,21 @@ plot_df <- tibble::tibble(
 )
 built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
   plot_df, "Mean queue (vehicles)",
-  "One ridge per set. Rug ticks are every replication.",
+  "One density per set. Rug ticks are every replication.",
   pal, percent = FALSE
 ))
 geoms <- vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-stopifnot(any(grepl("DensityRidges", geoms)))
-stopifnot(!any(grepl("Point", geoms)))
+stopifnot(any(geoms == "GeomDensity"))
+stopifnot(!any(geoms == "GeomPoint"))
 stopifnot(identical(built$plot$theme$text$size, 16))
-seg <- dplyr::bind_rows(built$data[which(grepl("Segment", geoms))])
-stopifnot(nrow(seg) >= 16L)
-stopifnot(all(seg$yend > seg$y))
-stopifnot(all(c("#2474A5", "#D46B25") %in% unique(seg$colour)))
+rug <- built$data[[which(geoms == "GeomRug")]]
+stopifnot(nrow(rug) >= 16L)
+stopifnot(all(c("#2474A5", "#D46B25") %in% unique(rug$colour)))
 sub <- e$comparison_highlight_subtitle(0.000338, 3.998, 3.998 - 0.000338)
 sub_lines <- strsplit(sub, "\n", fixed = TRUE)[[1]]
-# comparison_ridges wraps this at 36 characters for the half-width charts.
-wrapped <- strwrap(sub, width = 36)
-stopifnot(length(wrapped) >= 2L, all(nchar(wrapped) <= 36L))
+# The highlight plot wraps this subtitle at 32 characters for a 390px card.
+wrapped <- strwrap(sub, width = 32)
+stopifnot(length(wrapped) >= 2L, all(nchar(wrapped) <= 32L))
 stopifnot(grepl("0.00034", sub, fixed = TRUE))
 stopifnot(grepl("4.0", sub, fixed = TRUE))
 stopifnot(!grepl("Baseline", sub, fixed = TRUE))
@@ -426,7 +447,7 @@ near_built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
   near0, "Mean queue (vehicles)", sub, e$comparison_colors, percent = FALSE
 ))
 near_geoms <- vapply(near_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-near_dens <- near_built$data[[which(grepl("DensityRidges", near_geoms))[1]]]
+near_dens <- dplyr::bind_rows(near_built$data[which(near_geoms == "GeomDensity")])
 stopifnot(min(near_dens$x, na.rm = TRUE) >= -1e-8)
 occ <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 16),
@@ -437,15 +458,15 @@ occ_built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
   occ, "Bay occupancy", "check", e$comparison_colors, percent = TRUE
 ))
 occ_geoms <- vapply(occ_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-occ_dens <- occ_built$data[[which(grepl("DensityRidges", occ_geoms))[1]]]
+occ_dens <- dplyr::bind_rows(occ_built$data[which(occ_geoms == "GeomDensity")])
 stopifnot(min(occ_dens$x, na.rm = TRUE) >= -1e-8, max(occ_dens$x, na.rm = TRUE) <= 1 + 1e-6)
 flat0 <- tibble::tibble(set = rep(c("Set 1", "Set 2"), each = 6), value = 0)
 flat_built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
   flat0, "Mean queue (vehicles)", "check", e$comparison_colors, percent = FALSE
 ))
 flat_geoms <- vapply(flat_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-stopifnot(any(grepl("Segment", flat_geoms)))
-stopifnot(!any(grepl("DensityRidges", flat_geoms)))
+stopifnot(any(flat_geoms == "GeomVline"))
+stopifnot(!any(flat_geoms == "GeomDensity"))
 stopifnot(identical(flat_built$plot$theme$text$size, 16))
-cat("Comparison ridgeline checks passed\n")
+cat("Comparison density checks passed\n")
 cat("Two-set comparison checks passed\n")
