@@ -6,7 +6,7 @@ Discrete-event simulation of a serial automotive manufacturing line, written in 
 
 The same engine drives a Shiny app, a Quarto document with `server: shiny`, and batch scripts. Operators, support work, and equipment reliability are part of the model. Charts and CSV exports use every replication.
 
-> **Placeholder example values.** Capacities, crew sizes, cycle times, MTBF/MTTR, and support-task times shipped here are examples chosen so the demo runs quickly and shows a paint-bay bottleneck candidate. They are not real plant data. Replace them with measured station data before using any result to make a decision.
+> **Placeholder example values.** Capacities, crew sizes, cycle times, MTBF/MTTR, and support-task times shipped here are examples chosen so the demo runs quickly and shows a paint-bay bottleneck candidate. They are not real plant data. Results are illustrative only and are not predictions for any employer. Replace them with measured station data before using any result to make a decision.
 
 ## Live demos
 
@@ -60,6 +60,7 @@ Mean interarrival time is 4 minutes. Horizon is 480 minutes with 60 minutes of w
 - Staffing comparison: current crews, one extra operator on the first or last team, and the same headcount in one shared team, with a 95% Student-t interval for mean throughput.
 - All-replication charts: a bay-occupancy raincloud (half-violin, boxplot, faint point per replication, and the mean); operator-utilization and downtime ridgelines (a vertical spike when every replication is identical); faint queue and WIP lines with a loess ribbon; faint per-replication cycle-time densities plus the pooled density.
 - CSV download for each table and a **Download all (zip)** bundle.
+- **Compare two sets:** two independently editable parameter snapshots, imported from the main controls. Charts use every replication. Summary metrics are horizontal rainclouds. Bay occupancy, operator utilization, and active repair are ridgelines. CSV files sit with the comparison tables.
 - Self-contained `app/` and `quarto/` directories, each publishable with `rsconnect`.
 
 ## KPIs
@@ -176,6 +177,7 @@ Rscript scripts/timing_experiments.R
 Rscript tests/model_checks.R
 Rscript tests/shiny_checks.R
 Rscript tests/timing_checks.R
+Rscript tests/comparison_checks.R
 ```
 
 `manufacturing_sim.R` sources `app/R/model.R`, runs 15 replications, and writes `output/*.csv`, `output/sim_exports.zip`, and the PNG figures (`utilization`, `operator_utilization`, `queue_length`, `wip_over_time`, `downtime`, `cycle_time_dist`). The script resolves `output/` from its own path. `output/` is gitignored.
@@ -210,6 +212,7 @@ cp app/R/model.R quarto/R/model.R
 app/
   app.R                 # bslib Shiny app (staffing, reliability, plots, downloads)
   R/model.R             # simmer engine, deployed with the app
+  R/comparison.R        # Compare two sets page
 quarto/
   line_sim.qmd          # same controls, server: shiny
   R/model.R             # identical engine copy
@@ -221,6 +224,7 @@ tests/
   model_checks.R
   shiny_checks.R
   timing_checks.R
+  comparison_checks.R
 docs/images/            # earlier UI screenshots and batch example plots
 DEPLOY.md
 COLLABORATION.md
@@ -239,3 +243,57 @@ LICENSE                 # MIT, Eddie Benjamin, 2026
 ## License
 
 [MIT](LICENSE) © 2026 Eddie Benjamin.
+
+## Two editable parameter sets (Shiny)
+
+Open **Compare two sets** in the top navigation. On the first visit, both sets
+are imported from the current main-page controls, including changes not yet run.
+They then remain independent: editing the main page does not silently overwrite
+the comparison. Use **Import main settings into both sets** to replace both drafts,
+or **Copy Set 1 to Set 2** to restart the study from the edited baseline. These
+buttons intentionally replace the destination settings. A separate button matches
+only Set 2's replication count to Set 1 without changing the treatment.
+
+All editor sections start collapsed. Each set exposes run settings, pool staffing,
+station assignments/capacities, activity timing (including full empirical vectors),
+and reliability/support triggers. Count 0 removes an unused operator pool; an
+assigned pool must have at least one operator. Unconstrained labor can be selected
+explicitly per station.
+
+**Run comparison** freezes the inputs and results for both sets. A prominent notice
+marks old charts when drafts change. Parameter differences show the current drafts;
+charts and the RDS download describe the captured run. Failed validation leaves
+the last successful results intact and reports that the comparison was not updated.
+
+Blue is Set 1 and orange is Set 2 throughout the comparison. Headline cards report
+means, the descriptive Set 2 minus Set 1 difference, and percent change where the
+baseline is nonzero. Throughput, mean lead time, WIP, and output per operator-hour
+are horizontal rainclouds: half-violin, boxplot, one faint point per replication,
+and the mean, with the axis scaled to the data. A set with no spread is a line at
+its median, not a strip of points. Bay occupancy, operator utilization, and active
+repair fraction are ridgelines (one ridge per station or pool, both sets overlaid,
+a vertical spike when a set has no spread). Lead-time density curves pool every
+completed departure. WIP and queue charts draw every replication as a faint line,
+with a loess ribbon per set on that set's own time grid. Missing or no-completion
+metrics remain unavailable. Results are illustrative only and are not predictions
+for any employer.
+
+The throughput table gives 95% Student-t intervals for each set's mean. It does not
+provide a confidence interval for the difference. Equal base seeds do not establish
+synchronized event random streams or justify a paired inference. Differences in
+horizon, warmup, replications, or arrival rates are explicitly flagged. Active repair
+fraction retains the engine's existing definition and excludes technician waiting.
+
+CSV files on **Tables & download** repeat the data behind each comparison chart
+(both sets, every replication). Download **both runs and exact inputs (.rds)** to
+retain complete timing vectors, parameters, replication outputs, and the capture
+timestamp. This is a Shiny page. The Quarto document keeps its existing controls
+and comparison presets. A stale comparison keeps the previous charts, marks them,
+and offers **Rerun comparison**. Each captured set shows the same run-settings
+summary as the Simulate page.
+
+Validation: `Rscript tests/comparison_checks.R` exercises import/reset, editable
+controls, identical-set agreement, independent edits, stale results, copying,
+matching replication counts, empirical validation, and all comparison plots/tables.
+Existing model, timing, and Shiny checks also pass. Browser layout and mobile visual
+QA are still required before deploying this development branch.

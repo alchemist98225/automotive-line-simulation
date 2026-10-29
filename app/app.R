@@ -13,6 +13,7 @@ library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
 source("R/model.R", local = TRUE)
+source("R/comparison.R", local = TRUE)
 
 # Station display labels
 station_labels <- c(
@@ -391,6 +392,7 @@ register_station_panels <- function(output) {
 }
 
 ui <- page_navbar(
+  id = "main_page",
   title = "Automotive Line Simulator",
   theme = bs_theme(
     version = 5,
@@ -416,6 +418,16 @@ ui <- page_navbar(
     #capacity_tabs.nav-pills > .nav-item,
     #flow_tabs.nav-pills > .nav-item,
     #lead_tabs.nav-pills > .nav-item {
+      flex: 0 0 auto;
+      width: auto;
+    }
+    .two-set-study .nav-tabs,
+    .two-set-study .nav-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+    }
+    .two-set-study .nav-item {
       flex: 0 0 auto;
       width: auto;
     }
@@ -722,6 +734,8 @@ ui <- page_navbar(
     )
   ),
 
+  comparison_page_ui("two_set_study"),
+
   nav_panel(
     title = "About this model",
     card(
@@ -749,7 +763,8 @@ reproducibility, discards a warmup period, and reports:
 
 **All default numeric inputs are placeholder example values**, chosen so the
 demo has a clear bottleneck (paint) and responsive run times. They are **not**
-real plant data. Swap in your own stations, capacities, and time distributions
+real plant data. Results are illustrative only. They are not predictions for
+any employer. Swap in your own stations, capacities, and time distributions
 before using this for any decision.
 
 ### Stack
@@ -774,8 +789,8 @@ Buffers are unlimited; physical blocking, walking time, shifts, and scrap are
 not implemented. Bay occupancy identifies a bottleneck candidate; confirm it
 by testing whether improving that station increases system throughput.
 
-Every chart uses **all replications**. Bay occupancy is a raincloud. Operator
-utilization and downtime are ridgelines, with a vertical spike when every
+Every chart uses **all replications**. Bay occupancy on Simulate is a raincloud.
+Operator utilization and downtime are ridgelines, with a vertical spike when every
 replication is identical. Queue and WIP series are faint lines plus a loess
 ribbon, resampled onto a 2-minute grid before the loess. WIP counts each vehicle
 once. Downtime is machine-time in repair during the observation window, divided
@@ -783,6 +798,11 @@ by capacity. **Lead time & data → Downloads** exports the tidy tables behind t
 charts, including repair events, plus a zip of all of them. Staffing experiments
 sit under **Bottleneck & capacity**; the timing-variability comparison sits under
 **Lead time & data**.
+
+**Compare two sets** keeps two editable copies of the line. Throughput, lead
+time, WIP, and output per operator-hour are horizontal rainclouds. Bay occupancy,
+operator utilization, and active repair on that page are ridgelines, with a spike
+when a set has no spread. CSV files there are the data behind those charts.
 
 **All default numbers are placeholder example values**, not real plant data.
       ")
@@ -877,6 +897,8 @@ server <- function(input, output, session) {
     validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
     p
   })
+  two_set_study <- comparison_page_server("two_set_study", build_params, reactive(input$main_page))
+
   run_seq <- new.env(parent = emptyenv())
   run_seq$main <- 0L
   run_seq$staffing <- 0L
