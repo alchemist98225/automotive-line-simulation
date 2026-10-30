@@ -159,6 +159,12 @@ app_src <- paste(readLines("app/app.R"), collapse = "\n")
 stopifnot(!grepl("Running simulation", app_src, fixed = TRUE))
 stopifnot(!grepl('message="Comparing staffing', app_src, fixed = TRUE))
 stopifnot(!grepl('message="Comparing variability', app_src, fixed = TRUE))
+# ggplot axis/strip text must be absolute 16pt (not theme_minimal's rel(0.8)).
+stopifnot(grepl("axis.text = element_text(size = 16", app_src, fixed = TRUE))
+stopifnot(grepl("strip.text = element_text(size = 16", app_src, fixed = TRUE))
+# Mid-run panel uses a reserved gutter (body.sim-running) so it covers no cards.
+stopifnot(grepl("body.sim-running", app_src, fixed = TRUE))
+stopifnot(grepl("setSimRunning", app_src, fixed = TRUE))
 cat("Sidebar accordion check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,

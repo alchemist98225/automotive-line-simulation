@@ -214,21 +214,27 @@ ridge_fill_values <- function(levels, fill_values = NULL) {
   out
 }
 # Charts share one text size. 16 is about half again the ggplot2 default (11).
+# theme_minimal() sets axis.text / strip.text to rel(0.8); pin every role to
+# size 16 so axes and facets match titles rather than rendering ~13pt.
 # Titles, subtitles, axes, legends, strips, and captions stay near-black.
 theme_sim <- function(...) {
   theme_minimal(base_size = 16) +
     theme(
-      text = element_text(colour = "#1a1a1a"),
-      plot.title = element_text(colour = "#1a1a1a", margin = margin(0, 0, 6, 0)),
-      plot.subtitle = element_text(colour = "#1a1a1a", margin = margin(0, 0, 8, 0)),
-      plot.caption = element_text(colour = "#1a1a1a", hjust = 0, margin = margin(10, 0, 0, 0)),
-      axis.title = element_text(colour = "#1a1a1a"),
-      axis.text = element_text(colour = "#1a1a1a"),
-      legend.title = element_text(colour = "#1a1a1a"),
-      legend.text = element_text(colour = "#1a1a1a"),
-      strip.text = element_text(colour = "#1a1a1a"),
+      text = element_text(size = 16, colour = "#1a1a1a"),
+      plot.title = element_text(size = 16, colour = "#1a1a1a", margin = margin(0, 0, 6, 0)),
+      plot.subtitle = element_text(size = 16, colour = "#1a1a1a", margin = margin(0, 0, 8, 0)),
+      plot.caption = element_text(size = 16, colour = "#1a1a1a", hjust = 0, margin = margin(10, 0, 0, 0)),
+      axis.title = element_text(size = 16, colour = "#1a1a1a"),
+      axis.text = element_text(size = 16, colour = "#1a1a1a"),
+      legend.title = element_text(size = 16, colour = "#1a1a1a"),
+      legend.text = element_text(size = 16, colour = "#1a1a1a"),
+      strip.text = element_text(size = 16, colour = "#1a1a1a"),
       ...
     )
+}
+# Default for any ggplot that forgets theme_sim() on Simulate / Parameters.
+if (requireNamespace("ggplot2", quietly = TRUE)) {
+  ggplot2::theme_set(theme_sim())
 }
 # 32 characters fits a 390px plot at base size 16, including a half-width card.
 plot_subtitle <- function(text, width = 32L) {
@@ -453,6 +459,17 @@ provenance_warning <- function(message, button_id = NULL) {
 # with clamp(520px, 60vh, 720px). The extra height keeps larger station names,
 # wrapped subtitles, and the occupancy clouds from crowding each other.
 plot_height <- "640px"
+# res=96 makes base-size-16 text read at a comfortable on-screen size inside
+# the tall plotOutput; Shiny's default res=72 understates 16pt on large plots.
+sim_render_plot <- function(expr) {
+  shiny::renderPlot(
+    substitute(expr),
+    res = 96,
+    quoted = TRUE,
+    env = parent.frame(),
+    alt = "Simulation chart"
+  )
+}
 
 download_entry <- function(id, label, description) {
   div(
@@ -777,9 +794,10 @@ ui <- page_navbar(
     .params-section {
       scroll-margin-top: 5.5rem;
     }
-    /* Large fixed progress panel in unused top-right space under the navbar. */
-    /* Hide Shiny's default progress UI (legacy container + notification toast);
-       the fixed panel replaces both. withProgress is kept only as a flush pump. */
+    /* Progress panel lives in a reserved right gutter so it never covers
+       Guided example / KPIs. body.sim-running opens that gutter; the panel
+       is larger than twice the old toast (~250x40). withProgress is only a
+       flush pump — hide its legacy container and notification toast. */
     .shiny-progress-container {
       display: none !important;
     }
@@ -792,7 +810,8 @@ ui <- page_navbar(
       top: 4.25rem;
       right: 0.75rem;
       z-index: 1080;
-      width: min(22rem, calc(100vw - 1.5rem));
+      width: 21rem;
+      min-height: 7.5rem;
       pointer-events: none;
     }
     #sim_progress_panel .sim-progress-card {
@@ -802,6 +821,7 @@ ui <- page_navbar(
       border-radius: 0.5rem;
       box-shadow: 0 10px 28px rgba(0,0,0,.22);
       padding: 1rem 1.1rem 1.05rem;
+      min-height: 7.5rem;
     }
     #sim_progress_panel .sim-progress-title {
       font-size: 1.15rem;
@@ -817,6 +837,27 @@ ui <- page_navbar(
       font-size: 0.8rem;
       font-weight: 600;
     }
+    /* Desktop/tablet: reserve a right gutter so the panel covers nothing. */
+    @media (min-width: 577px) {
+      body.sim-running .bslib-sidebar-layout > .main,
+      body.sim-running .bslib-sidebar-layout > .main > *,
+      body.sim-running .tab-content > .active.tab-pane,
+      body.sim-running .tab-pane.active.card,
+      body.sim-running .tab-pane.active > .card,
+      body.sim-running #guided_example {
+        margin-right: 0 !important;
+      }
+      body.sim-running .bslib-sidebar-layout > .main {
+        padding-right: 23.5rem !important;
+        box-sizing: border-box;
+      }
+      /* Hard-cap the guided card so a missed padding rule cannot cover the panel. */
+      body.sim-running #guided_example {
+        width: calc(100% - 23.5rem) !important;
+        max-width: calc(100% - 23.5rem) !important;
+      }
+    }
+    /* Phone: dock under content with bottom padding so nothing sits under it. */
     @media (max-width: 576px) {
       #sim_progress_panel {
         top: auto;
@@ -824,6 +865,10 @@ ui <- page_navbar(
         right: 0.5rem;
         left: 0.5rem;
         width: auto;
+        min-height: 6.5rem;
+      }
+      body.sim-running {
+        padding-bottom: 9rem !important;
       }
     }
   ")),
@@ -846,11 +891,15 @@ ui <- page_navbar(
       )
     ),
     tags$script(HTML("
+      function setSimRunning(on) {
+        document.body.classList.toggle('sim-running', !!on);
+      }
       Shiny.addCustomMessageHandler('simProgress', function(msg) {
         var el = document.getElementById('sim_progress_panel');
         if (!el) return;
         if (msg && msg.show) {
           el.classList.remove('d-none');
+          setSimRunning(true);
           var detail = el.querySelector('.sim-progress-detail');
           var bar = el.querySelector('.progress-bar');
           if (detail) detail.textContent = msg.detail || '';
@@ -864,12 +913,14 @@ ui <- page_navbar(
           }
         } else {
           el.classList.add('d-none');
+          setSimRunning(false);
         }
       });
       function showSimProgressLocal(detail) {
         var el = document.getElementById('sim_progress_panel');
         if (!el) return;
         el.classList.remove('d-none');
+        setSimRunning(true);
         var d = el.querySelector('.sim-progress-detail');
         if (d) d.textContent = detail || '';
         var bar = el.querySelector('.progress-bar');
@@ -1785,14 +1836,14 @@ server <- function(input, output, session) {
     if (is.null(lab)) res$bottleneck else lab
   })
 
-  output$plot_util <- renderPlot({
+  output$plot_util <- sim_render_plot({
     res <- sim_result()
     per_rep <- res$utilization_by_rep %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
     occupancy_boxes(per_rep)
   })
 
-  output$plot_labor <- renderPlot({
+  output$plot_labor <- sim_render_plot({
     res <- sim_result()
     req(nrow(res$operator_by_rep) > 0)
     pools <- sub("^operator_", "", res$operator_by_rep$resource)
@@ -1811,7 +1862,7 @@ server <- function(input, output, session) {
     )
   })
 
-  output$plot_queue <- renderPlot({
+  output$plot_queue <- sim_render_plot({
     res <- sim_result()
     station <- input$queue_station %||% "all"
     layout <- input$queue_layout %||% "overlay"
@@ -1836,7 +1887,7 @@ server <- function(input, output, session) {
     p
   })
 
-  output$plot_wip <- renderPlot({
+  output$plot_wip <- sim_render_plot({
     res <- sim_result()
     ggplot(res$wip_timeseries, aes(x = time, y = wip)) +
       geom_line(aes(group = replication), alpha = 0.15, linewidth = 0.45,
@@ -1849,7 +1900,7 @@ server <- function(input, output, session) {
       theme_sim()
   })
 
-  output$plot_down <- renderPlot({
+  output$plot_down <- sim_render_plot({
     res <- sim_result()
     per_rep <- res$downtime_by_rep %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
@@ -1862,7 +1913,7 @@ server <- function(input, output, session) {
     )
   })
 
-  output$plot_cycle <- renderPlot({
+  output$plot_cycle <- sim_render_plot({
     res <- sim_result()
     req(nrow(res$cycles) > 0)
     mean_ct <- mean(res$cycles$cycle_time, na.rm = TRUE)
