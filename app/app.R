@@ -240,6 +240,54 @@ if (requireNamespace("ggplot2", quietly = TRUE)) {
 plot_subtitle <- function(text, width = 32L) {
   paste(strwrap(text, width = width), collapse = "\n")
 }
+# Subtitle/caption that reflow to the full plot width (not just the panel),
+# so long notes stay readable on a 390px phone.
+theme_plot_width_text <- function(...) {
+  theme(
+    plot.title.position = "plot",
+    plot.caption.position = "plot",
+    plot.subtitle = ggtext::element_textbox_simple(
+      size = 16,
+      colour = "#1a1a1a",
+      hjust = 0,
+      halign = 0,
+      lineheight = 1.15,
+      padding = margin(0, 2, 0, 2),
+      margin = margin(0, 0, 10, 0)
+    ),
+    plot.caption = ggtext::element_textbox_simple(
+      size = 16,
+      colour = "#1a1a1a",
+      hjust = 0,
+      halign = 0,
+      lineheight = 1.15,
+      padding = margin(0, 2, 0, 2),
+      margin = margin(10, 0, 0, 0)
+    ),
+    strip.text = element_text(
+      size = 16, colour = "#1a1a1a", hjust = 0, margin = margin(6, 4, 6, 4)
+    ),
+    axis.title.y = element_text(size = 16, colour = "#1a1a1a", margin = margin(r = 8)),
+    axis.title.x = element_text(size = 16, colour = "#1a1a1a", margin = margin(t = 6)),
+    axis.text = element_text(size = 16, colour = "#1a1a1a"),
+    ...
+  )
+}
+# Sparse x breaks so percent/time tick labels do not collide after a 95% zoom.
+sparse_x_continuous <- function(percent = FALSE, n = 3L, expand = expansion(mult = 0.08)) {
+  n <- as.integer(n)
+  break_fn <- function(lim) {
+    br <- scales::breaks_pretty(n = n)(lim)
+    # pretty() can overshoot the request; keep the phone axis readable.
+    if (length(br) > n + 1L) br <- scales::breaks_pretty(n = max(2L, n - 1L))(lim)
+    br
+  }
+  scale_x_continuous(
+    labels = if (isTRUE(percent)) scales::percent_format(accuracy = 1) else waiver(),
+    breaks = break_fn,
+    expand = expand
+  )
+}
 # Central fraction of the data for coord_cartesian xlim. Densities stay
 # computed on the full sample; rugs outside the window may clip. Bounded
 # metrics (utilization, occupancy) stay inside the supplied bounds.
@@ -399,28 +447,33 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
       values = colors, aesthetics = c("colour", "fill"),
       limits = names(colors), drop = FALSE, name = NULL
     ) +
-    scale_x_continuous(
-      labels = if (isTRUE(percent)) scales::percent_format(accuracy = 1) else waiver()
-    ) +
+    sparse_x_continuous(percent = percent, n = 3L, expand = expansion(mult = c(0.04, 0.06))) +
     labs(
       x = x_label,
       y = "Scaled density",
       colour = NULL,
       fill = NULL,
-      subtitle = paste(strwrap(subtitle, width = subtitle_width), collapse = "\n")
+      subtitle = subtitle
     ) +
-    theme_sim(legend.position = "bottom", plot.margin = margin(12, 16, 14, 8))
+    theme_sim(legend.position = "bottom", plot.margin = margin(12, 12, 14, 14)) +
+    theme_plot_width_text() +
+    guides(
+      # One column so long station names are not clipped on a 390px phone.
+      colour = guide_legend(ncol = 1, byrow = TRUE),
+      fill = guide_legend(ncol = 1, byrow = TRUE)
+    )
   xlim <- density_xlim(df$.value, level = 0.95, bounds = bounds)
   faceted <- !is.null(facet) && dplyr::n_distinct(df[[facet]]) > 1L
   if (faceted) {
     # Free x per panel so a high-occupancy station does not squash the rest.
     # Shared 95% zoom would reintroduce that squash across panels.
-    p <- p + facet_wrap(vars(.data[[facet]]), ncol = 2, scales = "free_x")
+    p <- p + facet_wrap(
+      vars(.data[[facet]]), ncol = 2, scales = "free_x",
+      labeller = label_wrap_gen(width = 18)
+    )
     p + coord_cartesian(ylim = c(0, 1.32), expand = FALSE, clip = "off")
   } else {
-    p <- p +
-      labs(caption = "x-axis shows the central 95% of values") +
-      theme(plot.caption = element_text(size = 14, colour = "#1a1a1a", hjust = 0))
+    p <- p + labs(caption = "x-axis shows the central 95% of values")
     p + coord_cartesian(xlim = xlim, ylim = c(0, 1.32), expand = FALSE, clip = "off")
   }
 }
@@ -509,10 +562,16 @@ occupancy_boxes <- function(per_rep) {
   # Keep station order within each band by median occupancy (low to high on the
   # vertical axis after the horizontal layout).
   station_order <- groups %>% dplyr::arrange(median_util) %>% dplyr::pull(label)
+  wrap_lab <- function(x) stringr::str_wrap(as.character(x), width = 10)
   plot_df <- plot_df %>%
-    dplyr::mutate(label = factor(label, levels = station_order))
+    dplyr::mutate(
+      label = factor(label, levels = station_order),
+      label_wrapped = factor(wrap_lab(label), levels = wrap_lab(station_order))
+    )
   n_bands <- dplyr::n_distinct(plot_df$band)
-  p <- ggplot(plot_df, aes(x = avg_util, y = label, colour = label, fill = label)) +
+  # Short subtitle above; band note as a caption below. Both use plot-width
+  # textboxes. Wrapped station labels free horizontal space on a phone.
+  p <- ggplot(plot_df, aes(x = avg_util, y = label_wrapped, colour = label, fill = label)) +
     geom_boxplot(
       alpha = 0.5, outlier.shape = NA, width = 0.55, linewidth = 0.5,
       orientation = "y"
@@ -524,25 +583,30 @@ occupancy_boxes <- function(per_rep) {
     ) +
     scale_colour_manual(values = station_colors, drop = FALSE, guide = "none") +
     scale_fill_manual(values = station_colors, drop = FALSE, guide = "none") +
-    scale_x_continuous(
-      labels = scales::percent_format(accuracy = 1),
-      expand = expansion(mult = 0.08)
-    ) +
+    sparse_x_continuous(percent = TRUE, n = 2L) +
     labs(
       x = "Bay occupancy", y = NULL,
-      subtitle = plot_subtitle(
-        if (n_bands > 1L) {
-          "Stations with similar occupancy share a panel; each panel has its own axis. Box and one point per replication."
-        } else {
-          "Box and one point per replication. Points are jittered along the station only."
-        }
-      )
+      # Caption only: a subtitle sits on top of facet strips on a 390px phone.
+      caption = if (n_bands > 1L) {
+        "One point per replication. Similar-occupancy stations share a panel; each panel has its own axis."
+      } else {
+        "One point per replication. Points are jittered along the station only."
+      }
     ) +
-    theme_sim(legend.position = "none", plot.margin = margin(10, 22, 14, 12))
+    theme_sim(legend.position = "none", plot.margin = margin(8, 12, 14, 10)) +
+    theme_plot_width_text(panel.spacing.y = grid::unit(22, "pt")) +
+    theme(
+      strip.text = element_text(
+        size = 16, colour = "#1a1a1a", hjust = 0, margin = margin(8, 4, 8, 4)
+      )
+    )
   if (n_bands > 1L) {
-    p <- p + facet_wrap(~band, scales = "free", ncol = 1)
+    p <- p + facet_wrap(
+      ~band, scales = "free", ncol = 1,
+      labeller = label_wrap_gen(width = 18)
+    )
   }
-  p + coord_cartesian(clip = "off")
+  p + coord_cartesian(clip = "on")
 }
 
 provenance_warning <- function(message, button_id = NULL) {
@@ -2177,13 +2241,18 @@ server <- function(input, output, session) {
                    color = "#7fcdbb", na.rm = TRUE) +
       geom_density(linewidth = 1.15, color = "#253494", na.rm = TRUE) +
       geom_vline(xintercept = mean_ct, linetype = "dashed", color = "#253494") +
+      sparse_x_continuous(percent = FALSE, n = 4L) +
       coord_cartesian(xlim = xlim, clip = "off") +
-      labs(x = "Cycle time (minutes)", y = "Density",
-           subtitle = plot_subtitle(paste0("Faint = per-rep density; bold = pooled; mean = ",
-                                           round(mean_ct, 1), " min")),
-           caption = "x-axis shows the central 95% of values") +
+      labs(
+        x = "Cycle time (minutes)", y = "Density",
+        subtitle = paste0(
+          "Faint = per-rep density; bold = pooled; mean = ",
+          round(mean_ct, 1), " min"
+        ),
+        caption = "x-axis shows the central 95% of values"
+      ) +
       theme_sim() +
-      theme(plot.caption = element_text(size = 14, colour = "#1a1a1a", hjust = 0))
+      theme_plot_width_text()
   })
 
   output$table_metrics <- renderDT({
