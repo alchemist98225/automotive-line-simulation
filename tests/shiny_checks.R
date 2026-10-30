@@ -66,7 +66,8 @@ for (label in c(
   "Station occupancy", "Operators", "Downtime", "Staffing comparison",
   "WIP", "Queues", "Cycle time", "Station metrics", "Timing comparison", "Downloads",
   "640px", "clamp(520px, 60vh, 720px)", "gap: 0.5rem", "Run settings",
-  "Compare two sets", "Results are illustrative only"
+  "Compare two sets", "Results are illustrative only",
+  "Parameters", "Interstation buffers", "Failures & support"
 )) stopifnot(page_has(label))
 # Downloads moved out of the sidebar accordion into the Lead time tab.
 stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
@@ -90,23 +91,19 @@ stopifnot(!page_has("exponential or normal distributions"))
 cat("Results tab layout check passed\n")
 cat("First-load check passed\n")
 
-# Sidebar accordion: four panels, in order. Only Arrivals & run starts open,
-# and more than one panel may be open (multiple = TRUE).
+# Simulate sidebar keeps only Arrivals & run as editable controls. Other
+# groups are jump links to the Parameters page (no duplicate inputs).
 accordion_titles <- function(html) {
   titles <- unlist(regmatches(html, gregexpr('<div class="accordion-title">[^<]*</div>', html)))
   gsub("&amp;", "&", gsub("</div>", "", gsub('<div class="accordion-title">', "", titles, fixed = TRUE), fixed = TRUE), fixed = TRUE)
 }
-panel_titles <- c("Arrivals & run", "Capacity", "Cycle times", "Operators & reliability")
-# Compare two sets adds its own accordions. Scope the four-panel contract to the sidebar.
 sidebar_html <- as.character(xml2::xml_find_first(xml2::read_html(ui_html), "//*[@id='line_controls']"))
-stopifnot(identical(accordion_titles(sidebar_html), panel_titles))
+stopifnot(identical(accordion_titles(sidebar_html), "Arrivals & run"))
 stopifnot(grepl('id="line_controls"', ui_html, fixed = TRUE))
-stopifnot(!grepl("accordion autoclose", sidebar_html, fixed = TRUE))
-stopifnot(!grepl("data-bs-parent=", sidebar_html, fixed = TRUE))
 stopifnot(!grepl('data-value="Stations"', ui_html, fixed = TRUE))
 stopifnot(!page_has("Activity timing & reliability by station"))
 items <- strsplit(sidebar_html, '<div class="accordion-item" ', fixed = TRUE)[[1]][-1]
-stopifnot(length(items) == 4L)
+stopifnot(length(items) == 1L)
 panel_open <- function(chunk) {
   header <- sub('<div class="accordion-body".*', "", chunk)
   collapse <- regmatches(chunk, regexpr('class="accordion-collapse [^"]*"', chunk))
@@ -114,23 +111,67 @@ panel_open <- function(chunk) {
     identical(collapse, 'class="accordion-collapse collapse show"')
 }
 stopifnot(panel_open(items[[1]]))
-stopifnot(!any(vapply(items[-1], panel_open, logical(1))))
-# Run settings live in the open panel. Capacity, timing, and crews are grouped by station.
+# Run settings live in the open panel. Detail inputs live once on Parameters.
 stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="5"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="warmup" type="number" class="shiny-input-number form-control" value="300"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="wip_limit" type="number" class="shiny-input-number form-control" value="20"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="run"', items[[1]], fixed = TRUE), grepl('id="planned_rate"', items[[1]], fixed = TRUE))
-stopifnot(grepl('id="body_cap"', items[[2]], fixed = TRUE), grepl(">Body shop<", items[[2]], fixed = TRUE))
-stopifnot(grepl('id="paint_cap"', items[[2]], fixed = TRUE), grepl('id="fa_cap"', items[[2]], fixed = TRUE), grepl('id="insp_cap"', items[[2]], fixed = TRUE))
-stopifnot(!grepl('id="body_mean"', items[[2]], fixed = TRUE))
-stopifnot(grepl('id="body_mean"', items[[3]], fixed = TRUE), grepl("cycle_body_shop", items[[3]], fixed = TRUE))
-stopifnot(grepl('id="paint_mean"', items[[3]], fixed = TRUE), grepl("cycle_paint", items[[3]], fixed = TRUE))
-stopifnot(grepl('id="fa_mean"', items[[3]], fixed = TRUE), grepl("cycle_final_assembly", items[[3]], fixed = TRUE))
-stopifnot(grepl('id="insp_mean"', items[[3]], fixed = TRUE), grepl("cycle_inspection", items[[3]], fixed = TRUE))
-stopifnot(grepl('id="staffing"', items[[4]], fixed = TRUE), grepl("operator_controls", items[[4]], fixed = TRUE))
-stopifnot(grepl('id="reliability"', items[[4]], fixed = TRUE), grepl('id="repair_staff"', items[[4]], fixed = TRUE), grepl('id="noncyclic"', items[[4]], fixed = TRUE))
-stopifnot(grepl("reliability_body_shop", items[[4]], fixed = TRUE), grepl("reliability_paint", items[[4]], fixed = TRUE))
-stopifnot(grepl("reliability_final_assembly", items[[4]], fixed = TRUE), grepl("reliability_inspection", items[[4]], fixed = TRUE))
+stopifnot(!grepl('id="body_cap"', items[[1]], fixed = TRUE))
+stopifnot(!grepl('id="body_mean"', items[[1]], fixed = TRUE))
+stopifnot(!grepl('id="staffing"', items[[1]], fixed = TRUE))
+# Jump links stay in the sidebar chrome, outside the accordion body.
+stopifnot(grepl('id="jump_capacity"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="jump_cycle_times"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="jump_operators"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="jump_reliability"', ui_html, fixed = TRUE))
+# Desktop sidebar starts open; phone may collapse.
+stopifnot(grepl('data-open-desktop="open"', ui_html, fixed = TRUE))
+stopifnot(grepl('data-open-mobile="closed"', ui_html, fixed = TRUE))
+# Page is not fillable, so the document can scroll.
+stopifnot(!grepl("bslib-page-fill", ui_html, fixed = TRUE) || grepl("height: auto !important", ui_html, fixed = TRUE))
+stopifnot(grepl("overflow-y: auto !important", ui_html, fixed = TRUE))
+# Parameters page holds the shared station inputs exactly once.
+stopifnot(page_has("Parameters"))
+stopifnot(grepl('data-value="parameters"', ui_html, fixed = TRUE) || grepl(">Parameters<", ui_html, fixed = TRUE))
+stopifnot(grepl('id="params_capacity"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="params_buffers"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="params_cycle_times"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="params_operators"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="params_reliability"', ui_html, fixed = TRUE))
+stopifnot(length(gregexpr('id="body_cap"', ui_html, fixed = TRUE)[[1]]) == 1L, gregexpr('id="body_cap"', ui_html, fixed = TRUE)[[1]][[1]] > 0L)
+stopifnot(grepl('id="body_cap"', ui_html, fixed = TRUE), grepl('id="paint_cap"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="body_mean"', ui_html, fixed = TRUE), grepl("cycle_body_shop", ui_html, fixed = TRUE))
+stopifnot(grepl('id="staffing"', ui_html, fixed = TRUE), grepl("operator_controls", ui_html, fixed = TRUE))
+stopifnot(grepl('id="reliability"', ui_html, fixed = TRUE), grepl("reliability_body_shop", ui_html, fixed = TRUE))
+# Progress panel host is present for mid-run visibility. The default Shiny
+# toast is suppressed so only this panel appears.
+stopifnot(grepl('id="sim_progress_panel"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="sim_progress_idle"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="sim_progress_slot"', ui_html, fixed = TRUE))
+stopifnot(grepl("Ready", ui_html, fixed = TRUE))
+stopifnot(grepl("Simulation running", ui_html, fixed = TRUE))
+stopifnot(grepl("simProgress", ui_html, fixed = TRUE))
+stopifnot(grepl(".shiny-progress-container", ui_html, fixed = TRUE))
+stopifnot(grepl("shiny-progress-notification", ui_html, fixed = TRUE))
+stopifnot(grepl("display: none !important", ui_html, fixed = TRUE))
+stopifnot(!grepl("sim-progress-label", ui_html, fixed = TRUE))
+# Title appears once in the panel markup (not duplicated as a second heading).
+stopifnot(length(gregexpr("Simulation running", ui_html, fixed = TRUE)[[1]]) == 1L)
+# withProgress may remain as a flush pump, but must not show a toast message.
+app_src <- paste(readLines("app/app.R"), collapse = "\n")
+stopifnot(!grepl("Running simulation", app_src, fixed = TRUE))
+stopifnot(!grepl('message="Comparing staffing', app_src, fixed = TRUE))
+stopifnot(!grepl('message="Comparing variability', app_src, fixed = TRUE))
+# ggplot axis/strip text must be absolute 16pt (not theme_minimal's rel(0.8)).
+stopifnot(grepl("axis.text = element_text(size = 16", app_src, fixed = TRUE))
+stopifnot(grepl("strip.text = element_text(size = 16", app_src, fixed = TRUE))
+# Permanent guided-row status slot (~280px); no run-time main-area reflow.
+stopifnot(grepl("guided-row-status", app_src, fixed = TRUE))
+stopifnot(grepl("sim_progress_slot", app_src, fixed = TRUE))
+stopifnot(grepl("sim_progress_idle", app_src, fixed = TRUE))
+stopifnot(grepl("flex: 0 0 280px", app_src, fixed = TRUE))
+stopifnot(grepl("setSimProgressVisible", app_src, fixed = TRUE))
+stopifnot(!grepl("padding-right: 23.5rem", app_src, fixed = TRUE))
 cat("Sidebar accordion check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,
