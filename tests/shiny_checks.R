@@ -143,10 +143,15 @@ stopifnot(grepl('id="body_cap"', ui_html, fixed = TRUE), grepl('id="paint_cap"',
 stopifnot(grepl('id="body_mean"', ui_html, fixed = TRUE), grepl("cycle_body_shop", ui_html, fixed = TRUE))
 stopifnot(grepl('id="staffing"', ui_html, fixed = TRUE), grepl("operator_controls", ui_html, fixed = TRUE))
 stopifnot(grepl('id="reliability"', ui_html, fixed = TRUE), grepl("reliability_body_shop", ui_html, fixed = TRUE))
-# Progress panel host is present for mid-run visibility.
+# Progress panel host is present for mid-run visibility. The default Shiny
+# toast is suppressed so only this panel appears.
 stopifnot(grepl('id="sim_progress_panel"', ui_html, fixed = TRUE))
 stopifnot(grepl("Simulation running", ui_html, fixed = TRUE))
 stopifnot(grepl("simProgress", ui_html, fixed = TRUE))
+stopifnot(grepl(".shiny-progress-container", ui_html, fixed = TRUE))
+stopifnot(grepl("display: none !important", ui_html, fixed = TRUE))
+stopifnot(!grepl("sim-progress-label", ui_html, fixed = TRUE))
+stopifnot(!grepl("withProgress(", paste(readLines("app/app.R"), collapse = "\n"), fixed = TRUE))
 cat("Sidebar accordion check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,

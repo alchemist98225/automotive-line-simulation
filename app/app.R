@@ -778,6 +778,10 @@ ui <- page_navbar(
       scroll-margin-top: 5.5rem;
     }
     /* Large fixed progress panel in unused top-right space under the navbar. */
+    /* Hide Shiny's default bottom-right progress toast; the fixed panel replaces it. */
+    .shiny-progress-container {
+      display: none !important;
+    }
     #sim_progress_panel {
       position: fixed;
       top: 4.25rem;
@@ -824,7 +828,7 @@ ui <- page_navbar(
       div(
         class = "sim-progress-card",
         div(class = "sim-progress-title", "Simulation running"),
-        div(class = "sim-progress-label text-dark", "Working…"),
+        div(class = "sim-progress-detail text-dark mb-1", ""),
         div(
           class = "progress",
           div(
@@ -833,8 +837,7 @@ ui <- page_navbar(
             style = "width: 100%;",
             "In progress"
           )
-        ),
-        div(class = "sim-progress-detail small text-dark mb-0", "")
+        )
       )
     ),
     tags$script(HTML("
@@ -843,10 +846,8 @@ ui <- page_navbar(
         if (!el) return;
         if (msg && msg.show) {
           el.classList.remove('d-none');
-          var label = el.querySelector('.sim-progress-label');
           var detail = el.querySelector('.sim-progress-detail');
           var bar = el.querySelector('.progress-bar');
-          if (label) label.textContent = msg.label || 'Simulation running';
           if (detail) detail.textContent = msg.detail || '';
           if (bar && msg.value != null) {
             var pct = Math.max(0, Math.min(1, msg.value)) * 100;
@@ -1367,10 +1368,10 @@ this page with the 1-bay baseline and the 2-bay experiment.
 )
 
 server <- function(input, output, session) {
-  show_sim_progress <- function(label, detail = "", value = NULL) {
+  show_sim_progress <- function(detail = "", value = NULL) {
     session$sendCustomMessage(
       "simProgress",
-      list(show = TRUE, label = label, detail = detail, value = value)
+      list(show = TRUE, detail = detail, value = value)
     )
   }
   hide_sim_progress <- function() {
@@ -1505,15 +1506,12 @@ server <- function(input, output, session) {
         current
       } else {
         local({
-          show_sim_progress("Simulation running", "1-bay baseline", 0.2)
-          tryCatch(
-            withProgress(
-              message = "Running the 1-bay baseline…",
-              value = 0.2,
-              run_line_sim(base_params)
-            ),
-            finally = hide_sim_progress()
+          show_sim_progress(
+            sprintf("%d replications · 1-bay baseline · horizon %.0f min",
+                    base_params$n_replications, base_params$sim_length_min),
+            0.25
           )
+          tryCatch(run_line_sim(base_params), finally = hide_sim_progress())
         })
       }
       guide_pair(list(baseline = baseline_run, experiment_params = exp_params))
@@ -1564,10 +1562,13 @@ server <- function(input, output, session) {
     alternatives[[3]]$operators$count[[nrow(p$operators)]] <- alternatives[[3]]$operators$count[[nrow(p$operators)]]+1L
     alternatives[[4]]$operators <- tibble(pool="shared",count=sum(p$operators$count))
     alternatives[[4]]$stations$operator_pool <- "shared"
-    show_sim_progress("Simulation running", "Staffing comparison", 0.2)
+    show_sim_progress(
+      sprintf("Staffing comparison · %d replications", p$n_replications),
+      0.25
+    )
     out <- tryCatch(
-      withProgress(message="Comparing staffing…",run_scenarios(tibble(
-        scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives))),
+      run_scenarios(tibble(
+        scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives)),
       finally = hide_sim_progress()
     )
     run_seq$staffing <- run_seq$staffing + 1L
@@ -1578,9 +1579,12 @@ server <- function(input, output, session) {
     p <- build_params()
     fp <- params_fingerprint(p)
     settings <- format_run_settings(p)
-    show_sim_progress("Simulation running", "Timing variability comparison", 0.2)
+    show_sim_progress(
+      sprintf("Timing comparison · %d replications", p$n_replications),
+      0.25
+    )
     out <- tryCatch(
-      withProgress(message="Comparing variability…",run_scenarios(variability_scenarios(p))),
+      run_scenarios(variability_scenarios(p)),
       finally = hide_sim_progress()
     )
     run_seq$timing <- run_seq$timing + 1L
@@ -1620,19 +1624,11 @@ server <- function(input, output, session) {
     fp <- params_fingerprint(p)
     settings <- format_run_settings(p)
     show_sim_progress(
-      "Simulation running",
       sprintf("%d replications · horizon %.0f min", p$n_replications, p$sim_length_min),
-      0.15
+      0.35
     )
     res <- tryCatch(
-      withProgress(message = "Running simulation…", value = 0.3, {
-        show_sim_progress(
-          "Simulation running",
-          sprintf("%d replications · horizon %.0f min", p$n_replications, p$sim_length_min),
-          0.45
-        )
-        run_line_sim(p)
-      }),
+      run_line_sim(p),
       finally = hide_sim_progress()
     )
     run_seq$main <- run_seq$main + 1L
