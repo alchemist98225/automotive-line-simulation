@@ -387,13 +387,16 @@ qcols <- qenv$ridge_fill_values(c("upstream", "downstream"))
 stopifnot(length(unique(unname(qcols))) == 2L)
 stopifnot(identical(names(qcols), c("upstream", "downstream")))
 cat("Density checks passed\n")
-# One station piled at 100% must not hide the station that still has spread.
-# Boxes and points share a color. Jitter stays on the station axis. Outliers
-# are not drawn a second time by the box.
+# Stations piled far apart (0.5 vs 100%) must land in separate free-axis panels
+# so the mid-occupancy box is not squashed. Boxes and points share a color.
+# Jitter stays on the station axis. Outliers are not drawn a second time by the box.
 flat <- tibble::tibble(
   label = factor(rep(c("Body shop", "Paint"), each = 8), levels = c("Body shop", "Paint")),
   avg_util = c(stats::rnorm(8, 0.5, 0.04), rep(1, 8))
 )
+groups <- e$occupancy_groups(flat)
+stopifnot(dplyr::n_distinct(groups$band) == 2L)
+stopifnot(all(c("Lower occupancy", "Higher occupancy") %in% as.character(groups$band)))
 built_flat <- ggplot2::ggplot_build(e$occupancy_boxes(flat))
 flat_geoms <- layer_geoms(built_flat)
 box_idx <- which(flat_geoms == "GeomBoxplot")
@@ -405,27 +408,49 @@ stopifnot(identical(outlier_shape, NA))
 stopifnot(identical(built_flat$plot$layers[[point_idx]]$aes_params$size, 3))
 stopifnot(identical(built_flat$plot$layers[[point_idx]]$aes_params$alpha, 0.5))
 stopifnot(identical(built_flat$plot$layers[[box_idx]]$aes_params$alpha, 0.5))
-stopifnot(identical(built_flat$plot$layers[[point_idx]]$position$height, 0))
-stopifnot(inherits(built_flat$plot$coordinates, "CoordFlip"))
-stopifnot(is.null(built_flat$plot$scales$get_scales("y")$limits))
+# Jitter along the station axis only (height on the y = label layout).
+stopifnot(identical(built_flat$plot$layers[[point_idx]]$position$width, 0))
+stopifnot(inherits(built_flat$plot$facet, "FacetWrap"))
+stopifnot(isTRUE(built_flat$plot$facet$params$free$x))
+stopifnot(isTRUE(built_flat$plot$facet$params$free$y))
+stopifnot(is.null(built_flat$plot$scales$get_scales("x")$limits))
 stopifnot(nrow(built_flat$data[[point_idx]]) == nrow(flat))
-stopifnot(any(abs(built_flat$data[[point_idx]]$y - 1) < 1e-8))
+stopifnot(any(abs(built_flat$data[[point_idx]]$x - 1) < 1e-8))
 point_cols <- built_flat$data[[point_idx]] %>%
-  dplyr::distinct(group, colour)
+  dplyr::distinct(PANEL, colour)
 box_cols <- built_flat$data[[box_idx]] %>%
   dplyr::filter(!is.na(fill)) %>%
-  dplyr::distinct(group, colour, fill)
+  dplyr::distinct(PANEL, colour, fill)
 stopifnot(nrow(point_cols) == 2L)
 stopifnot(all(box_cols$colour == box_cols$fill))
 stopifnot(setequal(point_cols$colour, box_cols$colour))
-# The spread station's box is not squashed by the station sitting at 100%.
-box_ranges <- built_flat$data[[box_idx]] %>%
-  dplyr::group_by(group) %>%
-  dplyr::summarise(span = diff(range(c(ymin, ymax), na.rm = TRUE)), .groups = "drop")
-stopifnot(any(box_ranges$span > 0), any(box_ranges$span < 1e-8))
+# Independent occupancy axes: each panel's trained x range stays local.
+x_scales <- built_flat$layout$panel_scales_x
+stopifnot(length(x_scales) == 2L)
+r1 <- range(x_scales[[1]]$get_limits())
+r2 <- range(x_scales[[2]]$get_limits())
+stopifnot(!identical(r1, r2))
+stopifnot(max(r1) < 0.85 || max(r2) < 0.85)
+stopifnot(min(r1) > 0.85 || min(r2) > 0.85)
+# Close medians stay on one panel.
+close <- tibble::tibble(
+  label = factor(rep(c("Body shop", "Paint"), each = 8), levels = c("Body shop", "Paint")),
+  avg_util = c(stats::rnorm(8, 0.48, 0.02), stats::rnorm(8, 0.52, 0.02))
+)
+stopifnot(dplyr::n_distinct(e$occupancy_groups(close)$band) == 1L)
+built_close <- ggplot2::ggplot_build(e$occupancy_boxes(close))
+stopifnot(inherits(built_close$plot$facet, "FacetNull"))
+# density_xlim helper: central 95%, padded, clamped for percent metrics.
+xlim95 <- e$density_xlim(c(stats::rnorm(40, 0.4, 0.05), 0.95, 0.02), level = 0.95, bounds = c(0, 1))
+stopifnot(xlim95[[1]] >= 0, xlim95[[2]] <= 1, xlim95[[2]] < 0.95)
+op_xlim <- e$density_xlim(stats::rnorm(30, 0.45, 0.08), level = 0.95, bounds = c(0, 1))
+stopifnot(op_xlim[[2]] < 0.85)
 qmd_lines <- readLines("quarto/line_sim.qmd")
 stopifnot(any(grepl("outlier.shape = NA", qmd_lines, fixed = TRUE)))
 stopifnot(any(grepl("occupancy_boxes", qmd_lines, fixed = TRUE)))
+stopifnot(any(grepl("occupancy_groups", qmd_lines, fixed = TRUE)))
+stopifnot(any(grepl("density_xlim", qmd_lines, fixed = TRUE)))
+stopifnot(any(grepl('scales = "free"', qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("ggridges", qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("ggrain", qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", qmd_lines, fixed = TRUE)))

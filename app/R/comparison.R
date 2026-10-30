@@ -1225,6 +1225,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         mutate(set = factor(set, levels = names(palette())))
       validate(need(nrow(df) > 0, "No completed vehicles in either set."))
       counts <- df %>% count(set)
+      xlim <- density_xlim(df$cycle_time, level = 0.95, bounds = c(0, Inf))
       p <- ggplot(df, aes(x = cycle_time, fill = set, color = set))
       if (all(counts$n >= 2)) {
         p <- p + geom_density(alpha = 0.18, linewidth = 1, na.rm = TRUE)
@@ -1234,12 +1235,15 @@ comparison_page_server <- function(id, main_params, active_page) {
       p +
         scale_fill_manual(values = palette(), drop = FALSE, name = NULL) +
         scale_color_manual(values = palette(), drop = FALSE, name = NULL) +
+        coord_cartesian(xlim = xlim, clip = "off") +
         labs(
           x = "Vehicle lead time (min)",
           y = "Density",
-          subtitle = plot_subtitle("Pooled departures from every replication. Unfinished vehicles are excluded.")
+          subtitle = plot_subtitle("Pooled departures from every replication. Unfinished vehicles are excluded."),
+          caption = "x-axis shows the central 95% of values"
         ) +
-        theme_sim(legend.position = "bottom")
+        theme_sim(legend.position = "bottom") +
+        theme(plot.caption = element_text(size = 14, colour = "#1a1a1a", hjust = 0))
     })
     output$shift_output <- renderPlot({
       r <- results()
