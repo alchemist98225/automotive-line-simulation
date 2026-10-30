@@ -778,8 +778,13 @@ ui <- page_navbar(
       scroll-margin-top: 5.5rem;
     }
     /* Large fixed progress panel in unused top-right space under the navbar. */
-    /* Hide Shiny's default bottom-right progress toast; the fixed panel replaces it. */
+    /* Hide Shiny's default progress UI (legacy container + notification toast);
+       the fixed panel replaces both. withProgress is kept only as a flush pump. */
     .shiny-progress-container {
+      display: none !important;
+    }
+    .shiny-notification:has(.shiny-progress-notification),
+    .shiny-notification .shiny-progress-notification {
       display: none !important;
     }
     #sim_progress_panel {
@@ -860,6 +865,33 @@ ui <- page_navbar(
         } else {
           el.classList.add('d-none');
         }
+      });
+      function showSimProgressLocal(detail) {
+        var el = document.getElementById('sim_progress_panel');
+        if (!el) return;
+        el.classList.remove('d-none');
+        var d = el.querySelector('.sim-progress-detail');
+        if (d) d.textContent = detail || '';
+        var bar = el.querySelector('.progress-bar');
+        if (bar) { bar.style.width = '100%'; bar.textContent = 'In progress'; }
+      }
+      function repsLabel(extra) {
+        var reps = (document.getElementById('n_reps') || {}).value || '5';
+        var base = reps + ' replications';
+        return extra ? (base + ' · ' + extra) : base;
+      }
+      // Open the panel immediately on click so it is visible while Shiny blocks.
+      $(document).on('click', '#run', function() {
+        showSimProgressLocal(repsLabel());
+      });
+      $(document).on('click', '#guide_try', function() {
+        showSimProgressLocal(repsLabel('guided example'));
+      });
+      $(document).on('click', '#compare', function() {
+        showSimProgressLocal(repsLabel('staffing comparison'));
+      });
+      $(document).on('click', '#compare_timing', function() {
+        showSimProgressLocal(repsLabel('timing comparison'));
       });
       Shiny.addCustomMessageHandler('scrollToSection', function(msg) {
         var id = (msg && msg.id) ? msg.id : msg;
@@ -1511,7 +1543,12 @@ server <- function(input, output, session) {
                     base_params$n_replications, base_params$sim_length_min),
             0.25
           )
-          tryCatch(run_line_sim(base_params), finally = hide_sim_progress())
+          # withProgress forces a websocket flush so the fixed panel paints;
+          # its own toast stays hidden by CSS.
+          tryCatch(
+            withProgress(message = "", value = 0.25, run_line_sim(base_params)),
+            finally = hide_sim_progress()
+          )
         })
       }
       guide_pair(list(baseline = baseline_run, experiment_params = exp_params))
@@ -1567,8 +1604,8 @@ server <- function(input, output, session) {
       0.25
     )
     out <- tryCatch(
-      run_scenarios(tibble(
-        scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives)),
+      withProgress(message = "", value = 0.25, run_scenarios(tibble(
+        scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives))),
       finally = hide_sim_progress()
     )
     run_seq$staffing <- run_seq$staffing + 1L
@@ -1584,7 +1621,7 @@ server <- function(input, output, session) {
       0.25
     )
     out <- tryCatch(
-      run_scenarios(variability_scenarios(p)),
+      withProgress(message = "", value = 0.25, run_scenarios(variability_scenarios(p))),
       finally = hide_sim_progress()
     )
     run_seq$timing <- run_seq$timing + 1L
@@ -1618,7 +1655,8 @@ server <- function(input, output, session) {
       datatable(rownames=FALSE,options=list(dom="t"))
   })
   # Run on button click; also fire once on load so KPIs appear immediately.
-  # The parameter snapshot is taken before the run so later sidebar edits can be flagged.
+  # The fixed progress panel is opened from a click handler in JS so it paints
+  # before this reactive blocks the session. hide_sim_progress() clears it.
   sim_result <- reactive({
     p <- build_params()
     fp <- params_fingerprint(p)
@@ -1628,7 +1666,7 @@ server <- function(input, output, session) {
       0.35
     )
     res <- tryCatch(
-      run_line_sim(p),
+      withProgress(message = "", value = 0.35, run_line_sim(p)),
       finally = hide_sim_progress()
     )
     run_seq$main <- run_seq$main + 1L

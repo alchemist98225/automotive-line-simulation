@@ -149,9 +149,16 @@ stopifnot(grepl('id="sim_progress_panel"', ui_html, fixed = TRUE))
 stopifnot(grepl("Simulation running", ui_html, fixed = TRUE))
 stopifnot(grepl("simProgress", ui_html, fixed = TRUE))
 stopifnot(grepl(".shiny-progress-container", ui_html, fixed = TRUE))
+stopifnot(grepl("shiny-progress-notification", ui_html, fixed = TRUE))
 stopifnot(grepl("display: none !important", ui_html, fixed = TRUE))
 stopifnot(!grepl("sim-progress-label", ui_html, fixed = TRUE))
-stopifnot(!grepl("withProgress(", paste(readLines("app/app.R"), collapse = "\n"), fixed = TRUE))
+# Title appears once in the panel markup (not duplicated as a second heading).
+stopifnot(length(gregexpr("Simulation running", ui_html, fixed = TRUE)[[1]]) == 1L)
+# withProgress may remain as a flush pump, but must not show a toast message.
+app_src <- paste(readLines("app/app.R"), collapse = "\n")
+stopifnot(!grepl("Running simulation", app_src, fixed = TRUE))
+stopifnot(!grepl('message="Comparing staffing', app_src, fixed = TRUE))
+stopifnot(!grepl('message="Comparing variability', app_src, fixed = TRUE))
 cat("Sidebar accordion check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,
