@@ -146,6 +146,9 @@ stopifnot(grepl('id="reliability"', ui_html, fixed = TRUE), grepl("reliability_b
 # Progress panel host is present for mid-run visibility. The default Shiny
 # toast is suppressed so only this panel appears.
 stopifnot(grepl('id="sim_progress_panel"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="sim_progress_idle"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="sim_progress_slot"', ui_html, fixed = TRUE))
+stopifnot(grepl("Ready", ui_html, fixed = TRUE))
 stopifnot(grepl("Simulation running", ui_html, fixed = TRUE))
 stopifnot(grepl("simProgress", ui_html, fixed = TRUE))
 stopifnot(grepl(".shiny-progress-container", ui_html, fixed = TRUE))
@@ -162,9 +165,13 @@ stopifnot(!grepl('message="Comparing variability', app_src, fixed = TRUE))
 # ggplot axis/strip text must be absolute 16pt (not theme_minimal's rel(0.8)).
 stopifnot(grepl("axis.text = element_text(size = 16", app_src, fixed = TRUE))
 stopifnot(grepl("strip.text = element_text(size = 16", app_src, fixed = TRUE))
-# Mid-run panel uses a reserved gutter (body.sim-running) so it covers no cards.
-stopifnot(grepl("body.sim-running", app_src, fixed = TRUE))
-stopifnot(grepl("setSimRunning", app_src, fixed = TRUE))
+# Permanent guided-row status slot (~280px); no run-time main-area reflow.
+stopifnot(grepl("guided-row-status", app_src, fixed = TRUE))
+stopifnot(grepl("sim_progress_slot", app_src, fixed = TRUE))
+stopifnot(grepl("sim_progress_idle", app_src, fixed = TRUE))
+stopifnot(grepl("flex: 0 0 280px", app_src, fixed = TRUE))
+stopifnot(grepl("setSimProgressVisible", app_src, fixed = TRUE))
+stopifnot(!grepl("padding-right: 23.5rem", app_src, fixed = TRUE))
 cat("Sidebar accordion check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,

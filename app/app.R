@@ -598,33 +598,135 @@ register_station_panels <- function(output) {
 }
 
 # Open on first load. The summary collapses it; the buttons drive one experiment.
+# Permanent row: guided card + fixed ~280px status slot (idle Ready / mid-run panel).
+# The slot is always reserved so KPI widths never jump when a run starts.
 guided_example_ui <- function() {
   tagList(
     tags$style(HTML("
       .guided-example summary { cursor: pointer; font-weight: 600; }
-      #guided_example.bslib-card { flex: 0 0 auto; height: auto; }
+      #guided_example.bslib-card { flex: 0 0 auto; height: auto; width: 100%; }
+      .guided-row {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: stretch;
+        gap: 0.75rem;
+        width: 100%;
+      }
+      .guided-row-card {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+      .guided-row-status {
+        flex: 0 0 280px;
+        width: 280px;
+        max-width: 280px;
+        box-sizing: border-box;
+      }
+      .guided-row-status .sim-progress-card {
+        height: 100%;
+        min-height: 7.5rem;
+        box-sizing: border-box;
+      }
+      .sim-progress-card {
+        background: #fff;
+        border: 2px solid #2c7fb8;
+        border-radius: 0.5rem;
+        box-shadow: 0 6px 18px rgba(0,0,0,.12);
+        padding: 1rem 1.1rem 1.05rem;
+      }
+      .sim-progress-card.sim-progress-idle {
+        border-color: #adb5bd;
+        box-shadow: none;
+        background: #f8f9fa;
+      }
+      .sim-progress-title {
+        font-size: 1.15rem;
+        font-weight: 700;
+        color: #1b4f72;
+        margin: 0 0 0.35rem;
+      }
+      .sim-progress-idle .sim-progress-title { color: #495057; }
+      .sim-progress-card .progress {
+        height: 1.35rem;
+        margin: 0.55rem 0 0.35rem;
+      }
+      .sim-progress-card .progress-bar {
+        font-size: 0.8rem;
+        font-weight: 600;
+      }
+      /* Phone: stack guided + status in normal flow so the panel pushes content down. */
+      @media (max-width: 576px) {
+        .guided-row {
+          flex-wrap: wrap;
+        }
+        .guided-row-card {
+          flex: 1 1 100%;
+        }
+        .guided-row-status {
+          flex: 1 1 100%;
+          width: 100%;
+          max-width: none;
+          order: -1; /* status under navbar, above guided card */
+          scroll-margin-top: 4.5rem;
+        }
+      }
     ")),
-    card(
-      id = "guided_example",
-      class = "guided-example",
-      fill = FALSE,
-      card_body(
-        fill = FALSE,
-        tags$details(
-          open = NA,
-          tags$summary("Guided example"),
-          p(class = "mt-2 mb-2",
-            "This model asks where the line's capacity constraint is, and what changes if you add capacity there."),
-          p(class = "mb-2", "Raise Paint from 1 bay to 2."),
+    div(
+      class = "guided-row",
+      div(
+        class = "guided-row-card",
+        card(
+          id = "guided_example",
+          class = "guided-example",
+          fill = FALSE,
+          card_body(
+            fill = FALSE,
+            tags$details(
+              open = NA,
+              tags$summary("Guided example"),
+              p(class = "mt-2 mb-2",
+                "This model asks where the line's capacity constraint is, and what changes if you add capacity there."),
+              p(class = "mb-2", "Raise Paint from 1 bay to 2."),
+              div(
+                class = "d-flex flex-wrap gap-2 mb-2",
+                actionButton("guide_try", "Try it", class = "btn-primary btn-sm", icon = icon("play")),
+                actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
+              ),
+              p(class = "mb-2",
+                "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline."),
+              p(class = "text-muted small mb-0",
+                "All data is illustrative placeholder data, not a prediction for any real plant or company.")
+            )
+          )
+        )
+      ),
+      div(
+        id = "sim_progress_slot",
+        class = "guided-row-status",
+        div(
+          id = "sim_progress_idle",
+          class = "sim-progress-card sim-progress-idle",
+          div(class = "sim-progress-title", "Ready"),
+          div(class = "sim-progress-detail text-dark mb-0",
+              "Status for the next run appears here.")
+        ),
+        div(
+          id = "sim_progress_panel",
+          class = "d-none",
           div(
-            class = "d-flex flex-wrap gap-2 mb-2",
-            actionButton("guide_try", "Try it", class = "btn-primary btn-sm", icon = icon("play")),
-            actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
-          ),
-          p(class = "mb-2",
-            "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline."),
-          p(class = "text-muted small mb-0",
-            "All data is illustrative placeholder data, not a prediction for any real plant or company.")
+            class = "sim-progress-card",
+            div(class = "sim-progress-title", "Simulation running"),
+            div(class = "sim-progress-detail text-dark mb-1", ""),
+            div(
+              class = "progress",
+              div(
+                class = "progress-bar progress-bar-striped progress-bar-animated",
+                role = "progressbar",
+                style = "width: 100%;",
+                "In progress"
+              )
+            )
+          )
         )
       )
     )
@@ -794,10 +896,9 @@ ui <- page_navbar(
     .params-section {
       scroll-margin-top: 5.5rem;
     }
-    /* Progress panel lives in a reserved right gutter so it never covers
-       Guided example / KPIs. body.sim-running opens that gutter; the panel
-       is larger than twice the old toast (~250x40). withProgress is only a
-       flush pump — hide its legacy container and notification toast. */
+    /* Hide Shiny's default progress UI; the guided-row status slot is the only
+       progress surface. withProgress remains only as a websocket flush pump.
+       No body.sim-running layout changes — the 280px slot is permanent. */
     .shiny-progress-container {
       display: none !important;
     }
@@ -805,101 +906,20 @@ ui <- page_navbar(
     .shiny-notification .shiny-progress-notification {
       display: none !important;
     }
-    #sim_progress_panel {
-      position: fixed;
-      top: 4.25rem;
-      right: 0.75rem;
-      z-index: 1080;
-      width: 21rem;
-      min-height: 7.5rem;
-      pointer-events: none;
-    }
-    #sim_progress_panel .sim-progress-card {
-      pointer-events: auto;
-      background: #fff;
-      border: 2px solid #2c7fb8;
-      border-radius: 0.5rem;
-      box-shadow: 0 10px 28px rgba(0,0,0,.22);
-      padding: 1rem 1.1rem 1.05rem;
-      min-height: 7.5rem;
-    }
-    #sim_progress_panel .sim-progress-title {
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: #1b4f72;
-      margin: 0 0 0.35rem;
-    }
-    #sim_progress_panel .progress {
-      height: 1.35rem;
-      margin: 0.55rem 0 0.35rem;
-    }
-    #sim_progress_panel .progress-bar {
-      font-size: 0.8rem;
-      font-weight: 600;
-    }
-    /* Desktop/tablet: reserve a right gutter so the panel covers nothing. */
-    @media (min-width: 577px) {
-      body.sim-running .bslib-sidebar-layout > .main,
-      body.sim-running .bslib-sidebar-layout > .main > *,
-      body.sim-running .tab-content > .active.tab-pane,
-      body.sim-running .tab-pane.active.card,
-      body.sim-running .tab-pane.active > .card,
-      body.sim-running #guided_example {
-        margin-right: 0 !important;
-      }
-      body.sim-running .bslib-sidebar-layout > .main {
-        padding-right: 23.5rem !important;
-        box-sizing: border-box;
-      }
-      /* Hard-cap the guided card so a missed padding rule cannot cover the panel. */
-      body.sim-running #guided_example {
-        width: calc(100% - 23.5rem) !important;
-        max-width: calc(100% - 23.5rem) !important;
-      }
-    }
-    /* Phone: dock under content with bottom padding so nothing sits under it. */
-    @media (max-width: 576px) {
-      #sim_progress_panel {
-        top: auto;
-        bottom: 0.75rem;
-        right: 0.5rem;
-        left: 0.5rem;
-        width: auto;
-        min-height: 6.5rem;
-      }
-      body.sim-running {
-        padding-bottom: 9rem !important;
-      }
-    }
   ")),
-    tags$div(
-      id = "sim_progress_panel",
-      class = "d-none",
-      div(
-        class = "sim-progress-card",
-        div(class = "sim-progress-title", "Simulation running"),
-        div(class = "sim-progress-detail text-dark mb-1", ""),
-        div(
-          class = "progress",
-          div(
-            class = "progress-bar progress-bar-striped progress-bar-animated",
-            role = "progressbar",
-            style = "width: 100%;",
-            "In progress"
-          )
-        )
-      )
-    ),
     tags$script(HTML("
-      function setSimRunning(on) {
+      function setSimProgressVisible(on) {
+        var panel = document.getElementById('sim_progress_panel');
+        var idle = document.getElementById('sim_progress_idle');
+        if (panel) panel.classList.toggle('d-none', !on);
+        if (idle) idle.classList.toggle('d-none', !!on);
         document.body.classList.toggle('sim-running', !!on);
       }
       Shiny.addCustomMessageHandler('simProgress', function(msg) {
         var el = document.getElementById('sim_progress_panel');
         if (!el) return;
         if (msg && msg.show) {
-          el.classList.remove('d-none');
-          setSimRunning(true);
+          setSimProgressVisible(true);
           var detail = el.querySelector('.sim-progress-detail');
           var bar = el.querySelector('.progress-bar');
           if (detail) detail.textContent = msg.detail || '';
@@ -912,15 +932,13 @@ ui <- page_navbar(
             bar.textContent = 'In progress';
           }
         } else {
-          el.classList.add('d-none');
-          setSimRunning(false);
+          setSimProgressVisible(false);
         }
       });
       function showSimProgressLocal(detail) {
         var el = document.getElementById('sim_progress_panel');
         if (!el) return;
-        el.classList.remove('d-none');
-        setSimRunning(true);
+        setSimProgressVisible(true);
         var d = el.querySelector('.sim-progress-detail');
         if (d) d.textContent = detail || '';
         var bar = el.querySelector('.progress-bar');
