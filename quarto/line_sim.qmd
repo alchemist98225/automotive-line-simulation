@@ -588,6 +588,158 @@ register_station_panels <- function(output) {
 }
 
 # Starts collapsed with a highlight so it still stands out. The buttons drive one experiment.
+sim_status_bar_ui <- function() {
+  tagList(
+    tags$style(HTML("
+      .sim-status-bar { width: 100%; margin-bottom: 0.85rem; }
+      .sim-status-bar .sim-progress-card {
+        min-height: 3.4rem; height: 3.4rem; box-sizing: border-box;
+        display: flex; align-items: center; gap: 1rem;
+        padding: 0.45rem 1rem; margin: 0;
+      }
+      .sim-progress-card {
+        background: #fff; border: 2px solid #2c7fb8; border-radius: 0.5rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,.10);
+      }
+      .sim-progress-card.sim-progress-idle {
+        border-color: #adb5bd; box-shadow: none; background: #f8f9fa;
+      }
+      .sim-progress-title {
+        font-size: 1.05rem; font-weight: 700; color: #1b4f72;
+        margin: 0; white-space: nowrap;
+      }
+      .sim-progress-idle .sim-progress-title { color: #495057; }
+      .sim-progress-detail { flex: 1 1 auto; min-width: 0; margin: 0 !important; font-size: 0.95rem; }
+      .sim-status-bar .progress { width: 11rem; max-width: 30%; height: 1.15rem; margin: 0; flex: 0 0 auto; }
+      .sim-progress-card .progress-bar { font-size: 0.75rem; font-weight: 600; }
+      .kpi-nav-card {
+        cursor: pointer; position: relative; border-radius: 0.5rem;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+      }
+      .kpi-nav-card:hover, .kpi-nav-card:focus {
+        transform: translateY(-2px); box-shadow: 0 8px 18px rgba(0,0,0,.14); outline: none;
+      }
+      .kpi-nav-card .kpi-view-hint {
+        display: block; font-size: 0.78rem; font-weight: 600; color: #1a1a1a;
+        opacity: 0.7; margin-top: 0.15rem;
+      }
+      .kpi-nav-card:hover .kpi-view-hint { opacity: 1; text-decoration: underline; }
+      #line_controls .accordion-item:first-child > .accordion-header .accordion-button {
+        background: #198754; color: #fff; font-weight: 700;
+      }
+      #line_controls .accordion-item:first-child > .accordion-header .accordion-button:not(.collapsed) {
+        background: #157347; color: #fff; box-shadow: none;
+      }
+      #line_controls .accordion-item:first-child > .accordion-header .accordion-button::after {
+        filter: brightness(0) invert(1);
+      }
+      .shiny-progress-container { display: none !important; }
+      .shiny-notification:has(.shiny-progress-notification),
+      .shiny-notification .shiny-progress-notification { display: none !important; }
+    ")),
+    tags$script(HTML("
+      function setSimProgressVisible(on) {
+        var panel = document.getElementById('sim_progress_panel');
+        var idle = document.getElementById('sim_progress_idle');
+        if (panel) panel.classList.toggle('d-none', !on);
+        if (idle) idle.classList.toggle('d-none', !!on);
+      }
+      Shiny.addCustomMessageHandler('simProgress', function(msg) {
+        var el = document.getElementById('sim_progress_panel');
+        if (!el) return;
+        if (msg && msg.show) {
+          setSimProgressVisible(true);
+          var detail = el.querySelector('.sim-progress-detail');
+          var bar = el.querySelector('.progress-bar');
+          if (detail) detail.textContent = msg.detail || '';
+          if (bar && msg.value != null) {
+            var pct = Math.max(0, Math.min(1, msg.value)) * 100;
+            bar.style.width = pct + '%';
+            bar.textContent = Math.round(pct) + '%';
+          } else if (bar) {
+            bar.style.width = '100%';
+            bar.textContent = 'In progress';
+          }
+        } else {
+          setSimProgressVisible(false);
+        }
+      });
+      function showSimProgressLocal(detail) {
+        var el = document.getElementById('sim_progress_panel');
+        if (!el) return;
+        setSimProgressVisible(true);
+        var d = el.querySelector('.sim-progress-detail');
+        if (d) d.textContent = detail || '';
+        var bar = el.querySelector('.progress-bar');
+        if (bar) { bar.style.width = '100%'; bar.textContent = 'In progress'; }
+      }
+      $(document).on('click', '#run, #guide_try, #compare, #compare_timing', function() {
+        showSimProgressLocal('Working…');
+      });
+      function kpiScroll(el) {
+        var tab = el && el.getAttribute('data-tab');
+        if (!tab) return;
+        if (window.Shiny) {
+          Shiny.setInputValue('kpi_scroll', tab, {priority: 'event'});
+        }
+        var target = document.getElementById('results');
+        if (target) target.scrollIntoView({behavior: 'smooth', block: 'start'});
+      }
+      $(document).on('click', '.kpi-nav-card', function() { kpiScroll(this); });
+      $(document).on('keydown', '.kpi-nav-card', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); kpiScroll(this); }
+      });
+    ")),
+    div(
+      id = "sim_progress_slot",
+      class = "sim-status-bar",
+      div(
+        id = "sim_progress_idle",
+        class = "sim-progress-card sim-progress-idle",
+        div(class = "sim-progress-title", "Ready"),
+        div(class = "sim-progress-detail text-dark",
+            "Status for the next run appears here.")
+      ),
+      div(
+        id = "sim_progress_panel",
+        class = "d-none",
+        div(
+          class = "sim-progress-card",
+          div(class = "sim-progress-title", "Simulation running"),
+          div(class = "sim-progress-detail text-dark", ""),
+          div(
+            class = "progress",
+            div(
+              class = "progress-bar progress-bar-striped progress-bar-animated",
+              role = "progressbar",
+              style = "width: 100%;",
+              "In progress"
+            )
+          )
+        )
+      )
+    )
+  )
+}
+
+kpi_nav_box <- function(tab_value, title, value, showcase, theme, ...) {
+  div(
+    class = "kpi-nav-card",
+    role = "link",
+    tabindex = "0",
+    `data-tab` = tab_value,
+    `aria-label` = paste("Jump to", title, "charts"),
+    value_box(
+      title = title,
+      value = value,
+      showcase = showcase,
+      theme = theme,
+      ...,
+      span(class = "kpi-view-hint", "View charts →")
+    )
+  )
+}
+
 guided_example_ui <- function() {
   tagList(
     tags$style(HTML("
@@ -695,7 +847,7 @@ restore_default_inputs <- function(session) {
 
 ```{r}
 #| echo: false
-guided_example_ui()
+sim_status_bar_ui()
 ```
 
 ## Overview
@@ -726,13 +878,14 @@ accordion(
   open = FALSE,
   multiple = TRUE,
   accordion_panel(
-    "Arrivals & run",
+    title = tagList(bs_icon("play-fill"), " Run simulation"),
+    value = "run_simulation",
+    actionButton("run", "Run simulation", class = "btn-primary w-100 mb-3", icon = icon("play")),
+    numericInput("n_reps", "Number of replications", value = 5, min = 1, max = 100, step = 1),
     numericInput("arrival_mean", "Mean interarrival (min)", value = 4, min = 0.5, max = 60, step = 0.5),
     numericInput("sim_length", "Sim length (min)", value = 780, min = 60, max = 4800, step = 30),
     numericInput("warmup", "Warmup (min)", value = 300, min = 0, max = 2400, step = 15),
-    numericInput("n_reps", "Replications", value = 5, min = 1, max = 100, step = 1),
     numericInput("seed", "Base seed", value = 20261027, min = 1, step = 1),
-    actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
     actionButton("compare_timing", "Compare timing variability", class = "w-100"),
     actionButton("compare", "Compare staffing scenarios", class = "w-100"),
     helpText("Staffing comparison opens under Bottleneck & capacity. Timing comparison and CSV downloads open under Lead time & data."),
@@ -794,25 +947,43 @@ tagList(
   div(
     id = "headline_kpis",
     layout_columns(
-      value_box(title = "Throughput", value = textOutput("kpi_throughput", inline = TRUE),
-                showcase = bs_icon("speedometer2"), theme = "primary",
-                p("departures / hour")),
-      value_box(title = "Mean cycle time", value = textOutput("kpi_cycle", inline = TRUE),
-                showcase = bs_icon("hourglass-split"), theme = "info", p("minutes")),
-      value_box(title = "Avg WIP", value = textOutput("kpi_wip", inline = TRUE),
-                showcase = bs_icon("boxes"), theme = "warning",
-                p("vehicles in system, counted once")),
-      value_box(title = "Bottleneck", value = textOutput("kpi_bottleneck", inline = TRUE),
-                showcase = bs_icon("exclamation-triangle"), theme = "danger",
-                p("highest occupancy excluding blocked time — see the first tab"))
+      kpi_nav_box(
+        "lead",
+        title = "Throughput",
+        value = textOutput("kpi_throughput", inline = TRUE),
+        showcase = bs_icon("speedometer2"), theme = "primary",
+        p("departures / hour — see Station metrics")
+      ),
+      kpi_nav_box(
+        "lead",
+        title = "Mean production lead time",
+        value = textOutput("kpi_cycle", inline = TRUE),
+        showcase = bs_icon("hourglass-split"), theme = "info",
+        p("minutes")
+      ),
+      kpi_nav_box(
+        "flow",
+        title = "Avg WIP",
+        value = textOutput("kpi_wip", inline = TRUE),
+        showcase = bs_icon("boxes"), theme = "warning",
+        p("vehicles in system, counted once")
+      ),
+      kpi_nav_box(
+        "capacity",
+        title = "Bottleneck candidate",
+        value = textOutput("kpi_bottleneck", inline = TRUE),
+        showcase = bs_icon("exclamation-triangle"), theme = "danger",
+        p("highest occupancy excluding blocked time")
+      )
     )
-  )
+  ),
+  div(class = "mt-3", guided_example_ui())
 )
 ```
 
-## Results
+## Results {#results}
 
-KPI boxes stay above the charts. Each plot uses the full width. **Bottleneck & capacity** is first because the Bottleneck KPI is the station with the highest occupancy excluding blocked time.
+Click a KPI box above to jump here. Each plot uses the full width. **Bottleneck & capacity** is first because the Bottleneck KPI is the station with the highest occupancy excluding blocked time.
 
 ```{r}
 #| echo: false
@@ -1184,7 +1355,7 @@ comparison <- eventReactive(staffing_trigger(), {
   alternatives[[3]]$operators$count[[nrow(p$operators)]] <- alternatives[[3]]$operators$count[[nrow(p$operators)]]+1L
   alternatives[[4]]$operators <- tibble(pool="shared",count=sum(p$operators$count))
   alternatives[[4]]$stations$operator_pool <- "shared"
-  out <- withProgress(message="Comparing staffing…",run_scenarios(tibble(
+  out <- withProgress(message="",run_scenarios(tibble(
     scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives)))
   run_seq$staffing <- run_seq$staffing + 1L
   tag_comparison(out, p, run_seq$staffing, fingerprint=fp, summary=settings)
@@ -1194,7 +1365,7 @@ timing_comparison <- eventReactive(timing_trigger(), {
   p <- build_params()
   fp <- params_fingerprint(p)
   settings <- format_run_settings(p)
-  out <- withProgress(message="Comparing variability…",run_scenarios(variability_scenarios(p)))
+  out <- withProgress(message="",run_scenarios(variability_scenarios(p)))
   run_seq$timing <- run_seq$timing + 1L
   tag_comparison(out, p, run_seq$timing, fingerprint=fp, summary=settings)
 }, ignoreNULL = TRUE)
@@ -1225,15 +1396,32 @@ output$reliability_table <- renderDT({
     mutate(observed_failures=replace_na(observed_failures,0L)) %>%
     datatable(rownames=FALSE,options=list(dom="t"))
 })
+show_sim_progress <- function(detail = "", value = NULL) {
+  session$sendCustomMessage("simProgress", list(show = TRUE, detail = detail, value = value))
+}
+hide_sim_progress <- function() {
+  session$sendCustomMessage("simProgress", list(show = FALSE))
+}
+observeEvent(input$kpi_scroll, {
+  tab <- input$kpi_scroll
+  if (!is.null(tab) && nzchar(tab)) {
+    nav_select("results_tabs", tab, session = session)
+  }
+}, ignoreInit = TRUE)
+
 # Run on button click; also fire once on load so KPIs appear immediately.
 # The parameter snapshot is taken before the run so later sidebar edits can be flagged.
 sim_result <- reactive({
   p <- build_params()
   fp <- params_fingerprint(p)
   settings <- format_run_settings(p)
-  res <- withProgress(message = "Running simulation…", value = 0.3, {
-    run_line_sim(p)
-  })
+  show_sim_progress(paste0(p$n_replications, " replications"), value = 0.3)
+  res <- tryCatch(
+    withProgress(message = "", value = 0.3, {
+      run_line_sim(p)
+    }),
+    finally = hide_sim_progress()
+  )
   run_seq$main <- run_seq$main + 1L
   stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings)
 }) %>% bindEvent(input$run, guide_run(), ignoreNULL = FALSE)

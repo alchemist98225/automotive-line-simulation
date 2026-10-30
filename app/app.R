@@ -616,12 +616,10 @@ register_station_panels <- function(output) {
 }
 
 # Starts collapsed with a highlight so it still stands out. The buttons drive one experiment.
-# Permanent row: guided card + fixed ~280px status slot (idle Ready / mid-run panel).
-# The slot stays visible even when the guided section is collapsed, so KPI widths never jump.
+# Sits below the KPI boxes on Simulate. Status lives in the slim top bar instead.
 guided_example_ui <- function() {
   tagList(
     tags$style(HTML("
-      /* Collapsed by default; accent so it still reads as the place to start. */
       .guided-example {
         border: 1px solid #9ecae1;
         border-left: 5px solid #2c7fb8;
@@ -641,34 +639,61 @@ guided_example_ui <- function() {
       .guided-example summary::-webkit-details-marker { display: none; }
       .guided-example summary .guided-label { font-size: 1.02rem; }
       #guided_example.bslib-card { flex: 0 0 auto; height: auto; width: 100%; }
-      .guided-row {
-        display: flex;
-        flex-wrap: nowrap;
-        align-items: stretch;
-        gap: 0.75rem;
+    ")),
+    card(
+      id = "guided_example",
+      class = "guided-example",
+      fill = FALSE,
+      card_body(
+        fill = FALSE,
+        tags$details(
+          tags$summary(
+            tagList(
+              bs_icon("lightbulb"),
+              span(class = "guided-label", "Start here: guided example")
+            )
+          ),
+          p(class = "mt-2 mb-2",
+            "This model asks where the line's capacity constraint is, and what changes if you add capacity there."),
+          p(class = "mb-2", "Raise Paint from 1 bay to 2."),
+          div(
+            class = "d-flex flex-wrap gap-2 mb-2",
+            actionButton("guide_try", "Try it", class = "btn-primary btn-sm", icon = icon("play")),
+            actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
+          ),
+          p(class = "mb-2",
+            "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline."),
+          p(class = "text-muted small mb-0",
+            "All data is illustrative placeholder data, not a prediction for any real plant or company.")
+        )
+      )
+    )
+  )
+}
+
+# Slim full-width status bar at the top of Simulate (fixed height; no layout jump).
+sim_status_bar_ui <- function() {
+  tagList(
+    tags$style(HTML("
+      .sim-status-bar {
         width: 100%;
+        margin-bottom: 0.85rem;
       }
-      .guided-row-card {
-        flex: 1 1 auto;
-        min-width: 0;
-      }
-      .guided-row-status {
-        flex: 0 0 280px;
-        width: 280px;
-        max-width: 280px;
+      .sim-status-bar .sim-progress-card {
+        min-height: 3.4rem;
+        height: 3.4rem;
         box-sizing: border-box;
-      }
-      .guided-row-status .sim-progress-card {
-        height: 100%;
-        min-height: 7.5rem;
-        box-sizing: border-box;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.45rem 1rem;
+        margin: 0;
       }
       .sim-progress-card {
         background: #fff;
         border: 2px solid #2c7fb8;
         border-radius: 0.5rem;
-        box-shadow: 0 6px 18px rgba(0,0,0,.12);
-        padding: 1rem 1.1rem 1.05rem;
+        box-shadow: 0 4px 12px rgba(0,0,0,.10);
       }
       .sim-progress-card.sim-progress-idle {
         border-color: #adb5bd;
@@ -676,95 +701,100 @@ guided_example_ui <- function() {
         background: #f8f9fa;
       }
       .sim-progress-title {
-        font-size: 1.15rem;
+        font-size: 1.05rem;
         font-weight: 700;
         color: #1b4f72;
-        margin: 0 0 0.35rem;
+        margin: 0;
+        white-space: nowrap;
       }
       .sim-progress-idle .sim-progress-title { color: #495057; }
-      .sim-progress-card .progress {
-        height: 1.35rem;
-        margin: 0.55rem 0 0.35rem;
+      .sim-progress-detail {
+        flex: 1 1 auto;
+        min-width: 0;
+        margin: 0 !important;
+        font-size: 0.95rem;
+      }
+      .sim-status-bar .progress {
+        width: 11rem;
+        max-width: 30%;
+        height: 1.15rem;
+        margin: 0;
+        flex: 0 0 auto;
       }
       .sim-progress-card .progress-bar {
-        font-size: 0.8rem;
+        font-size: 0.75rem;
         font-weight: 600;
       }
-      /* Phone: stack guided + status in normal flow so the panel pushes content down. */
       @media (max-width: 576px) {
-        .guided-row {
+        .sim-status-bar .sim-progress-card {
+          height: auto;
+          min-height: 3.4rem;
           flex-wrap: wrap;
+          gap: 0.35rem 0.75rem;
+          padding: 0.55rem 0.85rem;
         }
-        .guided-row-card {
-          flex: 1 1 100%;
-        }
-        .guided-row-status {
-          flex: 1 1 100%;
-          width: 100%;
-          max-width: none;
-          order: -1; /* status under navbar, above guided card */
-          scroll-margin-top: 4.5rem;
-        }
+        .sim-status-bar .progress { width: 100%; max-width: none; }
+      }
+      /* Clickable KPI value boxes → Results chart pages */
+      .kpi-nav-card {
+        cursor: pointer;
+        position: relative;
+        border-radius: 0.5rem;
+        transition: transform 0.12s ease, box-shadow 0.12s ease;
+      }
+      .kpi-nav-card:hover, .kpi-nav-card:focus {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 18px rgba(0,0,0,.14);
+        outline: none;
+      }
+      .kpi-nav-card .kpi-view-hint {
+        display: block;
+        font-size: 0.78rem;
+        font-weight: 600;
+        color: #1a1a1a;
+        opacity: 0.7;
+        margin-top: 0.15rem;
+      }
+      .kpi-nav-card:hover .kpi-view-hint { opacity: 1; text-decoration: underline; }
+      /* Run simulation accordion header stands out from jump links. */
+      #line_controls .accordion-item:first-child > .accordion-header .accordion-button {
+        background: #198754;
+        color: #fff;
+        font-weight: 700;
+      }
+      #line_controls .accordion-item:first-child > .accordion-header .accordion-button:not(.collapsed) {
+        background: #157347;
+        color: #fff;
+        box-shadow: none;
+      }
+      #line_controls .accordion-item:first-child > .accordion-header .accordion-button::after {
+        filter: brightness(0) invert(1);
       }
     ")),
     div(
-      class = "guided-row",
+      id = "sim_progress_slot",
+      class = "sim-status-bar",
       div(
-        class = "guided-row-card",
-        card(
-          id = "guided_example",
-          class = "guided-example",
-          fill = FALSE,
-          card_body(
-            fill = FALSE,
-            tags$details(
-              tags$summary(
-                tagList(
-                  bs_icon("lightbulb"),
-                  span(class = "guided-label", "Start here: guided example")
-                )
-              ),
-              p(class = "mt-2 mb-2",
-                "This model asks where the line's capacity constraint is, and what changes if you add capacity there."),
-              p(class = "mb-2", "Raise Paint from 1 bay to 2."),
-              div(
-                class = "d-flex flex-wrap gap-2 mb-2",
-                actionButton("guide_try", "Try it", class = "btn-primary btn-sm", icon = icon("play")),
-                actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
-              ),
-              p(class = "mb-2",
-                "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline."),
-              p(class = "text-muted small mb-0",
-                "All data is illustrative placeholder data, not a prediction for any real plant or company.")
-            )
-          )
-        )
+        id = "sim_progress_idle",
+        class = "sim-progress-card sim-progress-idle",
+        div(class = "sim-progress-title", "Ready"),
+        div(class = "sim-progress-detail text-dark",
+            "Status for the next run appears here.")
       ),
       div(
-        id = "sim_progress_slot",
-        class = "guided-row-status",
+        id = "sim_progress_panel",
+        class = "d-none",
         div(
-          id = "sim_progress_idle",
-          class = "sim-progress-card sim-progress-idle",
-          div(class = "sim-progress-title", "Ready"),
-          div(class = "sim-progress-detail text-dark mb-0",
-              "Status for the next run appears here.")
-        ),
-        div(
-          id = "sim_progress_panel",
-          class = "d-none",
+          class = "sim-progress-card",
+          div(class = "sim-progress-title", "Simulation running"),
+          div(class = "sim-progress-detail text-dark", ""),
           div(
-            class = "sim-progress-card",
-            div(class = "sim-progress-title", "Simulation running"),
-            div(class = "sim-progress-detail text-dark mb-1", ""),
+            class = "progress",
             div(
-              class = "progress",
-              div(
-                class = "progress-bar progress-bar-striped progress-bar-animated",
-                role = "progressbar",
-                style = "width: 100%;",
-                "In progress"
-              )
+              class = "progress-bar progress-bar-striped progress-bar-animated",
+              role = "progressbar",
+              style = "width: 100%;",
+              "In progress"
             )
           )
         )
@@ -772,6 +802,37 @@ guided_example_ui <- function() {
     )
   )
 }
+
+# Value box that navigates to a Results chart page when clicked.
+kpi_nav_box <- function(page_value, title, value, showcase, theme, ...) {
+  box_id <- paste0(
+    "kpi_nav_",
+    switch(page_value,
+      production_schedule = "throughput",
+      results_lead = "lead",
+      results_flow = "wip",
+      results_capacity = "bottleneck",
+      page_value
+    )
+  )
+  div(
+    id = box_id,
+    class = "kpi-nav-card",
+    role = "link",
+    tabindex = "0",
+    `data-page` = page_value,
+    `aria-label` = paste("Open", title, "charts"),
+    value_box(
+      title = title,
+      value = value,
+      showcase = showcase,
+      theme = theme,
+      ...,
+      span(class = "kpi-view-hint", "View charts →")
+    )
+  )
+}
+
 
 # Push every sidebar control back to the value it shows on first load.
 restore_default_inputs <- function(session) {
@@ -940,9 +1001,8 @@ ui <- page_navbar(
     .plot-options-btn { white-space: nowrap; }
     .plot-options-popover { min-width: 16rem; max-width: 22rem; }
 
-    /* Hide Shiny's default progress UI; the guided-row status slot is the only
-       progress surface. withProgress remains only as a websocket flush pump.
-       No body.sim-running layout changes — the 280px slot is permanent. */
+    /* Hide Shiny's default progress UI; the slim top status bar is the only
+       progress surface. withProgress remains only as a websocket flush pump. */
     .shiny-progress-container {
       display: none !important;
     }
@@ -1019,13 +1079,27 @@ ui <- page_navbar(
         }
         setTimeout(go, 50);
       });
+      function kpiNavigate(el) {
+        var page = el && el.getAttribute('data-page');
+        if (!page) return;
+        Shiny.setInputValue('kpi_nav', page, {priority: 'event'});
+      }
+      $(document).on('click', '.kpi-nav-card', function(e) {
+        kpiNavigate(this);
+      });
+      $(document).on('keydown', '.kpi-nav-card', function(e) {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          kpiNavigate(this);
+        }
+      });
     "))
   ),
   fillable = FALSE,
 
   nav_panel(
     title = "Simulate",
-    div(class = "px-3 pt-3", guided_example_ui()),
+    div(class = "px-3 pt-3", sim_status_bar_ui()),
     layout_sidebar(
       fillable = FALSE,
       sidebar = sidebar(
@@ -1038,7 +1112,11 @@ ui <- page_navbar(
           open = FALSE,
           multiple = TRUE,
           accordion_panel(
-            "Arrivals & run",
+            title = tagList(bs_icon("play-fill"), " Run simulation"),
+            value = "run_simulation",
+            actionButton("run", "Run simulation", class = "btn-primary w-100 mb-3", icon = icon("play")),
+            numericInput("n_reps", "Number of replications",
+                         value = 5, min = 1, max = 100, step = 1),
             numericInput("planned_rate","Planned work rate (vehicles/hour)",value=15,min=.01,max=600,step=1),
             selectInput("order_spacing","Order spacing",c("Evenly scheduled"="fixed","Random (exponential)"="exponential"),selected="fixed"),
             selectInput("release_policy","Admission policy",c("When entrance space is available"="space","Limit total line WIP (CONWIP)"="conwip","Release all scheduled work"="scheduled"),selected="space"),
@@ -1051,14 +1129,11 @@ ui <- page_navbar(
             helpText("Settling happens first. Shifts are measured separately and run consecutively; nights and weekends are not simulated."),
             numericInput("warmup", "Initial settling period (minutes)",
                          value = 300, min = 0, max = 10080, step = 15),
-            numericInput("n_reps", "Simulation runs",
-                         value = 5, min = 1, max = 100, step = 1),
             numericInput("seed", "Base seed",
                          value = 20261027, min = 1, step = 1),
-            actionButton("run", "Run simulation", class = "btn-primary w-100", icon = icon("play")),
             actionButton("compare_timing", "Compare timing variability", class = "w-100"),
             actionButton("compare", "Compare staffing scenarios", class = "w-100"),
-            helpText("Staffing comparison opens under Bottleneck & capacity. Timing comparison and CSV downloads open under Lead time & data."),
+            helpText("Staffing comparison opens under Results → Bottleneck & capacity. Timing comparison and CSV downloads open under Results → Lead time & data."),
             helpText("Defaults are placeholder example values — not real plant data.")
           )
         ),
@@ -1088,223 +1163,49 @@ ui <- page_navbar(
         )
       ),
 
-      # KPI boxes stay on top. Charts sit underneath in full-width tabs.
       uiOutput("result_freshness_style"),
       uiOutput("main_stale_notice"),
       div(
         id = "headline_kpis",
         layout_columns(
-        fill = FALSE,
-        value_box(
-          title = "Throughput",
-          value = textOutput("kpi_throughput", inline = TRUE),
-          showcase = bs_icon("speedometer2"),
-          theme = "primary",
-          p("departures / hour (mean across reps)")
-        ),
-        value_box(
-          title = "Mean production lead time",
-          value = textOutput("kpi_cycle", inline = TRUE),
-          showcase = bs_icon("hourglass-split"),
-          theme = "info",
-          p("minutes")
-        ),
-        value_box(
-          title = "Avg WIP",
-          value = textOutput("kpi_wip", inline = TRUE),
-          showcase = bs_icon("boxes"),
-          theme = "warning",
-          p("vehicles in system, counted once")
-        ),
-        value_box(
-          title = "Bottleneck candidate",
-          value = textOutput("kpi_bottleneck", inline = TRUE),
-          showcase = bs_icon("exclamation-triangle"),
-          theme = "danger",
-          p("highest occupancy excluding blocked time — see the first tab")
-        )
-        )
-      ),
-
-      navset_card_underline(
-        id = "results_tabs",
-        selected = "capacity",
-        nav_panel(
-          title = "Bottleneck & capacity",
-          value = "capacity",
-          p(class = "text-muted small px-2 pt-2 mb-1",
-            "The Bottleneck KPI is the station with the highest occupancy excluding blocked time. These tabs show whether bays, operators, or downtime explain it."),
-          navset_pill(
-            id = "capacity_tabs",
-            selected = "occupancy",
-            nav_panel(
-              title = "Station occupancy",
-              value = "occupancy",
-              plot_card(
-                "Bay occupancy (all replications)",
-                roomy_plot("plot_util")
-              )
-            ),
-            nav_panel(
-              title = "Operators",
-              value = "operators",
-              plot_card(
-                "Operator utilization (all replications)",
-                roomy_plot("plot_labor")
-              ),
-              card(
-                fill = FALSE,
-                card_header("Mean utilization by pool"),
-                card_body(fill = FALSE, DTOutput("labor_table"))
-              )
-            ),
-            nav_panel(
-              title = "Downtime",
-              value = "downtime",
-              plot_card(
-                "Downtime fraction (all replications)",
-                roomy_plot("plot_down")
-              ),
-              card(
-                fill = FALSE,
-                card_header("MTBF, MTTR, and observed failures"),
-                card_body(
-                  fill = FALSE,
-                  p(class = "text-muted small",
-                    "Mean up-time and active repair from the inputs, with failure counts from this run. MTTR of 0 disables failures at that station."),
-                  DTOutput("reliability_table")
-                )
-              )
-            ),
-            nav_panel(
-              title = "Staffing comparison",
-              value = "staffing",
-              card(
-                fill = FALSE,
-                card_header("Staffing experiments"),
-                card_body(
-                  fill = FALSE,
-                  p("Uses the station settings from the comparison run, not later sidebar edits. Intervals show uncertainty in each scenario's mean throughput, not individual shifts. Multiple replications are needed. Scenarios reuse base seeds; random draws are not synchronized by event."),
-                  p(class = "text-muted small", "Click Compare staffing scenarios in the sidebar to fill this table."),
-                  uiOutput("staffing_warning"),
-                  uiOutput("staffing_meta"),
-                  div(id = "scenario_table_wrap", DTOutput("scenario_table"))
-                )
-              )
-            )
-          )
-        ),
-        nav_panel(
-          title = "Flow over time",
-          value = "flow",
-          p(class = "text-muted small px-2 pt-2 mb-1",
-            "Does the line settle after warmup, or does work keep building? Faint lines are each replication. The ribbon is a loess smooth on the 2-minute grid."),
-          navset_pill(
-            id = "flow_tabs",
-            selected = "wip",
-            nav_panel(
-              title = "WIP",
-              value = "wip",
-              plot_card(
-                "WIP over time (all reps + loess)",
-                roomy_plot("plot_wip")
-              )
-            ),
-            nav_panel(
-              title = "Queues",
-              value = "queues",
-              plot_card(
-                "Queue length over time (all reps + loess)",
-                div(
-                  class = "d-flex justify-content-end mb-2",
-                  plot_options_menu(
-                    radioButtons(
-                      "queue_layout", "Layout",
-                      choices = c("Overlay stations" = "overlay", "Facet by station" = "facet"),
-                      selected = "overlay", inline = TRUE
-                    ),
-                    selectInput(
-                      "queue_station", "Station",
-                      choices = c(
-                        "All stations" = "all",
-                        setNames(names(station_labels), unname(station_labels))
-                      )
-                    )
-                  )
-                ),
-                roomy_plot("plot_queue")
-              )
-            )
-          )
-        ),
-        nav_panel(
-          title = "Lead time & data",
-          value = "lead",
-          navset_pill(
-            id = "lead_tabs",
-            selected = "cycle",
-            nav_panel(
-              title = "Cycle time",
-              value = "cycle",
-              plot_card(
-                "Cycle time distribution",
-                roomy_plot("plot_cycle")
-              )
-            ),
-            nav_panel(
-              title = "Station metrics",
-              value = "metrics",
-              card(
-                fill = FALSE,
-                full_screen = TRUE,
-                card_header("Station metrics"),
-                card_body(fill = FALSE, DTOutput("table_metrics"))
-              )
-            ),
-            nav_panel(
-              title = "Timing comparison",
-              value = "timing",
-              card(
-                fill = FALSE,
-                card_header("Same work content, different variability"),
-                card_body(
-                  fill = FALSE,
-                  p("Compare current timing, fixed expected times, and lognormal durations with SD equal to half the mean. Staffing, arrivals, failures, and trigger rules remain the same. Mean-throughput confidence intervals use independent replications. The table keeps the settings from the comparison run."),
-                  p(class = "text-muted small", "Click Compare timing variability in the sidebar to fill this table."),
-                  uiOutput("timing_warning"),
-                  uiOutput("timing_meta"),
-                  div(id = "timing_table_wrap", DTOutput("timing_table"))
-                )
-              )
-            ),
-            nav_panel(
-              title = "Downloads",
-              value = "downloads",
-              card(
-                fill = FALSE,
-                card_header("Download the tidy tables"),
-                card_body(
-                  fill = FALSE,
-                  p("Each CSV is the data behind the charts for the current run, including seeds. Download all also adds per-replication summaries and failure events, which do not have their own button."),
-                  download_catalog(),
-                  div(
-                    class = "mt-3",
-                    downloadButton("dl_all", "Download all (zip)", class = "btn-secondary")
-                  )
-                )
-              )
-            )
+          fill = FALSE,
+          kpi_nav_box(
+            "production_schedule",
+            title = "Throughput",
+            value = textOutput("kpi_throughput", inline = TRUE),
+            showcase = bs_icon("speedometer2"),
+            theme = "primary",
+            p("departures / hour (mean across reps)")
+          ),
+          kpi_nav_box(
+            "results_lead",
+            title = "Mean production lead time",
+            value = textOutput("kpi_cycle", inline = TRUE),
+            showcase = bs_icon("hourglass-split"),
+            theme = "info",
+            p("minutes")
+          ),
+          kpi_nav_box(
+            "results_flow",
+            title = "Avg WIP",
+            value = textOutput("kpi_wip", inline = TRUE),
+            showcase = bs_icon("boxes"),
+            theme = "warning",
+            p("vehicles in system, counted once")
+          ),
+          kpi_nav_box(
+            "results_capacity",
+            title = "Bottleneck candidate",
+            value = textOutput("kpi_bottleneck", inline = TRUE),
+            showcase = bs_icon("exclamation-triangle"),
+            theme = "danger",
+            p("highest occupancy excluding blocked time")
           )
         )
       ),
-      tags$details(
-        class = "run-settings border rounded mt-3 mb-2",
-        tags$summary(class = "px-3 py-2", "Run settings"),
-        div(class = "px-3 pb-2", uiOutput("run_settings_body"))
-      )
+      div(class = "mt-3", guided_example_ui())
     )
   ),
-
 
   nav_panel(
     title = "Parameters",
@@ -1314,7 +1215,7 @@ ui <- page_navbar(
       h3("Line parameters"),
       p(class = "mb-3",
         "Edit station capacity, timing, crews, and reliability here in a wider layout. ",
-        "Arrivals, shifts, and replications stay on Simulate. Run simulation still uses these values."),
+        "Arrivals, shifts, and replications stay under Run simulation on Simulate. The Run button still uses these values."),
       card(
         id = "params_capacity",
         class = "params-section mb-3",
@@ -1430,7 +1331,185 @@ ui <- page_navbar(
     )
   ),
 
-  production_page_ui("production_results"),
+  nav_menu(
+    "Results",
+    icon = bs_icon("bar-chart"),
+  nav_panel(
+    title = "Bottleneck & capacity",
+    value = "results_capacity",
+    p(class = "text-muted small px-2 pt-2 mb-1",
+      "The Bottleneck KPI is the station with the highest occupancy excluding blocked time. These tabs show whether bays, operators, or downtime explain it."),
+    navset_pill(
+      id = "capacity_tabs",
+      selected = "occupancy",
+      nav_panel(
+        title = "Station occupancy",
+        value = "occupancy",
+        plot_card(
+          "Bay occupancy (all replications)",
+          roomy_plot("plot_util")
+        )
+      ),
+      nav_panel(
+        title = "Operators",
+        value = "operators",
+        plot_card(
+          "Operator utilization (all replications)",
+          roomy_plot("plot_labor")
+        ),
+        card(
+          fill = FALSE,
+          card_header("Mean utilization by pool"),
+          card_body(fill = FALSE, DTOutput("labor_table"))
+        )
+      ),
+      nav_panel(
+        title = "Downtime",
+        value = "downtime",
+        plot_card(
+          "Downtime fraction (all replications)",
+          roomy_plot("plot_down")
+        ),
+        card(
+          fill = FALSE,
+          card_header("MTBF, MTTR, and observed failures"),
+          card_body(
+            fill = FALSE,
+            p(class = "text-muted small",
+              "Mean up-time and active repair from the inputs, with failure counts from this run. MTTR of 0 disables failures at that station."),
+            DTOutput("reliability_table")
+          )
+        )
+      ),
+      nav_panel(
+        title = "Staffing comparison",
+        value = "staffing",
+        card(
+          fill = FALSE,
+          card_header("Staffing experiments"),
+          card_body(
+            fill = FALSE,
+            p("Uses the station settings from the comparison run, not later sidebar edits. Intervals show uncertainty in each scenario's mean throughput, not individual shifts. Multiple replications are needed. Scenarios reuse base seeds; random draws are not synchronized by event."),
+            p(class = "text-muted small", "Click Compare staffing scenarios in the sidebar to fill this table."),
+            uiOutput("staffing_warning"),
+            uiOutput("staffing_meta"),
+            div(id = "scenario_table_wrap", DTOutput("scenario_table"))
+          )
+        )
+      )
+    )
+  )
+,
+  nav_panel(
+    title = "Flow over time",
+    value = "results_flow",
+    p(class = "text-muted small px-2 pt-2 mb-1",
+      "Does the line settle after warmup, or does work keep building? Faint lines are each replication. The ribbon is a loess smooth on the 2-minute grid."),
+    navset_pill(
+      id = "flow_tabs",
+      selected = "wip",
+      nav_panel(
+        title = "WIP",
+        value = "wip",
+        plot_card(
+          "WIP over time (all reps + loess)",
+          roomy_plot("plot_wip")
+        )
+      ),
+      nav_panel(
+        title = "Queues",
+        value = "queues",
+        plot_card(
+          "Queue length over time (all reps + loess)",
+          div(
+            class = "d-flex justify-content-end mb-2",
+            plot_options_menu(
+              radioButtons(
+                "queue_layout", "Layout",
+                choices = c("Overlay stations" = "overlay", "Facet by station" = "facet"),
+                selected = "overlay", inline = TRUE
+              ),
+              selectInput(
+                "queue_station", "Station",
+                choices = c(
+                  "All stations" = "all",
+                  setNames(names(station_labels), unname(station_labels))
+                )
+              )
+            )
+          ),
+          roomy_plot("plot_queue")
+        )
+      )
+    )
+  )
+,
+  nav_panel(
+    title = "Lead time & data",
+    value = "results_lead",
+    navset_pill(
+      id = "lead_tabs",
+      selected = "cycle",
+      nav_panel(
+        title = "Cycle time",
+        value = "cycle",
+        plot_card(
+          "Cycle time distribution",
+          roomy_plot("plot_cycle")
+        )
+      ),
+      nav_panel(
+        title = "Station metrics",
+        value = "metrics",
+        card(
+          fill = FALSE,
+          full_screen = TRUE,
+          card_header("Station metrics"),
+          card_body(fill = FALSE, DTOutput("table_metrics"))
+        )
+      ),
+      nav_panel(
+        title = "Timing comparison",
+        value = "timing",
+        card(
+          fill = FALSE,
+          card_header("Same work content, different variability"),
+          card_body(
+            fill = FALSE,
+            p("Compare current timing, fixed expected times, and lognormal durations with SD equal to half the mean. Staffing, arrivals, failures, and trigger rules remain the same. Mean-throughput confidence intervals use independent replications. The table keeps the settings from the comparison run."),
+            p(class = "text-muted small", "Click Compare timing variability in the sidebar to fill this table."),
+            uiOutput("timing_warning"),
+            uiOutput("timing_meta"),
+            div(id = "timing_table_wrap", DTOutput("timing_table"))
+          )
+        )
+      ),
+      nav_panel(
+        title = "Downloads",
+        value = "downloads",
+        card(
+          fill = FALSE,
+          card_header("Download the tidy tables"),
+          card_body(
+            fill = FALSE,
+            p("Each CSV is the data behind the charts for the current run, including seeds. Download all also adds per-replication summaries and failure events, which do not have their own button."),
+            download_catalog(),
+            div(
+              class = "mt-3",
+              downloadButton("dl_all", "Download all (zip)", class = "btn-secondary")
+            )
+          )
+        )
+      )
+    ),
+    tags$details(
+      class = "run-settings border rounded mt-3 mb-2 mx-2",
+      tags$summary(class = "px-3 py-2", "Run settings"),
+      div(class = "px-3 pb-2", uiOutput("run_settings_body"))
+    )
+  ),
+    production_page_ui("production_results")
+  ),
 
   comparison_page_ui("two_set_study"),
 
@@ -1742,12 +1821,18 @@ server <- function(input, output, session) {
     tag_comparison(out, p, run_seq$timing, fingerprint=fp, summary=settings)
   }, ignoreNULL = TRUE)
   observeEvent(input$compare, {
-    nav_select("results_tabs", "capacity", session = session)
+    nav_select("main_page", "results_capacity", session = session)
     nav_select("capacity_tabs", "staffing", session = session)
   }, ignoreInit = TRUE)
   observeEvent(input$compare_timing, {
-    nav_select("results_tabs", "lead", session = session)
+    nav_select("main_page", "results_lead", session = session)
     nav_select("lead_tabs", "timing", session = session)
+  }, ignoreInit = TRUE)
+  observeEvent(input$kpi_nav, {
+    page <- input$kpi_nav
+    if (!is.null(page) && nzchar(page)) {
+      nav_select("main_page", page, session = session)
+    }
   }, ignoreInit = TRUE)
   output$timing_table <- renderDT({
     req(isTRUE(timing_trigger() > 0))

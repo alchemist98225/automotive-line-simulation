@@ -63,22 +63,34 @@ page_has <- function(label) {
 }
 for (label in c(
   "Bottleneck & capacity", "Flow over time", "Lead time & data",
-  "Station occupancy", "Operators", "Downtime", "Staffing comparison",
-  "WIP", "Queues", "Cycle time", "Station metrics", "Timing comparison", "Downloads",
-  "640px", "clamp(520px, 60vh, 720px)", "gap: 0.5rem", "Run settings",
-  "Compare two sets", "Results are illustrative only",
-  "Parameters", "Interstation buffers", "Failures & support"
+  "Production schedule & flow", "Station occupancy", "Operators", "Downtime",
+  "Staffing comparison", "WIP", "Queues", "Cycle time", "Station metrics",
+  "Timing comparison", "Downloads", "640px", "clamp(520px, 60vh, 720px)",
+  "gap: 0.5rem", "Run settings", "Compare two sets",
+  "Results are illustrative only", "Parameters", "Interstation buffers",
+  "Failures & support", "Results", "View charts", "Run simulation",
+  "Number of replications"
 )) stopifnot(page_has(label))
-# Downloads moved out of the sidebar accordion into the Lead time tab.
+# Downloads stay on the Lead time & data page, not in the sidebar.
 stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
-# Run settings sits under the results tabs and starts collapsed.
+# Simulate main body: slim status bar, then KPI boxes, then guided example.
+# Chart tabs live on their own Results pages (no inline results_tabs).
 kpi_at <- regexpr('id="headline_kpis"', ui_html)
-tabs_at <- regexpr('id="results_tabs"', ui_html)
-settings_at <- regexpr('class="run-settings', ui_html)
 guide_at <- regexpr('id="guided_example"', ui_html)
-stopifnot(kpi_at[[1]] > 0L, tabs_at[[1]] > kpi_at[[1]], settings_at[[1]] > tabs_at[[1]])
-stopifnot(guide_at[[1]] > 0L, guide_at[[1]] < kpi_at[[1]])
-# Run settings and the guided example both start closed. Guided keeps a highlight.
+status_at <- regexpr('id="sim_progress_slot"', ui_html)
+settings_at <- regexpr('class="run-settings', ui_html)
+stopifnot(status_at[[1]] > 0L, kpi_at[[1]] > status_at[[1]], guide_at[[1]] > kpi_at[[1]])
+stopifnot(!grepl('id="results_tabs"', ui_html, fixed = TRUE))
+stopifnot(grepl('data-value="results_capacity"', ui_html, fixed = TRUE) || grepl("results_capacity", ui_html, fixed = TRUE))
+stopifnot(grepl('data-value="results_flow"', ui_html, fixed = TRUE) || grepl("results_flow", ui_html, fixed = TRUE))
+stopifnot(grepl('data-value="results_lead"', ui_html, fixed = TRUE) || grepl("results_lead", ui_html, fixed = TRUE))
+stopifnot(grepl("kpi-nav-card", ui_html, fixed = TRUE))
+stopifnot(grepl("kpi_nav_throughput", ui_html, fixed = TRUE))
+stopifnot(grepl("kpi_nav_lead", ui_html, fixed = TRUE))
+stopifnot(grepl("kpi_nav_wip", ui_html, fixed = TRUE))
+stopifnot(grepl("kpi_nav_bottleneck", ui_html, fixed = TRUE))
+# Run settings lives on the Lead time & data page and starts collapsed.
+stopifnot(settings_at[[1]] > 0L)
 stopifnot(!grepl('class="run-settings[^"]*" open', ui_html))
 stopifnot(!grepl("<details open>", ui_html, fixed = TRUE))
 stopifnot(page_has("Start here: guided example"))
@@ -90,17 +102,14 @@ stopifnot(grepl("lightbulb", ui_html) || grepl("Start here: guided example", ui_
 stopifnot(page_has("fixed duration"))
 stopifnot(page_has("measured observations"))
 stopifnot(!page_has("exponential or normal distributions"))
-cat("Results tab layout check passed\n")
+cat("Results page layout check passed\n")
 cat("First-load check passed\n")
 
-# Simulate sidebar keeps only Arrivals & run as editable controls. Other
+# Simulate sidebar keeps only Run simulation as editable controls. Other
 # groups are jump links to the Parameters page (no duplicate inputs).
-accordion_titles <- function(html) {
-  titles <- unlist(regmatches(html, gregexpr('<div class="accordion-title">[^<]*</div>', html)))
-  gsub("&amp;", "&", gsub("</div>", "", gsub('<div class="accordion-title">', "", titles, fixed = TRUE), fixed = TRUE), fixed = TRUE)
-}
 sidebar_html <- as.character(xml2::xml_find_first(xml2::read_html(ui_html), "//*[@id='line_controls']"))
-stopifnot(identical(accordion_titles(sidebar_html), "Arrivals & run"))
+stopifnot(grepl("Run simulation", sidebar_html, fixed = TRUE))
+stopifnot(!grepl("Arrivals & run", sidebar_html, fixed = TRUE))
 stopifnot(grepl('id="line_controls"', ui_html, fixed = TRUE))
 stopifnot(!grepl('data-value="Stations"', ui_html, fixed = TRUE))
 stopifnot(!page_has("Activity timing & reliability by station"))
@@ -113,11 +122,15 @@ panel_open <- function(chunk) {
     identical(collapse, 'class="accordion-collapse collapse show"')
 }
 stopifnot(!panel_open(items[[1]]))
-# Arrivals & run starts collapsed. Detail inputs live once on Parameters.
-stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="5"', items[[1]], fixed = TRUE))
+# Run simulation starts collapsed. Start button comes before Number of replications.
+run_at <- regexpr('id="run"', items[[1]], fixed = TRUE)
+reps_at <- regexpr('id="n_reps"', items[[1]], fixed = TRUE)
+stopifnot(run_at[[1]] > 0L, reps_at[[1]] > run_at[[1]])
+stopifnot(grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="5"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="warmup" type="number" class="shiny-input-number form-control" value="300"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="wip_limit" type="number" class="shiny-input-number form-control" value="20"', items[[1]], fixed = TRUE))
-stopifnot(grepl('id="run"', items[[1]], fixed = TRUE), grepl('id="planned_rate"', items[[1]], fixed = TRUE))
+stopifnot(grepl('id="planned_rate"', items[[1]], fixed = TRUE))
+stopifnot(grepl("Number of replications", items[[1]], fixed = TRUE))
 stopifnot(!grepl('id="body_cap"', items[[1]], fixed = TRUE))
 stopifnot(!grepl('id="body_mean"', items[[1]], fixed = TRUE))
 stopifnot(!grepl('id="staffing"', items[[1]], fixed = TRUE))
@@ -145,11 +158,11 @@ stopifnot(grepl('id="body_cap"', ui_html, fixed = TRUE), grepl('id="paint_cap"',
 stopifnot(grepl('id="body_mean"', ui_html, fixed = TRUE), grepl("cycle_body_shop", ui_html, fixed = TRUE))
 stopifnot(grepl('id="staffing"', ui_html, fixed = TRUE), grepl("operator_controls", ui_html, fixed = TRUE))
 stopifnot(grepl('id="reliability"', ui_html, fixed = TRUE), grepl("reliability_body_shop", ui_html, fixed = TRUE))
-# Progress panel host is present for mid-run visibility. The default Shiny
-# toast is suppressed so only this panel appears.
+# Slim full-width status bar at the top of Simulate. Default Shiny toast suppressed.
 stopifnot(grepl('id="sim_progress_panel"', ui_html, fixed = TRUE))
 stopifnot(grepl('id="sim_progress_idle"', ui_html, fixed = TRUE))
 stopifnot(grepl('id="sim_progress_slot"', ui_html, fixed = TRUE))
+stopifnot(grepl("sim-status-bar", ui_html, fixed = TRUE))
 stopifnot(grepl("Ready", ui_html, fixed = TRUE))
 stopifnot(grepl("Simulation running", ui_html, fixed = TRUE))
 stopifnot(grepl("simProgress", ui_html, fixed = TRUE))
@@ -167,13 +180,16 @@ stopifnot(!grepl('message="Comparing variability', app_src, fixed = TRUE))
 # ggplot axis/strip text must be absolute 16pt (not theme_minimal's rel(0.8)).
 stopifnot(grepl("axis.text = element_text(size = 16", app_src, fixed = TRUE))
 stopifnot(grepl("strip.text = element_text(size = 16", app_src, fixed = TRUE))
-# Permanent guided-row status slot (~280px); no run-time main-area reflow.
-stopifnot(grepl("guided-row-status", app_src, fixed = TRUE))
+# Slim status bar replaces the old 280px guided-row side slot.
+stopifnot(grepl("sim-status-bar", app_src, fixed = TRUE))
 stopifnot(grepl("sim_progress_slot", app_src, fixed = TRUE))
 stopifnot(grepl("sim_progress_idle", app_src, fixed = TRUE))
-stopifnot(grepl("flex: 0 0 280px", app_src, fixed = TRUE))
+stopifnot(!grepl("guided-row-status", app_src, fixed = TRUE))
+stopifnot(!grepl("flex: 0 0 280px", app_src, fixed = TRUE))
 stopifnot(grepl("setSimProgressVisible", app_src, fixed = TRUE))
 stopifnot(!grepl("padding-right: 23.5rem", app_src, fixed = TRUE))
+# Run simulation accordion uses a standout green header.
+stopifnot(grepl("#198754", app_src, fixed = TRUE) || grepl("run-sim-panel", app_src, fixed = TRUE))
 cat("Sidebar accordion check passed\n")
 # Plot option controls live in a compact "Plot options" popover, not inline.
 stopifnot(grepl("Plot options", ui_html, fixed = TRUE))
