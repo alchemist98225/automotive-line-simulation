@@ -78,13 +78,15 @@ settings_at <- regexpr('class="run-settings', ui_html)
 guide_at <- regexpr('id="guided_example"', ui_html)
 stopifnot(kpi_at[[1]] > 0L, tabs_at[[1]] > kpi_at[[1]], settings_at[[1]] > tabs_at[[1]])
 stopifnot(guide_at[[1]] > 0L, guide_at[[1]] < kpi_at[[1]])
-# Run settings stays closed. The guided example is the disclosure that starts open.
+# Run settings and the guided example both start closed. Guided keeps a highlight.
 stopifnot(!grepl('class="run-settings[^"]*" open', ui_html))
-stopifnot(grepl("<details open>", ui_html, fixed = TRUE))
-stopifnot(page_has("Guided example"))
+stopifnot(!grepl("<details open>", ui_html, fixed = TRUE))
+stopifnot(page_has("Start here: guided example"))
 stopifnot(page_has("Try it"))
 stopifnot(page_has("Reset to defaults"))
 stopifnot(page_has("not a prediction for any real plant or company"))
+stopifnot(grepl("guided-example", ui_html, fixed = TRUE))
+stopifnot(grepl("lightbulb", ui_html) || grepl("Start here: guided example", ui_html, fixed = TRUE))
 stopifnot(page_has("fixed duration"))
 stopifnot(page_has("measured observations"))
 stopifnot(!page_has("exponential or normal distributions"))
@@ -110,8 +112,8 @@ panel_open <- function(chunk) {
   grepl('aria-expanded="true"', header, fixed = TRUE) &&
     identical(collapse, 'class="accordion-collapse collapse show"')
 }
-stopifnot(panel_open(items[[1]]))
-# Run settings live in the open panel. Detail inputs live once on Parameters.
+stopifnot(!panel_open(items[[1]]))
+# Arrivals & run starts collapsed. Detail inputs live once on Parameters.
 stopifnot(grepl('id="n_reps"', items[[1]], fixed = TRUE), grepl('id="n_reps" type="number" class="shiny-input-number form-control" value="5"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="warmup" type="number" class="shiny-input-number form-control" value="300"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="wip_limit" type="number" class="shiny-input-number form-control" value="20"', items[[1]], fixed = TRUE))
@@ -173,6 +175,12 @@ stopifnot(grepl("flex: 0 0 280px", app_src, fixed = TRUE))
 stopifnot(grepl("setSimProgressVisible", app_src, fixed = TRUE))
 stopifnot(!grepl("padding-right: 23.5rem", app_src, fixed = TRUE))
 cat("Sidebar accordion check passed\n")
+# Plot option controls live in a compact "Plot options" popover, not inline.
+stopifnot(grepl("Plot options", ui_html, fixed = TRUE))
+stopifnot(grepl("plot-options-btn", ui_html, fixed = TRUE) || grepl("bslib-popover", ui_html, fixed = TRUE))
+stopifnot(grepl('id="queue_layout"', ui_html, fixed = TRUE))
+stopifnot(grepl('id="queue_station"', ui_html, fixed = TRUE))
+cat("Plot options menu check passed\n")
 shiny::testServer(e$server, {
   session$setInputs(staffing="zones",op_a=2,op_b=2,repair_staff=1,reliability=TRUE,noncyclic=TRUE,
     sim_length=480,warmup=60,planned_rate=15,n_reps=2,seed=20261027,

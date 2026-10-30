@@ -770,13 +770,18 @@ comparison_page_ui <- function(id) {
           id = ns("compare_tabs"),
           nav_panel(
             "Output distributions",
-            selectInput(
-              ns("metric"), "Metric",
-              c(
-                "Throughput (vehicles/hour)" = "throughput_per_hr",
-                "Lead time (min)" = "cycle_time_mean",
-                "Average WIP (vehicles)" = "avg_wip",
-                "Output per operator-hour" = "throughput_per_labor_hr"
+            div(
+              class = "d-flex justify-content-end mb-2",
+              plot_options_menu(
+                selectInput(
+                  ns("metric"), "Metric",
+                  c(
+                    "Throughput (vehicles/hour)" = "throughput_per_hr",
+                    "Lead time (min)" = "cycle_time_mean",
+                    "Average WIP (vehicles)" = "avg_wip",
+                    "Output per operator-hour" = "throughput_per_labor_hr"
+                  )
+                )
               )
             ),
             roomy_plot(ns("distribution"))

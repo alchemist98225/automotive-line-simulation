@@ -523,6 +523,24 @@ download_catalog <- function() {
   )
 }
 
+
+# Compact plot-option controls: one "Plot options" button opens a popover so
+# radios/selects stop crowding the chart. CSV downloads stay outside the menu.
+plot_options_menu <- function(..., title = "Plot options") {
+  popover(
+    tags$button(
+      type = "button",
+      class = "btn btn-outline-secondary btn-sm plot-options-btn",
+      bs_icon("sliders"),
+      " Plot options"
+    ),
+    title = title,
+    ...,
+    placement = "bottom",
+    options = list(customClass = "plot-options-popover")
+  )
+}
+
 # One chart per tab, full width. Inner cards size to the plot instead of shrinking in a grid.
 plot_card <- function(title, ...) {
   card(
@@ -597,13 +615,31 @@ register_station_panels <- function(output) {
   invisible(output)
 }
 
-# Open on first load. The summary collapses it; the buttons drive one experiment.
+# Starts collapsed with a highlight so it still stands out. The buttons drive one experiment.
 # Permanent row: guided card + fixed ~280px status slot (idle Ready / mid-run panel).
-# The slot is always reserved so KPI widths never jump when a run starts.
+# The slot stays visible even when the guided section is collapsed, so KPI widths never jump.
 guided_example_ui <- function() {
   tagList(
     tags$style(HTML("
-      .guided-example summary { cursor: pointer; font-weight: 600; }
+      /* Collapsed by default; accent so it still reads as the place to start. */
+      .guided-example {
+        border: 1px solid #9ecae1;
+        border-left: 5px solid #2c7fb8;
+        background: #f0f7fc;
+        border-radius: 0.5rem;
+      }
+      .guided-example summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: #1b4f72;
+        list-style: none;
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.15rem 0;
+      }
+      .guided-example summary::-webkit-details-marker { display: none; }
+      .guided-example summary .guided-label { font-size: 1.02rem; }
       #guided_example.bslib-card { flex: 0 0 auto; height: auto; width: 100%; }
       .guided-row {
         display: flex;
@@ -682,8 +718,12 @@ guided_example_ui <- function() {
           card_body(
             fill = FALSE,
             tags$details(
-              open = NA,
-              tags$summary("Guided example"),
+              tags$summary(
+                tagList(
+                  bs_icon("lightbulb"),
+                  span(class = "guided-label", "Start here: guided example")
+                )
+              ),
               p(class = "mt-2 mb-2",
                 "This model asks where the line's capacity constraint is, and what changes if you add capacity there."),
               p(class = "mb-2", "Raise Paint from 1 bay to 2."),
@@ -896,6 +936,10 @@ ui <- page_navbar(
     .params-section {
       scroll-margin-top: 5.5rem;
     }
+    /* Compact plot-option menus on chart pages. */
+    .plot-options-btn { white-space: nowrap; }
+    .plot-options-popover { min-width: 16rem; max-width: 22rem; }
+
     /* Hide Shiny's default progress UI; the guided-row status slot is the only
        progress surface. withProgress remains only as a websocket flush pump.
        No body.sim-running layout changes — the 280px slot is permanent. */
@@ -991,7 +1035,7 @@ ui <- page_navbar(
         open = "desktop",
         accordion(
           id = "line_controls",
-          open = "Arrivals & run",
+          open = FALSE,
           multiple = TRUE,
           accordion_panel(
             "Arrivals & run",
@@ -1171,19 +1215,20 @@ ui <- page_navbar(
               value = "queues",
               plot_card(
                 "Queue length over time (all reps + loess)",
-                layout_columns(
-                  fill = FALSE,
-                  col_widths = c(7, 5),
-                  radioButtons(
-                    "queue_layout", "Layout",
-                    choices = c("Overlay stations" = "overlay", "Facet by station" = "facet"),
-                    selected = "overlay", inline = TRUE
-                  ),
-                  selectInput(
-                    "queue_station", "Station",
-                    choices = c(
-                      "All stations" = "all",
-                      setNames(names(station_labels), unname(station_labels))
+                div(
+                  class = "d-flex justify-content-end mb-2",
+                  plot_options_menu(
+                    radioButtons(
+                      "queue_layout", "Layout",
+                      choices = c("Overlay stations" = "overlay", "Facet by station" = "facet"),
+                      selected = "overlay", inline = TRUE
+                    ),
+                    selectInput(
+                      "queue_station", "Station",
+                      choices = c(
+                        "All stations" = "all",
+                        setNames(names(station_labels), unname(station_labels))
+                      )
                     )
                   )
                 ),
