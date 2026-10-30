@@ -677,11 +677,35 @@ ui <- page_navbar(
     "navbar-bg" = "#1b4f72"
   ),
   # plotOutput cannot take clamp() directly. This overrides the 640px fallback.
-  header = tags$style(HTML("
+  header = tagList(
+    tags$style(HTML("
     .shiny-plot-output {
       width: 100% !important;
       height: clamp(520px, 60vh, 720px) !important;
       min-height: 520px !important;
+    }
+    /* Page scrolls as a normal document. Fillable nesting was trapping overflow. */
+    html, body {
+      height: auto !important;
+      max-height: none !important;
+      overflow-y: auto !important;
+      overflow-x: hidden !important;
+    }
+    .bslib-page-fill, .html-fill-container {
+      height: auto !important;
+      min-height: 0 !important;
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    .bslib-sidebar-layout {
+      height: auto !important;
+      max-height: none !important;
+      overflow: visible !important;
+    }
+    .bslib-sidebar-layout > .main,
+    .bslib-sidebar-layout > .sidebar {
+      overflow: visible !important;
+      max-height: none !important;
     }
     /* Sub-tab pills wrap instead of collapsing into one run-on label. */
     #capacity_tabs.nav-pills,
@@ -725,16 +749,144 @@ ui <- page_navbar(
     #scenario_table_wrap, #timing_table_wrap {
       transition: opacity 0.15s ease;
     }
+    /* Sidebar section jumps look like collapsed accordion headers. */
+    .param-jump {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: 1px solid rgba(0,0,0,.125);
+      border-radius: 0.375rem;
+      background: #f8f9fa;
+      color: #1a1a1a;
+      padding: 0.65rem 0.85rem;
+      margin: 0.35rem 0;
+      font-weight: 600;
+      text-decoration: none !important;
+    }
+    .param-jump:hover, .param-jump:focus {
+      background: #e9ecef;
+      color: #1a1a1a;
+    }
+    .param-jump .jump-hint {
+      display: block;
+      font-weight: 400;
+      font-size: 0.8rem;
+      color: #333;
+      margin-top: 0.15rem;
+    }
+    .params-section {
+      scroll-margin-top: 5.5rem;
+    }
+    /* Large fixed progress panel in unused top-right space under the navbar. */
+    #sim_progress_panel {
+      position: fixed;
+      top: 4.25rem;
+      right: 0.75rem;
+      z-index: 1080;
+      width: min(22rem, calc(100vw - 1.5rem));
+      pointer-events: none;
+    }
+    #sim_progress_panel .sim-progress-card {
+      pointer-events: auto;
+      background: #fff;
+      border: 2px solid #2c7fb8;
+      border-radius: 0.5rem;
+      box-shadow: 0 10px 28px rgba(0,0,0,.22);
+      padding: 1rem 1.1rem 1.05rem;
+    }
+    #sim_progress_panel .sim-progress-title {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #1b4f72;
+      margin: 0 0 0.35rem;
+    }
+    #sim_progress_panel .progress {
+      height: 1.35rem;
+      margin: 0.55rem 0 0.35rem;
+    }
+    #sim_progress_panel .progress-bar {
+      font-size: 0.8rem;
+      font-weight: 600;
+    }
+    @media (max-width: 576px) {
+      #sim_progress_panel {
+        top: auto;
+        bottom: 0.75rem;
+        right: 0.5rem;
+        left: 0.5rem;
+        width: auto;
+      }
+    }
   ")),
-  fillable = TRUE,
+    tags$div(
+      id = "sim_progress_panel",
+      class = "d-none",
+      div(
+        class = "sim-progress-card",
+        div(class = "sim-progress-title", "Simulation running"),
+        div(class = "sim-progress-label text-dark", "Working…"),
+        div(
+          class = "progress",
+          div(
+            class = "progress-bar progress-bar-striped progress-bar-animated",
+            role = "progressbar",
+            style = "width: 100%;",
+            "In progress"
+          )
+        ),
+        div(class = "sim-progress-detail small text-dark mb-0", "")
+      )
+    ),
+    tags$script(HTML("
+      Shiny.addCustomMessageHandler('simProgress', function(msg) {
+        var el = document.getElementById('sim_progress_panel');
+        if (!el) return;
+        if (msg && msg.show) {
+          el.classList.remove('d-none');
+          var label = el.querySelector('.sim-progress-label');
+          var detail = el.querySelector('.sim-progress-detail');
+          var bar = el.querySelector('.progress-bar');
+          if (label) label.textContent = msg.label || 'Simulation running';
+          if (detail) detail.textContent = msg.detail || '';
+          if (bar && msg.value != null) {
+            var pct = Math.max(0, Math.min(1, msg.value)) * 100;
+            bar.style.width = pct + '%';
+            bar.textContent = Math.round(pct) + '%';
+          } else if (bar) {
+            bar.style.width = '100%';
+            bar.textContent = 'In progress';
+          }
+        } else {
+          el.classList.add('d-none');
+        }
+      });
+      Shiny.addCustomMessageHandler('scrollToSection', function(msg) {
+        var id = (msg && msg.id) ? msg.id : msg;
+        var tries = 0;
+        function go() {
+          var el = document.getElementById(id);
+          if (el) {
+            el.scrollIntoView({behavior: 'smooth', block: 'start'});
+            return;
+          }
+          if (tries++ < 40) setTimeout(go, 50);
+        }
+        setTimeout(go, 50);
+      });
+    "))
+  ),
+  fillable = FALSE,
 
   nav_panel(
     title = "Simulate",
     div(class = "px-3 pt-3", guided_example_ui()),
     layout_sidebar(
+      fillable = FALSE,
       sidebar = sidebar(
+        id = "simulate_sidebar",
         title = "Line parameters",
         width = 320,
+        open = "desktop",
         accordion(
           id = "line_controls",
           open = "Arrivals & run",
@@ -762,52 +914,30 @@ ui <- page_navbar(
             actionButton("compare", "Compare staffing scenarios", class = "w-100"),
             helpText("Staffing comparison opens under Bottleneck & capacity. Timing comparison and CSV downloads open under Lead time & data."),
             helpText("Defaults are placeholder example values — not real plant data.")
+          )
+        ),
+        div(
+          class = "mt-2",
+          p(class = "small mb-1 text-dark", "Station detail opens on the Parameters page:"),
+          actionLink(
+            "jump_capacity",
+            tagList("Capacity", span(class = "jump-hint", "Bays and interstation waiting positions")),
+            class = "param-jump"
           ),
-          accordion_panel(
-            "Capacity",
-            station_group("Body shop",
-              numericInput("body_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
-            station_group("Paint",
-              numericInput("paint_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1)),
-            station_group("Final assembly",
-              numericInput("fa_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
-            station_group("Inspection",
-              numericInput("insp_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1)),
-            helpText("Waiting positions before each downstream process. Zero means direct transfer only. A completed vehicle holds its upstream bay until space opens."),
-            numericInput("buffer_paint","Waiting positions before paint",3,min=0,step=1),
-            numericInput("buffer_final_assembly","Waiting positions before final assembly",3,min=0,step=1),
-            numericInput("buffer_inspection","Waiting positions before inspection",3,min=0,step=1)
+          actionLink(
+            "jump_cycle_times",
+            tagList("Cycle times", span(class = "jump-hint", "Load, automatic, and unload timing")),
+            class = "param-jump"
           ),
-          accordion_panel(
-            "Cycle times",
-            helpText("Automatic duration / mean. Placeholder minutes, not a measured cycle."),
-            station_group("Body shop",
-              numericInput("body_mean", "Automatic duration / mean (min)", value = 6, min = 0.5, max = 60, step = 0.5),
-              uiOutput("cycle_body_shop")),
-            station_group("Paint",
-              numericInput("paint_mean", "Automatic duration / mean (min)", value = 8, min = 0.5, max = 60, step = 0.5),
-              uiOutput("cycle_paint")),
-            station_group("Final assembly",
-              numericInput("fa_mean", "Automatic duration / mean (min)", value = 7, min = 0.5, max = 60, step = 0.5),
-              uiOutput("cycle_final_assembly")),
-            station_group("Inspection",
-              numericInput("insp_mean", "Automatic duration / mean (min)", value = 3, min = 0.5, max = 60, step = 0.5),
-              uiOutput("cycle_inspection"))
+          actionLink(
+            "jump_operators",
+            tagList("Operators", span(class = "jump-hint", "Crew assignment and headcount")),
+            class = "param-jump"
           ),
-          accordion_panel(
-            "Operators & reliability",
-            helpText("Placeholder crew sizes, MTBF/MTTR, and task times — not measured plant data."),
-            selectInput("staffing", "Operator assignment", c("Two shared zones"="zones", "One shared team"="shared", "Dedicated by station"="dedicated")),
-            helpText("Zone A serves body and paint; Zone B serves assembly and inspection."),
-            uiOutput("operator_controls"),
-            checkboxInput("reliability", "Enable equipment failures", TRUE),
-            numericInput("repair_staff", "Repair technicians", 1, min = 1, step = 1),
-            checkboxInput("noncyclic", "Enable random support tasks", TRUE),
-            helpText("Mean up-time (MTBF) is calendar up-time in minutes. Mean active repair (MTTR) of 0 disables failures at that station. Support every N units uses 0 for a random exponential interval. These defaults are placeholders."),
-            station_group("Body shop", uiOutput("reliability_body_shop")),
-            station_group("Paint", uiOutput("reliability_paint")),
-            station_group("Final assembly", uiOutput("reliability_final_assembly")),
-            station_group("Inspection", uiOutput("reliability_inspection"))
+          actionLink(
+            "jump_reliability",
+            tagList("Failures & support", span(class = "jump-hint", "MTBF, MTTR, repair staff, support tasks")),
+            class = "param-jump"
           )
         )
       ),
@@ -1028,6 +1158,131 @@ ui <- page_navbar(
     )
   ),
 
+
+  nav_panel(
+    title = "Parameters",
+    value = "parameters",
+    div(
+      class = "px-3 py-3",
+      h3("Line parameters"),
+      p(class = "mb-3",
+        "Edit station capacity, timing, crews, and reliability here in a wider layout. ",
+        "Arrivals, shifts, and replications stay on Simulate. Run simulation still uses these values."),
+      card(
+        id = "params_capacity",
+        class = "params-section mb-3",
+        fill = FALSE,
+        card_header("Capacity (bays)"),
+        card_body(
+          fill = FALSE,
+          layout_columns(
+            fill = FALSE,
+            col_widths = c(3, 3, 3, 3),
+            station_group("Body shop",
+              numericInput("body_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
+            station_group("Paint",
+              numericInput("paint_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1)),
+            station_group("Final assembly",
+              numericInput("fa_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
+            station_group("Inspection",
+              numericInput("insp_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1))
+          )
+        )
+      ),
+      card(
+        id = "params_buffers",
+        class = "params-section mb-3",
+        fill = FALSE,
+        card_header("Interstation buffers"),
+        card_body(
+          fill = FALSE,
+          p(class = "small mb-2",
+            "Waiting positions before each downstream process. Zero means direct transfer only. ",
+            "A completed vehicle holds its upstream bay until space opens."),
+          layout_columns(
+            fill = FALSE,
+            col_widths = c(4, 4, 4),
+            numericInput("buffer_paint","Waiting positions before paint",3,min=0,step=1),
+            numericInput("buffer_final_assembly","Waiting positions before final assembly",3,min=0,step=1),
+            numericInput("buffer_inspection","Waiting positions before inspection",3,min=0,step=1)
+          )
+        )
+      ),
+      card(
+        id = "params_cycle_times",
+        class = "params-section mb-3",
+        fill = FALSE,
+        card_header("Cycle times"),
+        card_body(
+          fill = FALSE,
+          p(class = "small mb-2",
+            "Automatic duration / mean. Placeholder minutes, not a measured cycle. ",
+            "Load, unload, and distribution choices sit under each station."),
+          layout_columns(
+            fill = FALSE,
+            col_widths = c(6, 6),
+            station_group("Body shop",
+              numericInput("body_mean", "Automatic duration / mean (min)", value = 6, min = 0.5, max = 60, step = 0.5),
+              uiOutput("cycle_body_shop")),
+            station_group("Paint",
+              numericInput("paint_mean", "Automatic duration / mean (min)", value = 8, min = 0.5, max = 60, step = 0.5),
+              uiOutput("cycle_paint")),
+            station_group("Final assembly",
+              numericInput("fa_mean", "Automatic duration / mean (min)", value = 7, min = 0.5, max = 60, step = 0.5),
+              uiOutput("cycle_final_assembly")),
+            station_group("Inspection",
+              numericInput("insp_mean", "Automatic duration / mean (min)", value = 3, min = 0.5, max = 60, step = 0.5),
+              uiOutput("cycle_inspection"))
+          )
+        )
+      ),
+      card(
+        id = "params_operators",
+        class = "params-section mb-3",
+        fill = FALSE,
+        card_header("Operators"),
+        card_body(
+          fill = FALSE,
+          p(class = "small mb-2",
+            "Placeholder crew sizes — not measured plant data. Zone A serves body and paint; Zone B serves assembly and inspection."),
+          layout_columns(
+            fill = FALSE,
+            col_widths = c(4, 8),
+            selectInput("staffing", "Operator assignment", c("Two shared zones"="zones", "One shared team"="shared", "Dedicated by station"="dedicated")),
+            uiOutput("operator_controls")
+          )
+        )
+      ),
+      card(
+        id = "params_reliability",
+        class = "params-section mb-3",
+        fill = FALSE,
+        card_header("Failures & support"),
+        card_body(
+          fill = FALSE,
+          p(class = "small mb-2",
+            "Placeholder MTBF/MTTR and task times. Mean up-time (MTBF) is calendar up-time in minutes. ",
+            "Mean active repair (MTTR) of 0 disables failures at that station. Support every N units uses 0 for a random exponential interval."),
+          layout_columns(
+            fill = FALSE,
+            col_widths = c(4, 4, 4),
+            checkboxInput("reliability", "Enable equipment failures", TRUE),
+            numericInput("repair_staff", "Repair technicians", 1, min = 1, step = 1),
+            checkboxInput("noncyclic", "Enable random support tasks", TRUE)
+          ),
+          layout_columns(
+            fill = FALSE,
+            col_widths = c(6, 6),
+            station_group("Body shop", uiOutput("reliability_body_shop")),
+            station_group("Paint", uiOutput("reliability_paint")),
+            station_group("Final assembly", uiOutput("reliability_final_assembly")),
+            station_group("Inspection", uiOutput("reliability_inspection"))
+          )
+        )
+      )
+    )
+  ),
+
   production_page_ui("production_results"),
 
   comparison_page_ui("two_set_study"),
@@ -1112,6 +1367,24 @@ this page with the 1-bay baseline and the 2-bay experiment.
 )
 
 server <- function(input, output, session) {
+  show_sim_progress <- function(label, detail = "", value = NULL) {
+    session$sendCustomMessage(
+      "simProgress",
+      list(show = TRUE, label = label, detail = detail, value = value)
+    )
+  }
+  hide_sim_progress <- function() {
+    session$sendCustomMessage("simProgress", list(show = FALSE))
+  }
+  jump_to_params <- function(section_id) {
+    nav_select("main_page", "parameters", session = session)
+    session$sendCustomMessage("scrollToSection", list(id = section_id))
+  }
+  observeEvent(input$jump_capacity, jump_to_params("params_capacity"), ignoreInit = TRUE)
+  observeEvent(input$jump_cycle_times, jump_to_params("params_cycle_times"), ignoreInit = TRUE)
+  observeEvent(input$jump_operators, jump_to_params("params_operators"), ignoreInit = TRUE)
+  observeEvent(input$jump_reliability, jump_to_params("params_reliability"), ignoreInit = TRUE)
+
   # "try" forces Paint to 2 bays. "defaults" ignores the widgets and uses the
   # first-load placeholders. NULL follows the sidebar. The overlay stays until
   # the widgets catch up, so the run is not marked stale during that round trip.
@@ -1231,11 +1504,17 @@ server <- function(input, output, session) {
       baseline_run <- if (!is.null(current) && comparison_same(current$params, base_params)) {
         current
       } else {
-        withProgress(
-          message = "Running the 1-bay baseline…",
-          value = 0.2,
-          run_line_sim(base_params)
-        )
+        local({
+          show_sim_progress("Simulation running", "1-bay baseline", 0.2)
+          tryCatch(
+            withProgress(
+              message = "Running the 1-bay baseline…",
+              value = 0.2,
+              run_line_sim(base_params)
+            ),
+            finally = hide_sim_progress()
+          )
+        })
       }
       guide_pair(list(baseline = baseline_run, experiment_params = exp_params))
     }
@@ -1285,8 +1564,12 @@ server <- function(input, output, session) {
     alternatives[[3]]$operators$count[[nrow(p$operators)]] <- alternatives[[3]]$operators$count[[nrow(p$operators)]]+1L
     alternatives[[4]]$operators <- tibble(pool="shared",count=sum(p$operators$count))
     alternatives[[4]]$stations$operator_pool <- "shared"
-    out <- withProgress(message="Comparing staffing…",run_scenarios(tibble(
-      scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives)))
+    show_sim_progress("Simulation running", "Staffing comparison", 0.2)
+    out <- tryCatch(
+      withProgress(message="Comparing staffing…",run_scenarios(tibble(
+        scenario=c("Current","Add one to first team","Add one to last team","Same headcount, shared team"),params=alternatives))),
+      finally = hide_sim_progress()
+    )
     run_seq$staffing <- run_seq$staffing + 1L
     tag_comparison(out, p, run_seq$staffing, fingerprint=fp, summary=settings)
   }, ignoreNULL = TRUE)
@@ -1295,7 +1578,11 @@ server <- function(input, output, session) {
     p <- build_params()
     fp <- params_fingerprint(p)
     settings <- format_run_settings(p)
-    out <- withProgress(message="Comparing variability…",run_scenarios(variability_scenarios(p)))
+    show_sim_progress("Simulation running", "Timing variability comparison", 0.2)
+    out <- tryCatch(
+      withProgress(message="Comparing variability…",run_scenarios(variability_scenarios(p))),
+      finally = hide_sim_progress()
+    )
     run_seq$timing <- run_seq$timing + 1L
     tag_comparison(out, p, run_seq$timing, fingerprint=fp, summary=settings)
   }, ignoreNULL = TRUE)
@@ -1332,9 +1619,22 @@ server <- function(input, output, session) {
     p <- build_params()
     fp <- params_fingerprint(p)
     settings <- format_run_settings(p)
-    res <- withProgress(message = "Running simulation…", value = 0.3, {
-      run_line_sim(p)
-    })
+    show_sim_progress(
+      "Simulation running",
+      sprintf("%d replications · horizon %.0f min", p$n_replications, p$sim_length_min),
+      0.15
+    )
+    res <- tryCatch(
+      withProgress(message = "Running simulation…", value = 0.3, {
+        show_sim_progress(
+          "Simulation running",
+          sprintf("%d replications · horizon %.0f min", p$n_replications, p$sim_length_min),
+          0.45
+        )
+        run_line_sim(p)
+      }),
+      finally = hide_sim_progress()
+    )
     run_seq$main <- run_seq$main + 1L
     stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings)
   }) %>% bindEvent(input$run, guide_run(), ignoreNULL = FALSE)
