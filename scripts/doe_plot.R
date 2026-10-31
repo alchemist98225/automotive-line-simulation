@@ -10,6 +10,7 @@
 suppressPackageStartupMessages({
   library(tidyverse)
   library(ggplot2)
+  library(ggtext)
 })
 
 args_full <- commandArgs(trailingOnly = FALSE)
@@ -42,35 +43,64 @@ summary_tbl <- readr::read_csv(sum_path, show_col_types = FALSE)
 plot_dir <- file.path(in_dir, "plots")
 dir.create(plot_dir, recursive = TRUE, showWarnings = FALSE)
 
-theme_doe <- function() {
+# Match the app's theme_plot_width_text(): wrap subtitle/caption to the plot width.
+theme_doe <- function(...) {
   theme_minimal(base_size = 16) +
     theme(
-      plot.title = element_text(face = "bold"),
+      plot.title = element_text(face = "bold", colour = "#1a1a1a"),
       plot.title.position = "plot",
       plot.caption.position = "plot",
-      plot.caption = element_text(size = 10, color = "#444444", hjust = 0, margin = margin(t = 8)),
+      plot.subtitle = ggtext::element_textbox_simple(
+        size = 14,
+        colour = "#1a1a1a",
+        hjust = 0,
+        halign = 0,
+        lineheight = 1.15,
+        padding = margin(0, 2, 0, 2),
+        margin = margin(0, 0, 10, 0)
+      ),
+      plot.caption = ggtext::element_textbox_simple(
+        size = 12,
+        colour = "#1a1a1a",
+        hjust = 0,
+        halign = 0,
+        lineheight = 1.15,
+        padding = margin(0, 2, 0, 2),
+        margin = margin(10, 0, 0, 0)
+      ),
       legend.position = "bottom",
-      plot.margin = margin(10, 14, 10, 14)
+      plot.margin = margin(10, 14, 10, 14),
+      ...
     )
 }
 
 caption_note <- paste(
-  "Illustrative only — placeholder params, not DRI predictions.",
+  "Illustrative only — placeholder parameters, not predictions for DRI.",
   "HPU = (operators × observation hours) / units completed. Lower is better."
 )
 
 # Infer x / colour factors from columns that actually vary
 vary_cols <- reps %>%
-  select(any_of(c("cap_paint", "cap_body_shop", "cap_final_assembly", "cap_inspection",
-                  "op_upstream", "op_downstream", "op_shared",
-                  "mean_paint", "wip_limit", "repair_technicians"))) %>%
+  dplyr::select(dplyr::any_of(c(
+    "cap_paint", "cap_body_shop", "cap_final_assembly", "cap_inspection",
+    "op_upstream", "op_downstream", "op_shared",
+    "mean_paint", "wip_limit", "repair_technicians"
+  ))) %>%
   summarise(across(everything(), ~ n_distinct(.x))) %>%
   pivot_longer(everything(), names_to = "col", values_to = "n") %>%
   filter(n > 1) %>%
   pull(col)
 
-x_col <- if ("op_upstream" %in% vary_cols) "op_upstream" else if (length(vary_cols)) vary_cols[[1]] else "design_id"
-colour_col <- if ("cap_paint" %in% vary_cols) "cap_paint" else {
+x_col <- if ("op_upstream" %in% vary_cols) {
+  "op_upstream"
+} else if (length(vary_cols)) {
+  vary_cols[[1]]
+} else {
+  "design_id"
+}
+colour_col <- if ("cap_paint" %in% vary_cols) {
+  "cap_paint"
+} else {
   other <- setdiff(vary_cols, x_col)
   if (length(other)) other[[1]] else NULL
 }
@@ -89,9 +119,11 @@ means_plot <- reps_plot %>%
     .groups = "drop"
   )
 
+full_contrast <- c("#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a", "#000000")
+
 # 1) HPU vs primary factor, coloured by secondary factor
 p_hpu <- ggplot(reps_plot, aes(x = x_factor, y = hpu_plot, color = colour_factor)) +
-  geom_point(alpha = 0.35, size = 2.8, position = position_jitter(width = 0.08, height = 0)) +
+  geom_point(alpha = 0.4, size = 2.8, position = position_jitter(width = 0.08, height = 0)) +
   geom_line(
     data = means_plot,
     aes(x = x_factor, y = hpu_mean, group = colour_factor, color = colour_factor),
@@ -102,23 +134,25 @@ p_hpu <- ggplot(reps_plot, aes(x = x_factor, y = hpu_plot, color = colour_factor
     aes(x = x_factor, y = hpu_mean, color = colour_factor),
     size = 3.5, shape = 18
   ) +
-  scale_color_manual(
-    values = c("#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a", "#666666")
-  ) +
+  scale_color_manual(values = full_contrast) +
   labs(
     title = "HPU across the design (all replications)",
-    subtitle = paste0("Faint points = each rep; diamonds + line = mean | x = ", x_col,
-                      if (!is.null(colour_col)) paste0(" | colour = ", colour_col) else ""),
+    subtitle = paste0(
+      "Faint points = each replication; diamonds + line = mean. ",
+      "x = ", x_col,
+      if (!is.null(colour_col)) paste0("; colour = ", colour_col) else "",
+      "."
+    ),
     x = x_col, y = "HPU (labor-hours / unit)", color = colour_col %||% NULL,
     caption = caption_note
   ) +
   theme_doe()
 
-ggsave(file.path(plot_dir, "hpu_by_factor.png"), p_hpu, width = 9, height = 6, dpi = 130)
+ggsave(file.path(plot_dir, "hpu_by_factor.png"), p_hpu, width = 9, height = 6.2, dpi = 130)
 
 # 2) Throughput companion (same layout)
 p_tp <- ggplot(reps_plot, aes(x = x_factor, y = throughput_per_hr, color = colour_factor)) +
-  geom_point(alpha = 0.35, size = 2.8, position = position_jitter(width = 0.08, height = 0)) +
+  geom_point(alpha = 0.4, size = 2.8, position = position_jitter(width = 0.08, height = 0)) +
   geom_line(
     data = means_plot,
     aes(x = x_factor, y = throughput_mean, group = colour_factor, color = colour_factor),
@@ -129,18 +163,21 @@ p_tp <- ggplot(reps_plot, aes(x = x_factor, y = throughput_per_hr, color = colou
     aes(x = x_factor, y = throughput_mean, color = colour_factor),
     size = 3.5, shape = 18
   ) +
-  scale_color_manual(
-    values = c("#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a", "#666666")
-  ) +
+  scale_color_manual(values = full_contrast) +
   labs(
     title = "Throughput across the design (all replications)",
-    subtitle = paste0("Faint points = each rep; diamonds + line = mean | x = ", x_col),
+    subtitle = paste0(
+      "Faint points = each replication; diamonds + line = mean. ",
+      "x = ", x_col,
+      if (!is.null(colour_col)) paste0("; colour = ", colour_col) else "",
+      "."
+    ),
     x = x_col, y = "Throughput (units / hour)", color = colour_col %||% NULL,
     caption = caption_note
   ) +
   theme_doe()
 
-ggsave(file.path(plot_dir, "throughput_by_factor.png"), p_tp, width = 9, height = 6, dpi = 130)
+ggsave(file.path(plot_dir, "throughput_by_factor.png"), p_tp, width = 9, height = 6.2, dpi = 130)
 
 # 3) Heatmap of mean HPU over two factors (when available)
 if (!is.null(colour_col) && x_col != colour_col) {
@@ -152,24 +189,52 @@ if (!is.null(colour_col) && x_col != colour_col) {
     )
   best <- heat %>% slice_min(hpu_mean, n = 1, with_ties = FALSE)
 
+  # Viridis colours for each tile so label text can contrast with the fill.
+  n_pal <- 256L
+  pal <- viridisLite::viridis(n_pal, option = "D")
+  hpu_rng <- range(heat$hpu_mean, na.rm = TRUE)
+  if (diff(hpu_rng) < 1e-9) hpu_rng <- hpu_rng + c(-1e-6, 1e-6)
+  heat <- heat %>%
+    mutate(
+      .idx = pmax(1L, pmin(n_pal, as.integer(
+        round(1 + (n_pal - 1) * (hpu_mean - hpu_rng[1]) / diff(hpu_rng))
+      ))),
+      .fill = pal[.idx],
+      # Relative luminance (sRGB); light tiles get dark text and vice versa.
+      .lum = {
+        rgb <- grDevices::col2rgb(.fill) / 255
+        lin <- ifelse(rgb <= 0.04045, rgb / 12.92, ((rgb + 0.055) / 1.055)^2.4)
+        0.2126 * lin[1, ] + 0.7152 * lin[2, ] + 0.0722 * lin[3, ]
+      },
+      label_color = if_else(.lum > 0.45, "#111111", "#FFFFFF")
+    )
+
   p_heat <- ggplot(heat, aes(x = factor(x), y = factor(y), fill = hpu_mean)) +
-    geom_tile(color = "white", linewidth = 0.6) +
-    geom_text(aes(label = sprintf("%.2f", hpu_mean)), size = 4.2, color = "#111111") +
-    geom_point(
-      data = best, aes(x = factor(x), y = factor(y)),
-      shape = 1, size = 10, stroke = 1.4, color = "#111111", inherit.aes = FALSE
+    geom_tile(color = "white", linewidth = 0.8) +
+    # Optimum: thick black outline on that tile only (no circle over the label).
+    geom_tile(
+      data = best,
+      aes(x = factor(x), y = factor(y)),
+      fill = NA, color = "#000000", linewidth = 1.6, inherit.aes = FALSE
     ) +
-    scale_fill_gradient(low = "#edf8b1", high = "#2c7fb8", name = "Mean HPU") +
+    geom_text(
+      aes(label = sprintf("%.2f", hpu_mean), color = label_color),
+      size = 4.5, fontface = "bold", show.legend = FALSE
+    ) +
+    scale_color_identity() +
+    scale_fill_viridis_c(option = "D", name = "Mean HPU") +
     labs(
       title = "Mean HPU heatmap",
-      subtitle = paste0("Circle = lowest mean HPU | ", x_col, " × ", colour_col),
+      subtitle = paste0(
+        "Black outline marks the lowest mean HPU (most productive). ",
+        x_col, " × ", colour_col, "."
+      ),
       x = x_col, y = colour_col,
       caption = caption_note
     ) +
-    theme_doe() +
-    theme(panel.grid = element_blank())
+    theme_doe(panel.grid = element_blank())
 
-  ggsave(file.path(plot_dir, "hpu_heatmap.png"), p_heat, width = 8, height = 5.5, dpi = 130)
+  ggsave(file.path(plot_dir, "hpu_heatmap.png"), p_heat, width = 8.5, height = 5.8, dpi = 130)
 }
 
 # 4) Save the data behind the plots
