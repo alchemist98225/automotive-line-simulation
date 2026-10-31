@@ -182,6 +182,23 @@ Rscript tests/comparison_checks.R
 
 The staffing and timing scripts use 20 replications and write comparison CSVs plus RDS archives of the nested scenario results.
 
+
+## Design of experiments (batch CLI)
+
+For Monte Carlo / DOE studies driven from a table of parameter values (for
+example `tidyr::crossing()` over bay counts and operators), use the batch
+runner instead of Shiny:
+
+```bash
+Rscript scripts/doe_make_design.R
+Rscript scripts/doe_run.R --design designs/example_paint_ops.csv --reps 5 --out results/doe_example --seed 42 --cores 4
+Rscript scripts/doe_plot.R --in results/doe_example
+```
+
+See [docs/DOE.md](docs/DOE.md) for the column list, HPU definition
+(`labor hours / units completed`), checkpoint/resume behavior, and outputs.
+Results remain illustrative only.
+
 ## Deploy
 
 `app/` and `quarto/` each carry their own `R/model.R`:
