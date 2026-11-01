@@ -28,10 +28,34 @@ comparison_page_server <- function(id, main_params, active_page) {
       mapped <- stats::setNames(as.character(labels), names(comparison_colors))
       df %>% mutate(set = unname(mapped[as.character(.data$set)]))
     }
+    # Front-door replications box helpers. The observeEvent / note live below
+    # after draft() exists. Writing the box pushes the same count into both
+    # editors; per-set Run settings still allow unequal counts (the long route).
+    set_both_replications <- function(n) {
+      n <- suppressWarnings(as.integer(n))
+      if (length(n) != 1L || is.na(n) || n < 1L) return(invisible(FALSE))
+      walk(list(one, two), function(ed) {
+        p <- ed$params()
+        if (identical(as.integer(p$n_replications), n)) return()
+        p$n_replications <- n
+        ed$set_params(p)
+      })
+      invisible(TRUE)
+    }
+    sync_shared_reps_input <- function(n) {
+      n <- suppressWarnings(as.integer(n))
+      if (length(n) != 1L || is.na(n) || n < 1L) return(invisible())
+      # Skip no-op updates so a late import sync cannot clobber a newer shared value.
+      cur <- suppressWarnings(as.integer(isolate(input$shared_reps)))
+      if (length(cur) == 1L && !is.na(cur) && identical(cur, n)) return(invisible())
+      updateNumericInput(session, "shared_reps", value = n)
+      invisible()
+    }
     import_main <- function() {
       p <- isolate(main_params()) %>% normalize_params() %>% validate_params()
       one$set_params(p)
       two$set_params(p)
+      sync_shared_reps_input(p$n_replications)
       initialized(TRUE)
       error(NULL)
     }
@@ -41,12 +65,7 @@ comparison_page_server <- function(id, main_params, active_page) {
     observeEvent(input$import, import_main())
     observeEvent(input$clone, {
       two$set_params(one$params())
-      error(NULL)
-    })
-    observeEvent(input$match_reps, {
-      p <- two$params()
-      p$n_replications <- one$params()$n_replications
-      two$set_params(p)
+      sync_shared_reps_input(one$params()$n_replications)
       error(NULL)
     })
     draft <- reactive({
@@ -56,6 +75,22 @@ comparison_page_server <- function(id, main_params, active_page) {
       r <- results()
       d <- draft()
       !is.null(r) && (inherits(d, "error") || !comparison_same(d$one, r$params[[1]]) || !comparison_same(d$two, r$params[[2]]))
+    })
+    # Shared box observe + differ note (helpers are defined above import_main).
+    observeEvent(input$shared_reps, {
+      set_both_replications(input$shared_reps)
+      error(NULL)
+    }, ignoreInit = TRUE, ignoreNULL = TRUE)
+    output$shared_reps_note <- renderUI({
+      d <- draft()
+      if (inherits(d, "error")) return(NULL)
+      r1 <- as.integer(d$one$n_replications)
+      r2 <- as.integer(d$two$n_replications)
+      if (identical(r1, r2)) return(NULL)
+      div(
+        class = "compare-shared-reps-note",
+        sprintf("Sets differ (%d vs %d)", r1, r2)
+      )
     })
     observe({
       # Inputs changed after a completed run: allow another run without looking "done".
@@ -191,6 +226,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       labels <- sanitize_set_labels(labels)
       one$set_params(run_one$params)
       two$set_params(run_two$params)
+      sync_shared_reps_input(run_one$params$n_replications)
       titles(labels)
       updateTextInput(session, "title_one", value = labels[[1]])
       updateTextInput(session, "title_two", value = labels[[2]])
