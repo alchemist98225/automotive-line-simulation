@@ -511,7 +511,8 @@ comparison_ridge_n <- function(x) {
 comparison_ridge_height <- function(n_ridges) {
   n <- suppressWarnings(as.integer(n_ridges[[1]]))
   if (length(n) != 1L || is.na(n) || n < 1L) n <- 1L
-  as.integer(max(640L, 190L * n + 210L))
+  # Single-column facets need one panel stack; keep phone strips readable.
+  as.integer(max(640L, 240L * n + 260L))
 }
 comparison_ridge_plot <- function(id, n_ridges) {
   h <- comparison_ridge_height(n_ridges)
@@ -586,7 +587,7 @@ comparison_flow <- function(df, column, y_label, facet = NULL, palette = compari
       subtitle = plot_subtitle("Faint lines = each replication; bold = loess + ribbon. Each set uses its own window.")
     ) +
     theme_sim(legend.position = "bottom")
-  if (!is.null(facet)) p <- p + facet_wrap(vars(.data[[facet]]), ncol = 2)
+  if (!is.null(facet)) p <- p + facet_wrap(vars(.data[[facet]]), ncol = 1, labeller = label_wrap_gen(width = 14))
   p
 }
 
@@ -665,17 +666,21 @@ comparison_page_ui <- function(id) {
         .comparison-change-story,
         .comparison-change-story h4,
         .comparison-change-story p { color: #1a1a1a; }
+        /* Match Simulate status bar: strong border, full-contrast text, progress. */
+        .compare-status-bar { width: 100%; margin-bottom: 0.85rem; }
         .compare-progress-card {
-          background: #fff;
+          background: #eef6fb;
           border: 2px solid #2c7fb8;
           border-radius: 0.5rem;
           box-shadow: 0 4px 12px rgba(0,0,0,.10);
           min-height: 3.4rem;
+          height: 3.4rem;
+          box-sizing: border-box;
           display: flex;
           align-items: center;
           gap: 1rem;
           padding: 0.45rem 1rem;
-          margin: 0 0 0.85rem 0;
+          margin: 0;
         }
         .compare-progress-card.compare-progress-idle {
           border-color: #adb5bd;
@@ -683,19 +688,74 @@ comparison_page_ui <- function(id) {
           background: #f8f9fa;
         }
         .compare-progress-card.compare-progress-done {
-          border-color: #2e7d32;
+          border-color: #198754;
+          background: #f3faf5;
+          box-shadow: 0 4px 12px rgba(25,135,84,.12);
         }
         .compare-progress-title {
           font-size: 1.05rem;
           font-weight: 700;
-          color: #1b4f72;
+          color: #1b4f72 !important;
           margin: 0;
           white-space: nowrap;
+          display: flex;
+          align-items: center;
+          gap: 0.45rem;
         }
-        .compare-progress-idle .compare-progress-title { color: #495057; }
-        .compare-progress-done .compare-progress-title { color: #1b5e20; }
-        .compare-progress-detail { flex: 1 1 auto; min-width: 0; margin: 0 !important; font-size: 0.95rem; color: #1a1a1a !important; font-weight: 500; }
-        .compare-progress-card .progress { width: 11rem; max-width: 30%; height: 1.1rem; margin: 0; }
+        .compare-progress-title i,
+        .compare-progress-title .fa,
+        .compare-progress-title .fas {
+          color: #1b4f72 !important;
+        }
+        .compare-progress-idle .compare-progress-title { color: #495057 !important; }
+        .compare-progress-done .compare-progress-title { color: #146c43 !important; }
+        .compare-progress-detail {
+          flex: 1 1 auto;
+          min-width: 0;
+          margin: 0 !important;
+          font-size: 0.95rem;
+          color: #1a1a1a !important;
+          font-weight: 600;
+        }
+        .compare-status-bar .progress {
+          width: 11rem;
+          max-width: 30%;
+          height: 1.15rem;
+          margin: 0;
+          flex: 0 0 auto;
+        }
+        .compare-progress-card .progress-bar {
+          font-size: 0.75rem;
+          font-weight: 700;
+          color: #fff !important;
+          background-color: #2c7fb8 !important;
+        }
+        @media (max-width: 576px) {
+          .compare-progress-card {
+            height: auto;
+            min-height: 3.4rem;
+            flex-wrap: wrap;
+            gap: 0.35rem 0.75rem;
+            padding: 0.55rem 0.85rem;
+          }
+          .compare-status-bar .progress { width: 100%; max-width: none; }
+        }
+        /* Saturated run-button states (flatly warning is washed out). */
+        .two-set-study .compare-run-btn.btn-warning,
+        .two-set-study .compare-run-btn.btn-warning:disabled {
+          background-color: #e67e00 !important;
+          border-color: #c96e00 !important;
+          color: #ffffff !important;
+          font-weight: 700;
+          opacity: 1 !important;
+        }
+        .two-set-study .compare-run-btn.btn-success {
+          background-color: #198754 !important;
+          border-color: #146c43 !important;
+          color: #ffffff !important;
+          font-weight: 700;
+        }
+        .two-set-study.compare-is-running .compare-idle-alert { display: none !important; }
       ")),
       tags$script(HTML("
         (function() {
@@ -721,6 +781,11 @@ comparison_page_ui <- function(id) {
             if (window.__twoSetCollapseEditors) return;
             if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
             window.__twoSetCollapseEditors = true;
+            Shiny.addCustomMessageHandler('two-set-compare-running', function(message) {
+              var root = document.querySelector('.two-set-study');
+              if (!root) return;
+              root.classList.toggle('compare-is-running', !!(message && message.running));
+            });
             Shiny.addCustomMessageHandler('two-set-collapse-editors', function(message) {
               var ids = message.ids || [];
               ids.forEach(function(id) { hideAccordion(document.getElementById(id)); });
@@ -743,9 +808,14 @@ comparison_page_ui <- function(id) {
             if (window.__twoSetCollapseEditors || ++tries > 50) window.clearInterval(timer);
           }, 100);
           $(document).on('click', '.two-set-study .compare-run-btn', function() {
+            var root = document.querySelector('.two-set-study');
+            if (root) root.classList.add('compare-is-running');
             var card = document.querySelector('.two-set-study .compare-progress-card');
             if (card) {
               card.classList.remove('d-none', 'compare-progress-idle', 'compare-progress-done');
+              card.style.borderColor = '#2c7fb8';
+              card.style.background = '#eef6fb';
+              card.style.boxShadow = '0 4px 12px rgba(0,0,0,.10)';
               var title = card.querySelector('.compare-progress-title');
               var detail = card.querySelector('.compare-progress-detail');
               var barWrap = card.querySelector('.progress');
@@ -753,26 +823,57 @@ comparison_page_ui <- function(id) {
                 barWrap = document.createElement('div');
                 barWrap.className = 'progress';
                 var bar = document.createElement('div');
-                bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+                bar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
                 bar.setAttribute('role', 'progressbar');
                 bar.style.width = '100%';
                 bar.textContent = 'In progress';
                 barWrap.appendChild(bar);
                 card.appendChild(barWrap);
               } else {
+                barWrap.classList.remove('d-none');
                 var bar = card.querySelector('.progress-bar');
-                if (bar) { bar.style.width = '100%'; bar.textContent = 'In progress'; }
+                if (bar) {
+                  bar.className = 'progress-bar progress-bar-striped progress-bar-animated bg-primary';
+                  bar.style.width = '100%';
+                  bar.textContent = 'In progress';
+                }
               }
-              if (title) title.textContent = 'Comparison running';
-              if (detail) { detail.textContent = 'Running both parameter sets…'; detail.style.color = '#1a1a1a'; }
+              if (title) {
+                title.style.color = '#1b4f72';
+                title.textContent = '';
+                var ic = document.createElement('i');
+                ic.className = 'fa fa-spinner fa-spin';
+                ic.setAttribute('aria-hidden', 'true');
+                var sp = document.createElement('span');
+                sp.textContent = 'Comparison running';
+                title.appendChild(ic);
+                title.appendChild(sp);
+              }
+              if (detail) {
+                detail.textContent = 'Running both parameter sets…';
+                detail.style.color = '#1a1a1a';
+                detail.style.fontWeight = '600';
+              }
             }
-            document.querySelectorAll('.two-set-study .alert-info').forEach(function(el) {
+            document.querySelectorAll('.two-set-study .compare-idle-alert, .two-set-study .alert-info').forEach(function(el) {
               if ((el.textContent || '').indexOf('ready to edit') >= 0) el.classList.add('d-none');
             });
             var btn = this;
             btn.classList.remove('btn-primary', 'btn-success');
             btn.classList.add('btn-warning');
             btn.disabled = true;
+            btn.style.backgroundColor = '#e67e00';
+            btn.style.borderColor = '#c96e00';
+            btn.style.color = '#ffffff';
+            btn.style.fontWeight = '700';
+            // Replace any existing icon with a spinning spinner for instant feedback.
+            var oldIcon = btn.querySelector('i, .fa, .fas, svg');
+            if (oldIcon) oldIcon.remove();
+            var spin = document.createElement('i');
+            spin.className = 'fa fa-spinner fa-spin';
+            spin.setAttribute('aria-hidden', 'true');
+            spin.style.marginRight = '0.35rem';
+            btn.insertBefore(spin, btn.firstChild);
             var label = btn.querySelector('.compare-run-label');
             if (label) label.textContent = 'Running…';
           });
@@ -781,6 +882,7 @@ comparison_page_ui <- function(id) {
       h3("Compare two parameter sets"),
       p("Start from the main page, change one parameter at a time, and compare output and flow. The two sets stay independent of the main page after import. Each title is editable and is used on the charts, tables, and downloads."),
       p("Results are illustrative only. They are not predictions for any employer."),
+      uiOutput(ns("compare_progress")),
       div(
         class = "d-flex flex-wrap gap-2 mb-3 align-items-center",
         actionButton(ns("import"), "Import main settings into both sets"),
@@ -788,7 +890,6 @@ comparison_page_ui <- function(id) {
         actionButton(ns("match_reps"), "Match Set 2 replications to Set 1"),
         uiOutput(ns("run_button"))
       ),
-      uiOutput(ns("compare_progress")),
       uiOutput(ns("status")),
       uiOutput(ns("result_fade")),
       uiOutput(ns("draft_diff")),
@@ -952,8 +1053,9 @@ comparison_page_server <- function(id, main_params, active_page) {
       if (identical(state, "running")) {
         actionButton(
           session$ns("run"),
-          tagList(icon("spinner"), span(class = "compare-run-label", "Running…")),
-          class = "btn-warning compare-run-btn", disabled = TRUE
+          tagList(icon("spinner", class = "fa-spin"), span(class = "compare-run-label", "Running…")),
+          class = "btn-warning compare-run-btn",
+          disabled = TRUE
         )
       } else if (identical(state, "done") && !isTRUE(dirty())) {
         actionButton(
@@ -964,23 +1066,34 @@ comparison_page_server <- function(id, main_params, active_page) {
       } else {
         actionButton(
           session$ns("run"),
-          span(class = "compare-run-label", "Run comparison"),
+          tagList(icon("play"), span(class = "compare-run-label", "Run comparison")),
           class = "btn-primary compare-run-btn"
         )
       }
     })
     output$compare_progress <- renderUI({
       state <- run_state()
-      if (identical(state, "running")) {
+      # Clear the JS running class once Shiny can paint again.
+      if (!identical(state, "running")) {
+        session$sendCustomMessage(
+          "two-set-compare-running",
+          list(running = FALSE)
+        )
+      }
+      card <- if (identical(state, "running")) {
         div(
           id = session$ns("compare_progress_card"),
           class = "compare-progress-card",
-          div(class = "compare-progress-title", "Comparison running"),
-          div(class = "compare-progress-detail text-dark", "Running both parameter sets…"),
+          div(
+            class = "compare-progress-title",
+            icon("spinner", class = "fa-spin"),
+            span("Comparison running")
+          ),
+          div(class = "compare-progress-detail", "Running both parameter sets…"),
           div(
             class = "progress",
             div(
-              class = "progress-bar progress-bar-striped progress-bar-animated",
+              class = "progress-bar progress-bar-striped progress-bar-animated bg-primary",
               role = "progressbar", style = "width:100%", "In progress"
             )
           )
@@ -989,17 +1102,22 @@ comparison_page_server <- function(id, main_params, active_page) {
         div(
           id = session$ns("compare_progress_card"),
           class = "compare-progress-card compare-progress-done",
-          div(class = "compare-progress-title", "Comparison complete"),
-          div(class = "compare-progress-detail text-dark", "Both parameter sets finished. Charts below are current.")
+          div(
+            class = "compare-progress-title",
+            icon("check-circle"),
+            span("Comparison complete")
+          ),
+          div(class = "compare-progress-detail", "Done. Both parameter sets finished — charts below are current.")
         )
       } else {
         div(
           id = session$ns("compare_progress_card"),
           class = "compare-progress-card compare-progress-idle",
           div(class = "compare-progress-title", "Ready"),
-          div(class = "compare-progress-detail text-dark", "Press Run comparison when both sets are ready.")
+          div(class = "compare-progress-detail", "Press Run comparison when both sets are ready.")
         )
       }
+      div(class = "compare-status-bar", card)
     })
     bind_runs <- function(r, field) {
       map2_dfr(r$runs, names(comparison_colors), ~ mutate(.x[[field]], set = .y))
@@ -1013,6 +1131,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       }
       error(NULL)
       run_state("running")
+      session$sendCustomMessage("two-set-compare-running", list(running = TRUE))
       # Flush UI so the amber button and banner paint before the sim blocks.
       tryCatch(session$requestFlush(), error = function(cond) NULL)
       succeeded <- FALSE
@@ -1107,7 +1226,10 @@ comparison_page_server <- function(id, main_params, active_page) {
           )
         },
         if (is.null(r) && !identical(run_state(), "running")) {
-          div(class = "alert alert-info", "Both sets are ready to edit. Press Run comparison to generate results.")
+          div(
+            class = "alert alert-info compare-idle-alert",
+            "Both sets are ready to edit. Press Run comparison to generate results."
+          )
         },
         if (length(mismatches)) {
           div(
@@ -1300,7 +1422,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         throughput_per_hr = "Throughput (vehicles/hour)",
         cycle_time_mean = "Mean lead time (min)",
         avg_wip = "Average WIP (vehicles)",
-        hpu = "HPU (labor-hours / unit, lower is better)"
+        hpu = "HPU (labor-hours / unit)"
       )
       metric <- input$metric %||% "throughput_per_hr"
       df <- table_for("summaries")
