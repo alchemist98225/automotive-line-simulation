@@ -93,7 +93,7 @@ stopifnot(grepl('data-value="results_lead"', ui_html, fixed = TRUE) || grepl("re
 stopifnot(grepl("kpi-nav-card", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_throughput", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_lead", ui_html, fixed = TRUE))
-stopifnot(grepl("kpi_nav_wip", ui_html, fixed = TRUE))
+stopifnot(grepl("kpi_nav_hpu", ui_html, fixed = TRUE), grepl("kpi_hpu", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_bottleneck", ui_html, fixed = TRUE))
 # Run settings lives on the Lead time & data page and starts collapsed.
 stopifnot(settings_at[[1]] > 0L)
@@ -336,7 +336,7 @@ layer_geoms <- function(built) {
 }
 density_xs <- function(built) {
   geoms <- layer_geoms(built)
-  idx <- which(geoms == "GeomDensity")
+  idx <- which(geoms == "GeomLine")
   stopifnot(length(idx) >= 1L)
   dplyr::bind_rows(built$data[idx])
 }
@@ -354,10 +354,10 @@ for (d in list(ridge_zero, ridge_mixed)) {
   stopifnot(nrow(rugs) == nrow(d))
 }
 built <- ggplot2::ggplot_build(e$replication_densities(ridge_zero, "group", "metric", "Downtime fraction", "check"))
-stopifnot(!any(layer_geoms(built) == "GeomDensity"))
+stopifnot(!any(layer_geoms(built) == "GeomLine"))
 stopifnot(any(layer_geoms(built) == "GeomVline"))
 built <- ggplot2::ggplot_build(e$replication_densities(ridge_mixed, "group", "metric", "Downtime fraction", "check"))
-stopifnot(any(layer_geoms(built) == "GeomDensity"), any(layer_geoms(built) == "GeomVline"))
+stopifnot(any(layer_geoms(built) == "GeomLine"), any(layer_geoms(built) == "GeomVline"))
 dens <- density_xs(built)
 stopifnot(min(dens$x, na.rm = TRUE) >= -1e-8, max(dens$x, na.rm = TRUE) <= 1 + 1e-6)
 palette <- c(Paint = "#d95f0e", Inspection = "#756bb1")
@@ -377,7 +377,7 @@ op <- tibble::tibble(
 built <- ggplot2::ggplot_build(e$replication_densities(op, "label", "avg_util", "Operator utilization", "pools"))
 # The opaque line layer maps colour; the fill layer fixes colour to NA.
 line_idx <- which(vapply(seq_along(built$plot$layers), function(i) {
-  layer_geoms(built)[[i]] == "GeomDensity" && is.null(built$plot$layers[[i]]$aes_params$colour)
+  layer_geoms(built)[[i]] == "GeomLine" && is.null(built$plot$layers[[i]]$aes_params$colour)
 }, logical(1)))
 stopifnot(length(line_idx) == 1L)
 line_cols <- unique(built$data[[line_idx]]$colour)
@@ -389,7 +389,7 @@ built <- ggplot2::ggplot_build(e$replication_densities(
   op, "label", "avg_util", "Operator utilization", "pools", fill_values = e$station_colors
 ))
 line_idx <- which(vapply(seq_along(built$plot$layers), function(i) {
-  layer_geoms(built)[[i]] == "GeomDensity" && is.null(built$plot$layers[[i]]$aes_params$colour)
+  layer_geoms(built)[[i]] == "GeomLine" && is.null(built$plot$layers[[i]]$aes_params$colour)
 }, logical(1)))
 stopifnot(length(unique(built$data[[line_idx]]$colour)) == 2L)
 # Quarto defines the same mapper. Upstream and downstream stay distinct there too.

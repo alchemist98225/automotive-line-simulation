@@ -77,6 +77,7 @@ nav_panel(
       id = "headline_kpis",
       layout_columns(
         fill = FALSE,
+        col_widths = breakpoints(sm = 12, md = 6, xl = 3),
         kpi_nav_box(
           "production_schedule",
           title = "Throughput",
@@ -94,12 +95,13 @@ nav_panel(
           p("minutes")
         ),
         kpi_nav_box(
-          "results_flow",
-          title = "Avg WIP",
-          value = textOutput("kpi_wip", inline = TRUE),
-          showcase = bs_icon("boxes"),
+          "results_capacity",
+          title = "HPU",
+          value = textOutput("kpi_hpu", inline = TRUE),
+          showcase = bs_icon("person-gear"),
           theme = "warning",
-          p("vehicles in system, counted once")
+          p("labor hours per unit (lower is better)"),
+          box_key = "hpu"
         ),
         kpi_nav_box(
           "results_capacity",
