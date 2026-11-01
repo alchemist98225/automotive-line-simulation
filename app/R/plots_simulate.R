@@ -145,9 +145,10 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     theme_plot_width_text() +
     theme_minor_ticks() +
     guides(
-      # One column so long station names are not clipped on a 390px phone.
-      colour = guide_legend(ncol = 1, byrow = TRUE),
-      fill = guide_legend(ncol = 1, byrow = TRUE)
+      # Two-set overlays fit on one row. Many series stack in one column so
+      # long station names are not clipped on a 390px phone.
+      colour = if (nlevels(df$series) <= 2L) guide_legend(nrow = 1) else guide_legend(ncol = 1, byrow = TRUE),
+      fill = if (nlevels(df$series) <= 2L) guide_legend(nrow = 1) else guide_legend(ncol = 1, byrow = TRUE)
     )
   xlim <- density_xlim(df$.value, level = 0.95, bounds = bounds)
   faceted <- !is.null(facet) && dplyr::n_distinct(df[[facet]]) > 1L
