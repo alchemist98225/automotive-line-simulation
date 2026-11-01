@@ -663,7 +663,8 @@ occupancy_boxes <- function(per_rep) {
       strip.text = element_text(
         size = 16, colour = "#1a1a1a", hjust = 0, margin = margin(8, 4, 8, 4)
       ),
-      axis.text.x = element_text(size = 14, colour = "#1a1a1a")
+      # Angle keeps four station names readable at ~390px phone width.
+      axis.text.x = element_text(size = 13, colour = "#1a1a1a", angle = 28, hjust = 1, vjust = 1)
     )
   if (n_bands > 1L) {
     p <- p + facet_wrap(
@@ -716,7 +717,7 @@ replication_bars <- function(df, category, value, x_label, percent = TRUE, fill_
     theme_sim(legend.position = "none", plot.margin = margin(8, 12, 14, 10)) +
     theme_plot_width_text() +
     theme_minor_ticks() +
-    theme(axis.text.x = element_text(size = 14, colour = "#1a1a1a")) +
+    theme(axis.text.x = element_text(size = 13, colour = "#1a1a1a", angle = 28, hjust = 1, vjust = 1)) +
     coord_cartesian(clip = "on")
 }
 
@@ -780,7 +781,7 @@ wait_reason_bars_interactive <- function(waits) {
     theme_sim(legend.position = "bottom", plot.margin = margin(8, 12, 14, 10)) +
     theme_plot_width_text() +
     theme_minor_ticks() +
-    theme(axis.text.x = element_text(size = 14, colour = "#1a1a1a")) +
+    theme(axis.text.x = element_text(size = 13, colour = "#1a1a1a", angle = 28, hjust = 1, vjust = 1)) +
     coord_cartesian(clip = "on")
   ggiraph::girafe(
     ggobj = p,
