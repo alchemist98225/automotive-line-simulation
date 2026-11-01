@@ -913,6 +913,33 @@ sim_status_bar_ui <- function() {
       .sim-progress-detail { flex: 1 1 auto; min-width: 0; margin: 0 !important; font-size: 0.95rem; }
       .sim-status-bar .progress { width: 11rem; max-width: 30%; height: 1.15rem; margin: 0; flex: 0 0 auto; }
       .sim-progress-card .progress-bar { font-size: 0.75rem; font-weight: 600; }
+
+      /* Run / Try it button states (same pattern as Compare / Simulate app). */
+      #run.sim-run-btn.btn-warning,
+      #run.sim-run-btn.btn-warning:disabled,
+      #guide_try.sim-run-btn.btn-warning,
+      #guide_try.sim-run-btn.btn-warning:disabled {
+        background-color: #e67e00 !important;
+        border-color: #c96e00 !important;
+        color: #ffffff !important;
+        font-weight: 700;
+        opacity: 1 !important;
+      }
+      #run.sim-run-btn.btn-success,
+      #guide_try.sim-run-btn.btn-success {
+        background-color: #198754 !important;
+        border-color: #146c43 !important;
+        color: #ffffff !important;
+        font-weight: 700;
+        opacity: 1 !important;
+      }
+      #run.sim-run-btn,
+      #guide_try.sim-run-btn,
+      .shiny-busy #run.sim-run-btn,
+      .shiny-busy #guide_try.sim-run-btn {
+        opacity: 1 !important;
+        filter: none !important;
+      }
       .kpi-nav-card {
         cursor: pointer; position: relative; border-radius: 0.5rem;
         transition: transform 0.12s ease, box-shadow 0.12s ease;
@@ -974,7 +1001,86 @@ sim_status_bar_ui <- function() {
         var bar = el.querySelector('.progress-bar');
         if (bar) { bar.style.width = '100%'; bar.textContent = 'In progress'; }
       }
-      $(document).on('click', '#run, #guide_try, #compare, #compare_timing', function() {
+      function paintSimRunBtn(btn, state) {
+        if (!btn) return;
+        var isTry = (btn.id === 'guide_try');
+        btn.classList.remove('btn-primary', 'btn-warning', 'btn-success');
+        btn.classList.add('sim-run-btn');
+        btn.style.setProperty('opacity', '1', 'important');
+        btn.style.setProperty('filter', 'none', 'important');
+        btn.querySelectorAll('i, .fa, .fas, svg').forEach(function(n) { n.remove(); });
+        var label = btn.querySelector('.sim-run-label');
+        if (!label) {
+          label = document.createElement('span');
+          label.className = 'sim-run-label';
+          btn.appendChild(label);
+        }
+        if (state === 'running') {
+          btn.classList.add('btn-warning');
+          btn.disabled = true;
+          btn.style.setProperty('background-color', '#e67e00', 'important');
+          btn.style.setProperty('border-color', '#c96e00', 'important');
+          btn.style.setProperty('color', '#ffffff', 'important');
+          btn.style.setProperty('font-weight', '700', 'important');
+          var spin = document.createElement('i');
+          spin.className = 'fa fa-spinner fa-spin';
+          spin.setAttribute('aria-hidden', 'true');
+          spin.style.marginRight = '0.35rem';
+          btn.insertBefore(spin, btn.firstChild);
+          label.textContent = 'Running…';
+        } else if (state === 'done') {
+          btn.classList.add('btn-success');
+          btn.disabled = false;
+          btn.style.setProperty('background-color', '#198754', 'important');
+          btn.style.setProperty('border-color', '#146c43', 'important');
+          btn.style.setProperty('color', '#ffffff', 'important');
+          btn.style.setProperty('font-weight', '700', 'important');
+          var check = document.createElement('i');
+          check.className = 'fa fa-check';
+          check.setAttribute('aria-hidden', 'true');
+          check.style.marginRight = '0.35rem';
+          btn.insertBefore(check, btn.firstChild);
+          label.textContent = isTry ? 'Done – try again' : 'Done – run again';
+        } else {
+          btn.classList.add('btn-primary');
+          btn.disabled = false;
+          btn.style.removeProperty('background-color');
+          btn.style.removeProperty('border-color');
+          btn.style.removeProperty('color');
+          btn.style.removeProperty('font-weight');
+          var play = document.createElement('i');
+          play.className = 'fa fa-play';
+          play.setAttribute('aria-hidden', 'true');
+          play.style.marginRight = '0.35rem';
+          btn.insertBefore(play, btn.firstChild);
+          label.textContent = isTry ? 'Try it' : 'Run simulation';
+        }
+      }
+      function paintAllSimRunBtns(state) {
+        paintSimRunBtn(document.getElementById('run'), state);
+        paintSimRunBtn(document.getElementById('guide_try'), state);
+      }
+      function registerSimRunButtons() {
+        if (window.__simRunButtons) return;
+        if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
+        window.__simRunButtons = true;
+        Shiny.addCustomMessageHandler('simRunButtons', function(message) {
+          paintAllSimRunBtns((message && message.state) || 'idle');
+        });
+      }
+      document.addEventListener('shiny:connected', registerSimRunButtons);
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', registerSimRunButtons);
+      else registerSimRunButtons();
+      $(document).on('click', '#run', function() {
+        paintSimRunBtn(this, 'running');
+        showSimProgressLocal('Working…');
+      });
+      $(document).on('click', '#guide_try', function() {
+        paintSimRunBtn(this, 'running');
+        paintSimRunBtn(document.getElementById('run'), 'running');
+        showSimProgressLocal('Working…');
+      });
+      $(document).on('click', '#compare, #compare_timing', function() {
         showSimProgressLocal('Working…');
       });
       function kpiScroll(el) {
@@ -1085,7 +1191,7 @@ guided_example_ui <- function() {
           p(class = "mb-2", "Raise Paint from 1 bay to 2."),
           div(
             class = "d-flex flex-wrap gap-2 mb-2",
-            actionButton("guide_try", "Try it", class = "btn-primary btn-sm", icon = icon("play")),
+            actionButton("guide_try", tagList(icon("play"), span(class = "sim-run-label", "Try it")), class = "btn-primary btn-sm sim-run-btn"),
             actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
           ),
           p(class = "mb-2",
@@ -1182,7 +1288,7 @@ accordion(
   accordion_panel(
     title = tagList(bs_icon("play-fill"), " Run simulation"),
     value = "run_simulation",
-    actionButton("run", "Run simulation", class = "btn-primary w-100 mb-3", icon = icon("play")),
+    actionButton("run", tagList(icon("play"), span(class = "sim-run-label", "Run simulation")), class = "btn-primary w-100 mb-3 sim-run-btn"),
     numericInput("n_reps", "Number of replications", value = 5, min = 1, max = 100, step = 1),
     numericInput("arrival_mean", "Mean interarrival (min)", value = 4, min = 0.5, max = 60, step = 0.5),
     numericInput("sim_length", "Sim length (min)", value = 780, min = 60, max = 4800, step = 30),
@@ -1706,11 +1812,18 @@ output$reliability_table <- renderDT({
     mutate(observed_failures=replace_na(observed_failures,0L)) %>%
     datatable(rownames=FALSE,options=list(dom="t"))
 })
+sim_btn_state <- reactiveVal("idle")
+set_sim_btn_state <- function(state) {
+  sim_btn_state(state)
+  session$sendCustomMessage("simRunButtons", list(state = state))
+}
 show_sim_progress <- function(detail = "", value = NULL) {
+  set_sim_btn_state("running")
   session$sendCustomMessage("simProgress", list(show = TRUE, detail = detail, value = value))
 }
-hide_sim_progress <- function() {
+hide_sim_progress <- function(done = TRUE) {
   session$sendCustomMessage("simProgress", list(show = FALSE))
+  if (isTRUE(done)) set_sim_btn_state("done")
 }
 observeEvent(input$kpi_scroll, {
   tab <- input$kpi_scroll
@@ -1740,6 +1853,12 @@ current_fingerprint <- reactive(params_fingerprint(build_params()))
 main_settings_stale <- reactive({
   !identical(sim_result()$provenance$fingerprint, current_fingerprint())
 })
+observe({
+  if (isTRUE(main_settings_stale()) && identical(isolate(sim_btn_state()), "done")) {
+    set_sim_btn_state("idle")
+  }
+})
+
 snapshot_is_stale <- function(comp) {
   fp <- attr(comp, "fingerprint")
   if (is.null(fp)) return(FALSE)
