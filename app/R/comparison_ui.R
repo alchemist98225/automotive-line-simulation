@@ -164,6 +164,24 @@ comparison_page_ui <- function(id) {
           .compare-status-bar .progress { width: 100%; max-width: none; }
         }
         /* Saturated run-button states (flatly warning is washed out). */
+        .compare-shared-reps {
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+        }
+        .compare-shared-reps .form-group { margin-bottom: 0; }
+        .compare-shared-reps label {
+          font-weight: 700;
+          color: #1a1a1a;
+          margin-bottom: 0.15rem;
+        }
+        .compare-shared-reps-note {
+          font-size: 0.8rem;
+          font-weight: 700;
+          color: #1a1a1a;
+          line-height: 1.2;
+          min-height: 1rem;
+        }
         .two-set-study .compare-run-btn.btn-warning,
         .two-set-study .compare-run-btn.btn-warning:disabled {
           background-color: #e67e00 !important;
@@ -325,10 +343,21 @@ comparison_page_ui <- function(id) {
       p("Start from the main page, change one parameter at a time, and compare output and flow. The two sets stay independent of the main page after import. Each title is editable and is used on the charts, tables, and downloads."),
       uiOutput(ns("compare_progress")),
       div(
-        class = "d-flex flex-wrap gap-2 mb-3 align-items-center",
+        class = "d-flex flex-wrap gap-3 mb-3 align-items-end",
         actionButton(ns("import"), "Import main settings into both sets"),
         actionButton(ns("clone"), "Copy Set 1 to Set 2"),
-        actionButton(ns("match_reps"), "Match Set 2 replications to Set 1"),
+        div(
+          class = "compare-shared-reps",
+          numericInput(
+            ns("shared_reps"),
+            "Replications",
+            value = default_params()$n_replications,
+            min = 1,
+            step = 1,
+            width = "8.5rem"
+          ),
+          uiOutput(ns("shared_reps_note"))
+        ),
         uiOutput(ns("run_button"))
       ),
       uiOutput(ns("status")),

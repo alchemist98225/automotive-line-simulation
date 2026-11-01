@@ -39,6 +39,14 @@ frame_has_height <- function(html, px) {
     grepl(sprintf("%dpx", px), html, fixed = TRUE) &&
     grepl("comparison-ridge-plot", html, fixed = TRUE)
 }
+
+# Shared Replications control replaces the old match button on Compare.
+cmp_ui <- paste(as.character(e$comparison_page_ui("cmp")), collapse = "")
+stopifnot(grepl("shared_reps", cmp_ui, fixed = TRUE))
+stopifnot(grepl(">Replications<", cmp_ui) || grepl("Replications", cmp_ui, fixed = TRUE))
+stopifnot(!grepl("match_reps", cmp_ui, fixed = TRUE))
+stopifnot(!grepl("Match Set 2 replications", cmp_ui, fixed = TRUE))
+
 shiny::testServer(e$comparison_page_server,args=list(main_params=shiny::reactive(p),active_page=shiny::reactive("compare_sets")),{
   session$flushReact()
   stopifnot(initialized(),e$comparison_same(one$params(),two$params()),nrow(e$comparison_diff(one$params(),two$params()))==0)
@@ -138,15 +146,26 @@ shiny::testServer(e$comparison_page_server,args=list(main_params=shiny::reactive
   stopifnot(grepl("Every replication is drawn", hi, fixed = TRUE))
   invisible(output$highlight_plot_1)
   invisible(output$change_story)
-  # Match counts without overwriting other study changes.
+  # Shared replications box updates both sets and leaves other edits alone.
   b<-two$params();b$n_replications<-1L;two$set_params(b)
-  session$setInputs(match_reps=1)
-  stopifnot(two$params()$n_replications==3,two$params()$stations$capacity[2]==2)
+  session$flushReact()
+  stopifnot(identical(as.integer(one$params()$n_replications), 3L))
+  stopifnot(identical(as.integer(two$params()$n_replications), 1L))
+  note_out <- output$shared_reps_note
+  note <- paste(c(as.character(note_out), if (is.list(note_out)) note_out$html), collapse = "")
+  stopifnot(grepl("Sets differ", note, fixed = TRUE))
+  session$setInputs(shared_reps = 7)
+  stopifnot(identical(as.integer(one$params()$n_replications), 7L))
+  stopifnot(identical(as.integer(two$params()$n_replications), 7L))
+  stopifnot(two$params()$stations$capacity[2] == 2)
+  note_clear_out <- output$shared_reps_note
+  note_clear <- paste(c(as.character(note_clear_out), if (is.list(note_clear_out)) note_clear_out$html), collapse = "")
+  stopifnot(!grepl("Sets differ", note_clear, fixed = TRUE))
   session$setInputs(clone=1)
   stopifnot(e$comparison_same(one$params(),two$params()))
   session$setInputs(import=1)
   stopifnot(e$comparison_same(one$params(),e$normalize_params(p)))
-  # Import, copy, and match-reps must not collapse the editors.
+  # Import, copy, and the shared reps box must not collapse the editors.
   stopifnot(length(close_log$calls) == 4L)
   # An invalid empirical edit must retain old results and flag the draft.
   rev<-two$state()$revision
