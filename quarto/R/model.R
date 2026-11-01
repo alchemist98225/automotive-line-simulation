@@ -255,7 +255,9 @@ run_one_replication <- function(rep_id,seed,params) {
          avg_unreleased_backlog=sum(pmax(0,pmin(coalesce(orders$release_time,params$sim_length_min),params$sim_length_min)-pmax(orders$order_time,params$warmup_min)))/(params$sim_length_min-params$warmup_min),
          end_unreleased_backlog=sum(is.na(orders$release_time)),end_wip=sum(!arrivals$finished),
          order_lead_time_mean=if(nrow(completed)) mean(completed$end_time-completed$order_time) else NA_real_,
-         throughput_per_labor_hr=if(sum(params$operators$count)>0) nrow(completed)/((params$sim_length_min-params$warmup_min)/60)/sum(params$operators$count) else NA_real_),
+         throughput_per_labor_hr=if(sum(params$operators$count)>0) nrow(completed)/((params$sim_length_min-params$warmup_min)/60)/sum(params$operators$count) else NA_real_,
+         # HPU = labor-hours on the clock per completed unit. Lower is better.
+         hpu=if(sum(params$operators$count)>0 && nrow(completed)>0) sum(params$operators$count)*((params$sim_length_min-params$warmup_min)/60)/nrow(completed) else Inf),
        stations=stats %>% filter(resource %in% s$name) %>% mutate(replication=rep_id,seed=seed),
        labor=stats %>% filter(startsWith(resource,"operator_")) %>% mutate(replication=rep_id,seed=seed),
        cycle_times=tibble(replication=rep(rep_id,length(ct)),seed=rep(seed,length(ct)),cycle_time=ct),

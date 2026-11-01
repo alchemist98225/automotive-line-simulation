@@ -14,7 +14,7 @@ p<-e$default_params();p$n_replications<-2L;p$n_shifts<-3L
 r<-e$run_line_sim(p)
 shiny::testServer(e$production_page_server,args=list(result=shiny::reactive(r),current_fingerprint=shiny::reactive("test")),{
  invisible(output$plan);invisible(output$shifts);invisible(output$inventory)
- invisible(output$shift_table);invisible(output$waits);invisible(output$repairs);invisible(output$buffers)
+ invisible(output$shift_table);invisible(output$buffers)
 })
 shiny::testServer(e$comparison_page_server,args=list(main_params=shiny::reactive(p),active_page=shiny::reactive("compare_sets")),{
  session$flushReact()
