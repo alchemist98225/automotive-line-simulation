@@ -6,7 +6,7 @@ outside Shiny. Feed it a table of design points (for example from
 together.
 
 > **Illustrative only.** Capacities, crews, and times are placeholder examples.
-> Results are not predictions for DRI or any employer.
+> Results are illustrative only — placeholder parameters, not plant predictions.
 
 ## Quick start
 

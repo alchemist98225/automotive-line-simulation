@@ -1,7 +1,7 @@
 # doe_lib.R
 # Shared entry point for the design-of-experiments (DOE) CLI.
 # Sourced by scripts/doe_make_design.R, doe_run.R, and doe_plot.R.
-# Portfolio demonstration; results are illustrative only, not predictions for DRI.
+# Portfolio demonstration; results are illustrative only, not plant predictions.
 #
 # Loads sibling modules:
 #   doe_design.R      — CSV schema, validate, params_from_row

@@ -5,7 +5,7 @@
 #
 # Shows every replication faintly and the mean / loess in bold.
 # Marks the minimum mean-HPU design point on the heatmap.
-# Results are illustrative only — not predictions for DRI.
+# Results are illustrative only — placeholder parameters, not plant predictions.
 
 suppressPackageStartupMessages({
   library(tidyverse)
@@ -75,7 +75,7 @@ theme_doe <- function(...) {
 }
 
 caption_note <- paste(
-  "Illustrative only — placeholder parameters, not predictions for DRI.",
+  "Illustrative only — placeholder parameters, not plant predictions.",
   "HPU = (operators × observation hours) / units completed. Lower is better."
 )
 

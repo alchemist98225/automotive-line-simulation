@@ -12,7 +12,7 @@
 #
 # HPU = (n_operators × observation_hours) / n_completed
 #     = inverse of the model's throughput_per_labor_hr
-# Results are illustrative only — not predictions for DRI.
+# Results are illustrative only — placeholder parameters, not plant predictions.
 
 suppressPackageStartupMessages({
   library(tidyverse)
@@ -228,7 +228,7 @@ info <- list(
     "observation_hours = (sim_length_min - warmup_min) / 60;",
     "inverse of throughput_per_labor_hr. Lower is more productive."
   ),
-  note = "PLACEHOLDER EXAMPLE PARAMETERS — results are illustrative only, not predictions for DRI.",
+  note = "PLACEHOLDER EXAMPLE PARAMETERS — results are illustrative only, not plant predictions.",
   seed_rule = "seed(design_row, rep) = base_seed + (row_index-1)*n_reps + (rep-1)"
 )
 info_path <- file.path(out_dir, "run_info.json")

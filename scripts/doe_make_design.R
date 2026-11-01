@@ -4,7 +4,7 @@
 #   Rscript scripts/doe_make_design.R
 #   Rscript scripts/doe_make_design.R --out designs/my_doe.csv
 #
-# Results are illustrative only — not predictions for DRI.
+# Results are illustrative only — placeholder parameters, not plant predictions.
 suppressPackageStartupMessages({library(tidyverse)})
 
 args_full <- commandArgs(trailingOnly = FALSE)
