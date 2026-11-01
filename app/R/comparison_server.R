@@ -407,37 +407,83 @@ comparison_page_server <- function(id, main_params, active_page) {
         })
       }
     })
+    # Headline cards match Results order: Throughput, lead time, HPU, bottleneck.
+    # Bottleneck uses the same station as Results / the change-story "busiest station".
     output$kpis <- renderUI({
       r <- results()
       req(!is.null(r))
-      metrics <- c(
-        throughput_per_hr = "Throughput / hour",
-        cycle_time_mean = "Mean lead time / min",
-        avg_wip = "Average WIP",
-        hpu = "HPU (labor-h/unit)"
+      labs <- titles()
+      show_num <- function(x, digits = 2L) {
+        if (!is.finite(x)) "Unavailable" else sprintf(paste0("%.", digits, "f"), x)
+      }
+      numeric_card <- function(title, values, digits = 2L) {
+        delta <- values[[2]] - values[[1]]
+        pct <- if (is.finite(values[[1]]) && values[[1]] != 0 && is.finite(delta)) {
+          sprintf("Change: %+.1f%%", 100 * delta / values[[1]])
+        } else {
+          "Percent change unavailable"
+        }
+        value_box(
+          title = title,
+          value = tags$div(
+            style = "font-size:1.1rem",
+            tags$div(style = "color:#2474A5", paste0(labs[[1]], ": ", show_num(values[[1]], digits))),
+            tags$div(style = "color:#D46B25", paste0(labs[[2]], ": ", show_num(values[[2]], digits)))
+          ),
+          p(paste0(labs[[2]], " − ", labs[[1]], ": ", show_num(delta, digits))),
+          p(pct)
+        )
+      }
+      bottleneck_line <- function(run) {
+        st <- run$bottleneck
+        lab <- if (exists("label_station", inherits = TRUE)) unname(label_station(st)) else st
+        if (is.null(lab) || !nzchar(as.character(lab))) lab <- as.character(st)
+        occ <- NA_real_
+        cs <- run$constraint_scores
+        if (!is.null(cs) && nrow(cs)) {
+          row <- cs[cs$station == st, , drop = FALSE]
+          if (nrow(row) && "unblocked_occupancy" %in% names(row)) {
+            occ <- row$unblocked_occupancy[[1]]
+          }
+        }
+        if (is.finite(occ)) {
+          sprintf("%s (%.0f%%)", lab, 100 * occ)
+        } else {
+          as.character(lab)
+        }
+      }
+      b_lines <- map_chr(r$runs, bottleneck_line)
+      b_same <- identical(
+        as.character(r$runs[[1]]$bottleneck),
+        as.character(r$runs[[2]]$bottleneck)
       )
-      layout_columns(
-        fill = FALSE,
-        col_widths = c(3, 3, 3, 3),
-        !!!map(names(metrics), function(m) {
-          values <- map_dbl(r$runs, ~ mean(.x$summaries[[m]], na.rm = TRUE))
-          delta <- values[[2]] - values[[1]]
-          show <- function(x) if (is.finite(x)) sprintf("%.2f", x) else "Unavailable"
+      thr <- map_dbl(r$runs, ~ mean(.x$summaries$throughput_per_hr, na.rm = TRUE))
+      lead <- map_dbl(r$runs, ~ mean(.x$summaries$cycle_time_mean, na.rm = TRUE))
+      hpu <- map_dbl(r$runs, ~ {
+        v <- .x$summaries$hpu
+        v <- v[is.finite(v)]
+        if (!length(v)) NA_real_ else mean(v)
+      })
+      div(
+        id = session$ns("headline_kpis"),
+        class = "compare-headline-kpis",
+        layout_columns(
+          fill = FALSE,
+          col_widths = c(3, 3, 3, 3),
+          numeric_card("Throughput / hour", thr, 2L),
+          numeric_card("Mean lead time / min", lead, 2L),
+          numeric_card("HPU (labor-h/unit)", hpu, 2L),
           value_box(
-            title = metrics[[m]],
+            title = "Bottleneck candidate",
             value = tags$div(
               style = "font-size:1.1rem",
-              tags$div(style = "color:#2474A5", paste0(titles()[[1]], ": ", show(values[[1]]))),
-              tags$div(style = "color:#D46B25", paste0(titles()[[2]], ": ", show(values[[2]])))
+              tags$div(style = "color:#2474A5", paste0(labs[[1]], ": ", b_lines[[1]])),
+              tags$div(style = "color:#D46B25", paste0(labs[[2]], ": ", b_lines[[2]]))
             ),
-            p(paste0(titles()[[2]], " − ", titles()[[1]], ": ", show(delta))),
-            p(if (is.finite(values[[1]]) && values[[1]] != 0 && is.finite(delta)) {
-              sprintf("Change: %+.1f%%", 100 * delta / values[[1]])
-            } else {
-              "Percent change unavailable"
-            })
+            p(if (b_same) "Same" else "Changed"),
+            p("highest occupancy excluding blocked time")
           )
-        })
+        )
       )
     })
     output$captured_settings <- renderUI({
