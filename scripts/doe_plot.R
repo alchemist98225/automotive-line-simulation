@@ -122,6 +122,7 @@ means_plot <- reps_plot %>%
 full_contrast <- c("#2c7fb8", "#d95f0e", "#31a354", "#756bb1", "#e7298a", "#000000")
 
 # 1) HPU vs primary factor, coloured by secondary factor
+# Chart: "HPU across the design (all replications)"
 p_hpu <- ggplot(reps_plot, aes(x = x_factor, y = hpu_plot, color = colour_factor)) +
   geom_point(alpha = 0.4, size = 2.8, position = position_jitter(width = 0.08, height = 0)) +
   geom_line(
@@ -151,6 +152,7 @@ p_hpu <- ggplot(reps_plot, aes(x = x_factor, y = hpu_plot, color = colour_factor
 ggsave(file.path(plot_dir, "hpu_by_factor.png"), p_hpu, width = 9, height = 6.2, dpi = 130)
 
 # 2) Throughput companion (same layout)
+# Chart: "Throughput across the design (all replications)"
 p_tp <- ggplot(reps_plot, aes(x = x_factor, y = throughput_per_hr, color = colour_factor)) +
   geom_point(alpha = 0.4, size = 2.8, position = position_jitter(width = 0.08, height = 0)) +
   geom_line(
@@ -209,6 +211,7 @@ if (!is.null(colour_col) && x_col != colour_col) {
       label_color = if_else(.lum > 0.45, "#111111", "#FFFFFF")
     )
 
+  # Chart: "Mean HPU heatmap"
   p_heat <- ggplot(heat, aes(x = factor(x), y = factor(y), fill = hpu_mean)) +
     geom_tile(color = "white", linewidth = 0.8) +
     # Optimum: thick black outline on that tile only (no circle over the label).
