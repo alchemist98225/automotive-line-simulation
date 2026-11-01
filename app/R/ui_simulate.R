@@ -49,8 +49,9 @@ guided_example_ui <- function() {
           ),
           p(class = "mb-2",
             "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline."),
-          p(class = "text-muted small mb-0",
-            "All data is illustrative placeholder data, not a prediction for any real plant or company.")
+          # The app's single "illustrative" note. Keep it here only.
+          p(class = "small mb-0 fine-print",
+            "Results are illustrative only, based on example inputs.")
         )
       )
     )

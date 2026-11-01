@@ -294,8 +294,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       div(
         class = "comparison-change-story mb-3",
         h4("What changed most"),
-        p(class = "mb-2", comparison_change_caption(r$runs, highlight_state()$scores)),
-        p(class = "mb-0", "Results are illustrative only. They are not predictions for any employer.")
+        p(class = "mb-0", comparison_change_caption(r$runs, highlight_state()$scores))
       )
     })
     output$highlights <- renderUI({
@@ -322,6 +321,10 @@ comparison_page_server <- function(id, main_params, active_page) {
       })
       tagList(
         p(class = "mb-1", intro),
+        p(
+          class = "mb-1",
+          "Rug ticks are every replication, and a vertical line means no spread. Dashed lines are normal curves, and the x-axis shows the central 95% of values."
+        ),
         p(
           class = "mb-2",
           "Ranked by percent change from the first set. When that mean is smaller than the spread across replications, the change is measured against the second set's mean instead. Every replication is drawn."

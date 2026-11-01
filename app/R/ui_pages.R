@@ -41,8 +41,7 @@ nav_panel(
                        value = 20261027, min = 1, step = 1),
           actionButton("compare_timing", "Compare timing variability", class = "w-100"),
           actionButton("compare", "Compare staffing scenarios", class = "w-100"),
-          helpText("Staffing comparison opens under Results → Bottleneck & capacity. Timing comparison and CSV downloads open under Results → Lead time & data."),
-          helpText("Defaults are placeholder example values — not real plant data.")
+          helpText("Staffing comparison opens under Results → Bottleneck & capacity. Timing comparison and CSV downloads open under Results → Lead time & data.")
         )
       ),
       div(
@@ -176,7 +175,7 @@ nav_panel(
       card_body(
         fill = FALSE,
         p(class = "small mb-2",
-          "Automatic duration / mean. Placeholder minutes, not a measured cycle. ",
+          "Automatic duration / mean in minutes. ",
           "Load, unload, and distribution choices sit under each station."),
         layout_columns(
           fill = FALSE,
@@ -204,7 +203,7 @@ nav_panel(
       card_body(
         fill = FALSE,
         p(class = "small mb-2",
-          "Placeholder crew sizes — not measured plant data. Zone A serves body and paint; Zone B serves assembly and inspection."),
+          "Zone A serves body and paint; Zone B serves assembly and inspection."),
         layout_columns(
           fill = FALSE,
           col_widths = c(4, 8),
@@ -221,7 +220,7 @@ nav_panel(
       card_body(
         fill = FALSE,
         p(class = "small mb-2",
-          "Placeholder MTBF/MTTR and task times. Mean up-time (MTBF) is calendar up-time in minutes. ",
+          "Mean up-time (MTBF) is calendar up-time in minutes. ",
           "Mean active repair (MTTR) of 0 disables failures at that station. Support every N units uses 0 for a random exponential interval."),
         layout_columns(
           fill = FALSE,
@@ -505,14 +504,13 @@ reproducibility, runs the settling period first, then measures every complete pr
 - Average work-in-process (WIP)
 - Time-weighted utilization and queue length per station
 
-### Important caveat
+### Default inputs
 
-**All default numeric inputs are placeholder example values**, chosen so the
-demo has a clear bottleneck (paint) and responsive run times. The opening
-defaults are 5 replications, 300 minutes of settling, and a CONWIP limit of
-20 vehicles. They are **not** real plant data. Results are illustrative only.
-They are not predictions for any employer. Swap in your own stations,
-capacities, and time distributions before using this for any decision.
+The default inputs are example values, chosen so the demo has a clear
+bottleneck (paint) and responsive run times. The opening defaults are 5
+replications, 300 minutes of settling, and a CONWIP limit of 20 vehicles.
+Swap in your own stations, capacities, and time distributions to model a
+real line.
 
 ### Stack
 
@@ -547,13 +545,11 @@ sit under **Bottleneck & capacity**; the timing-variability comparison sits unde
 **Compare two sets** keeps two editable copies of the line. Each set has a title
 used on the charts, tables, and downloads. A table above the editors lists only
 the settings that differ. After a run, the metrics that moved the most are
-overlaid densities of every replication, with a rug tick on each run. Throughput,
-lead time, WIP, output per operator-hour, bay occupancy, operator utilization,
-and active repair use the same density. A vertical line means that set did not
+overlaid histograms of every replication, with a dashed normal curve per set and
+a rug tick on each run. Throughput, lead time, WIP, HPU (labor hours per unit),
+bay occupancy, operator utilization, and active repair use the same chart. A vertical line means that set did not
 vary. CSV files there are the data behind those charts. The guided example fills
 this page with the 1-bay baseline and the 2-bay experiment.
-
-**All default numbers are placeholder example values**, not real plant data.
     ")
   )
 )

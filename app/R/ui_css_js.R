@@ -63,6 +63,8 @@ app_header_tags <- function() {
       font-weight: 500;
     }
     .run-settings summary { cursor: pointer; font-weight: 600; }
+    /* Single illustrative-results note under the guided example. */
+    .fine-print { font-size: 0.8rem; color: #1a1a1a; }
     /* Headline cards: every card fills its grid cell, so all four match. */
     #headline_kpis .bslib-grid { align-items: stretch; grid-auto-rows: 1fr; }
     #headline_kpis .kpi-nav-card { height: 100%; display: flex; }

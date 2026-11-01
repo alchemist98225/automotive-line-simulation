@@ -8,7 +8,7 @@ comparison_download_catalog <- function(ns) {
     h5("Data behind the charts"),
     p(
       class = "text-muted small",
-      "Each CSV stacks both parameter sets and every replication from the captured comparison. Results are illustrative only."
+      "Each CSV stacks both parameter sets and every replication from the captured comparison."
     ),
     entry(
       "dl_summaries", "Replication summaries",
@@ -323,7 +323,6 @@ comparison_page_ui <- function(id) {
       ")),
       h3("Compare two parameter sets"),
       p("Start from the main page, change one parameter at a time, and compare output and flow. The two sets stay independent of the main page after import. Each title is editable and is used on the charts, tables, and downloads."),
-      p("Results are illustrative only. They are not predictions for any employer."),
       uiOutput(ns("compare_progress")),
       div(
         class = "d-flex flex-wrap gap-2 mb-3 align-items-center",

@@ -73,7 +73,7 @@ for (label in c(
   "Staffing comparison", "WIP", "Queues", "Cycle time", "Station metrics",
   "Timing comparison", "Downloads", "640px", "clamp(520px, 60vh, 720px)",
   "gap: 0.5rem", "Run settings", "Compare two sets",
-  "Results are illustrative only", "Parameters", "Interstation buffers",
+  "Parameters", "Interstation buffers",
   "Failures & support", "Results", "View charts", "Run simulation",
   "Number of replications"
 )) stopifnot(page_has(label))
@@ -103,7 +103,10 @@ stopifnot(grepl("<details open", ui_html, fixed = TRUE) || grepl('<details open=
 stopifnot(page_has("Start here: guided example"))
 stopifnot(page_has("Try it"))
 stopifnot(page_has("Reset to defaults"))
-stopifnot(page_has("not a prediction for any real plant or company"))
+# The illustrative note appears once, under the guided example, and names no company.
+stopifnot(lengths(regmatches(ui_html, gregexpr("illustrative only", ui_html, fixed = TRUE))) == 1L)
+stopifnot(page_has("Results are illustrative only, based on example inputs."))
+stopifnot(!grepl("employer|company|DRI", ui_html))
 stopifnot(grepl("guided-example", ui_html, fixed = TRUE))
 stopifnot(grepl("lightbulb", ui_html) || grepl("Start here: guided example", ui_html, fixed = TRUE))
 stopifnot(page_has("fixed duration"))

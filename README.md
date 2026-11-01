@@ -6,7 +6,7 @@ Discrete-event simulation of a serial automotive manufacturing line, written in 
 
 The same engine drives a Shiny app, a Quarto document with `server: shiny`, and batch scripts. Operators, support work, and equipment reliability are part of the model. Charts and CSV exports use every replication.
 
-> **Placeholder example values.** Capacities, crew sizes, cycle times, MTBF/MTTR, and support-task times shipped here are examples chosen so the demo runs quickly and shows a paint-bay bottleneck candidate. They are not real plant data. Results are illustrative only and are not predictions for any employer. Replace them with measured station data before using any result to make a decision.
+> **Example values.** Capacities, crew sizes, cycle times, MTBF/MTTR, and support-task times shipped here are examples chosen so the demo runs quickly and shows a paint-bay bottleneck candidate. Replace them with your own station data to model a real line.
 
 ## Live demos
 
@@ -272,8 +272,7 @@ with no spread is a vertical line at that value. Occupancy stays inside 0–100%
 other non-negative metrics start at zero. Lead-time density curves pool every
 completed departure. WIP and queue charts draw every replication as a faint line,
 with a loess ribbon per set on that set's own time grid. Missing or no-completion
-metrics remain unavailable. Results are illustrative only and are not predictions
-for any employer.
+metrics remain unavailable.
 
 The throughput table gives 95% Student-t intervals for each set's mean. It does not
 provide a confidence interval for the difference. Equal base seeds do not establish
