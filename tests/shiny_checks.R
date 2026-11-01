@@ -458,24 +458,26 @@ one_shift <- tibble::tibble(shift = 1L, n_completed = c(48, 50, 51, 49, 52, 47))
 shift_built <- ggplot2::ggplot_build(e$shift_output_plot(one_shift, 53.3))
 shift_geoms <- vapply(shift_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
 shift_stats <- vapply(shift_built$plot$layers, function(layer) class(layer$stat)[1], character(1))
-stopifnot(any(shift_stats == "StatBin"), any(shift_geoms == "GeomDensity"), any(shift_geoms == "GeomRug"))
+stopifnot(any(shift_stats == "StatBin"), any(shift_geoms == "GeomLine"), any(shift_geoms == "GeomRug"))
+stopifnot(!any(shift_geoms == "GeomDensity"))
 stopifnot(any(shift_geoms == "GeomVline"))
 hist_layer <- shift_built$plot$layers[[which(shift_stats == "StatBin")[1]]]
 stopifnot(identical(hist_layer$aes_params$fill, "#41b6c4"))
-stopifnot(identical(hist_layer$aes_params$alpha, 0.55))
-dens_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomDensity")[1]]]
-stopifnot(identical(dens_layer$aes_params$colour, "#253494"))
-stopifnot(abs(dens_layer$aes_params$linewidth - 1.15) < 1e-8)
+stopifnot(identical(hist_layer$aes_params$alpha, 0.45))
+norm_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomLine")[1]]]
+stopifnot(identical(norm_layer$aes_params$colour, "#253494"))
+stopifnot(identical(norm_layer$aes_params$linetype, "dashed"))
+stopifnot(abs(norm_layer$aes_params$linewidth - 0.5) < 1e-8)
+stopifnot(identical(shift_built$plot$labels$y, "Replications"))
 hist_breaks <- hist_layer$stat_params$breaks
-stopifnot(length(hist_breaks) >= 2L, all(abs(diff(hist_breaks) - 1) < 1e-8))
-stopifnot(identical(e$shift_binwidth(one_shift$n_completed), 1L))
+stopifnot(length(hist_breaks) >= 2L, all(abs(diff(hist_breaks) - round(diff(hist_breaks))) < 1e-8))
+stopifnot(identical(e$shift_binwidth(one_shift$n_completed), 3L))
 stopifnot(e$shift_binwidth(c(1, 10, 40, 80)) > 1L)
 rug_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomRug")[1]]]
 stopifnot(abs(rug_layer$aes_params$alpha - 0.6) < 1e-8)
 stopifnot(abs(rug_layer$position$width - 0.15) < 1e-8)
 stopifnot(identical(rug_layer$position$height, 0))
 stopifnot(nrow(shift_built$data[[which(shift_geoms == "GeomRug")[1]]]) == nrow(one_shift))
-stopifnot(isFALSE(dens_layer$stat_params$trim))
 label_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomText")[1]]]
 stopifnot(label_layer$aes_params$hjust > 0.9)
 x_range <- shift_built$layout$panel_params[[1]]$x.range
@@ -487,7 +489,8 @@ stopifnot(any(grepl("53 vehicles", shift_labels, fixed = TRUE)))
 x_breaks <- shift_built$layout$panel_params[[1]]$x$breaks
 x_breaks <- x_breaks[is.finite(x_breaks)]
 stopifnot(length(x_breaks) >= 2L, all(abs(x_breaks - round(x_breaks)) < 1e-8))
-stopifnot(all(diff(sort(x_breaks)) %in% c(1, 2)))
+stopifnot(all(diff(sort(x_breaks)) %in% c(1, 2, 5, 10, 20)))
+stopifnot(identical(e$integer_shift_breaks(c(41, 55)), c(45, 50, 55)))
 stopifnot(grepl("ignoring labor", shift_built$plot$labels$caption, fixed = TRUE))
 stopifnot(grepl("blocking", shift_built$plot$labels$caption, fixed = TRUE))
 stopifnot(!grepl("\n", shift_built$plot$labels$caption, fixed = TRUE))

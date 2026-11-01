@@ -500,33 +500,21 @@ comparison_page_server <- function(id, main_params, active_page) {
         palette = palette()
       )
     })
+    # Pooled lead times use the same overlaid-histogram style as the
+    # "What changed most" charts: set colors, dashed normal curve, rug ticks.
     output$cycles <- renderPlot({
       df <- table_for("cycle_times") %>%
         filter(is.finite(cycle_time)) %>%
         mutate(set = factor(set, levels = names(palette())))
       validate(need(nrow(df) > 0, "No completed vehicles in either set."))
-      counts <- df %>% count(set)
-      xlim <- density_xlim(df$cycle_time, level = 0.95, bounds = c(0, Inf))
-      p <- ggplot(df, aes(x = cycle_time, fill = set, color = set))
-      if (all(counts$n >= 2)) {
-        p <- p + geom_density(alpha = 0.18, linewidth = 1, na.rm = TRUE)
-      } else {
-        p <- p + geom_histogram(position = "identity", alpha = 0.3, bins = 20)
-      }
-      p +
-        scale_fill_manual(values = palette(), drop = FALSE, name = NULL) +
-        scale_color_manual(values = palette(), drop = FALSE, name = NULL) +
-        sparse_x_continuous(percent = FALSE, n = 4L) +
-        coord_cartesian(xlim = xlim, clip = "off") +
-        labs(
-          x = "Vehicle lead time (min)",
-          y = "Density",
-          subtitle = "Pooled departures from every replication. Unfinished vehicles are excluded.",
-          caption = "x-axis shows the central 95% of values"
-        ) +
-        theme_sim(legend.position = "bottom") +
-        theme_plot_width_text() +
-        theme_minor_ticks()
+      comparison_densities(
+        df, "set", "cycle_time",
+        x_label = "Vehicle lead time (min)",
+        subtitle = "Pooled departures from every replication. Unfinished vehicles are excluded.",
+        percent = FALSE,
+        palette = palette()
+      ) +
+        labs(y = "Vehicles", caption = "x-axis shows the central 95% of values")
     })
     output$shift_output <- renderPlot({
       r <- results()

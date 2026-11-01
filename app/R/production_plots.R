@@ -14,14 +14,15 @@ theoretical_shift_capacity <- function(params) {
   cycle <- pmax(cycle, 1e-9)
   min(st$capacity * params$shift_length_min / cycle)
 }
-# Integer ticks, every vehicle on a short axis and every other vehicle after that.
+# Whole-vehicle ticks that scale with the axis: the smallest step from
+# 1, 2, 5, 10, 20, 50, ... that keeps about four or five ticks.
 integer_shift_breaks <- function(lims) {
   if (length(lims) < 2L || any(!is.finite(lims))) return(numeric())
-  lo <- floor(min(lims))
-  hi <- ceiling(max(lims))
-  if (hi < lo) return(numeric())
-  by <- if ((hi - lo) <= 10) 1L else 2L
-  seq(lo, hi, by = by)
+  span <- max(lims) - min(lims)
+  if (span <= 0) return(round(min(lims)))
+  steps <- as.vector(outer(c(1, 2, 5), 10^(0:6)))
+  by <- steps[which(span / steps <= 4)[1]]
+  seq(ceiling(min(lims) / by) * by, floor(max(lims) / by) * by, by = by)
 }
 # A long label to the right of a line near the right edge runs off the panel.
 # Right-align it so the text stays left of that line.
@@ -29,15 +30,23 @@ capacity_label_hjust <- function(cap, x_lo, x_hi) {
   if (!is.finite(cap) || !is.finite(x_lo) || !is.finite(x_hi) || cap >= (x_lo + x_hi) / 2) 1.08 else 0
 }
 capacity_label <- function(n) sprintf("Theoretical capacity: %.0f vehicles", round(n))
-# One vehicle per bar when the counts span about 20 or fewer. Wider spreads use
-# Freedman–Diaconis, rounded to a whole number of vehicles.
+# Same rule as the "What changed most" histograms: Freedman–Diaconis width,
+# falling back to about sqrt(n) bins when most reps tie, rounded to whole vehicles.
 shift_binwidth <- function(x) {
   x <- x[is.finite(x)]
   if (length(x) < 2L) return(1L)
-  if (diff(range(x)) <= 20) return(1L)
-  iqr <- stats::IQR(x)
-  bw <- if (!is.finite(iqr) || iqr <= 0) 1 else 2 * iqr / length(x)^(1 / 3)
+  bw <- 2 * stats::IQR(x) / length(x)^(1 / 3)
+  if (!is.finite(bw) || bw <= 0) bw <- diff(range(x)) / ceiling(sqrt(length(x)))
   max(1L, as.integer(round(bw)))
+}
+# Dashed normal curve per group, scaled to histogram counts (n * binwidth).
+shift_normal_df <- function(varying, group_cols, bw) {
+  varying %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(group_cols))) %>%
+    dplyr::reframe(
+      x = seq(min(n_completed), max(n_completed), length.out = 200),
+      y = stats::dnorm(x, mean(n_completed), stats::sd(n_completed)) * dplyr::n() * bw
+    )
 }
 # Bins centered on integers when the width is 1, so each vehicle count is one bar.
 # seq(from, to, by) stops before `to` when the next step would pass it. A wide
@@ -56,8 +65,8 @@ shift_hist_breaks <- function(x, bw) {
 # Same fill, outline, and line as the cycle-time chart. Comparison uses the set palette.
 shift_hist_fill <- "#41b6c4"
 shift_line_color <- "#253494"
-# Histogram of completed vehicles per shift, one row per replication, plus the
-# pooled density. A dashed line is theoretical bay capacity. Several shifts are
+# Histogram of completed vehicles per shift, one row per replication, plus a
+# dashed normal curve (same style as the "What changed most" charts). A dashed line is theoretical bay capacity. Several shifts are
 # faceted. Two parameter sets are overlaid in the title-aware palette.
 # Chart: Vehicles completed per shift (Results → Production schedule).
 shift_output_plot <- function(df, capacity, palette = NULL) {
@@ -79,8 +88,15 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
   }
   mean_out <- mean(df$n_completed)
   # One paragraph. A text box wraps it to the plot width instead of a fixed 32 characters.
-  caption <- "Each rug tick is one replication. The dashed line is theoretical vehicles per shift at the slowest station, ignoring labor, failures, support work, and blocking."
-  bw <- shift_binwidth(df$n_completed)
+  caption <- "Each rug tick is one replication, and the dashed curve is a normal fit. The dashed vertical line is theoretical vehicles per shift at the slowest station, ignoring labor, failures, support work, and blocking."
+  # Bin width comes from each set's (and shift's) own spread, not the pooled
+  # values: two far-apart sets would otherwise make one giant bin each.
+  grp <- intersect(c("set", "shift"), names(df))
+  bw <- df %>%
+    dplyr::group_by(dplyr::across(dplyr::all_of(grp))) %>%
+    dplyr::summarise(w = shift_binwidth(n_completed), .groups = "drop") %>%
+    dplyr::pull(w) %>%
+    min()
   breaks <- shift_hist_breaks(df$n_completed, bw)
   spread_ok <- function(x) {
     x <- x[is.finite(x)]
@@ -99,8 +115,10 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
     varying <- df %>% group_by(set, shift_label) %>% filter(spread_ok(n_completed)) %>% ungroup()
     p <- ggplot(df, aes(x = n_completed, fill = set)) +
       geom_histogram(
-        aes(y = after_stat(density)),
-        breaks = breaks, position = "identity", alpha = 0.55, colour = "white"
+        # Empty bins are dropped so no flat outline runs between the sets.
+        aes(y = after_stat(dplyr::na_if(count, 0)), colour = set),
+        breaks = breaks, position = "identity", alpha = 0.30, linewidth = 0.6,
+        na.rm = TRUE
       ) +
       geom_rug(
         aes(y = 0, colour = set),
@@ -111,11 +129,13 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
         show.legend = FALSE
       ) +
       scale_fill_manual(values = palette, drop = FALSE, name = NULL) +
-      scale_colour_manual(values = palette, drop = FALSE, name = NULL)
+      scale_colour_manual(values = palette, drop = FALSE, name = NULL) +
+      guides(fill = guide_legend(nrow = 1), colour = guide_legend(nrow = 1))
     if (nrow(varying)) {
-      p <- p + geom_density(
-        data = varying, aes(colour = set), linewidth = 1.15, trim = FALSE,
-        na.rm = TRUE, show.legend = FALSE
+      p <- p + geom_line(
+        data = shift_normal_df(varying, c("set", "shift_label"), bw),
+        aes(x = x, y = y, colour = set, group = set), inherit.aes = FALSE,
+        linetype = "dashed", linewidth = 0.5, show.legend = FALSE
       )
     }
     split_caps <- !is.null(cap_df) && nrow(cap_df) > 1L && diff(range(cap_df$capacity)) >= 0.5
@@ -165,8 +185,9 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
     varying <- df %>% group_by(shift_label) %>% filter(spread_ok(n_completed)) %>% ungroup()
     p <- ggplot(df, aes(x = n_completed)) +
       geom_histogram(
-        aes(y = after_stat(density)),
-        breaks = breaks, fill = shift_hist_fill, colour = "white", alpha = 0.55
+        aes(y = after_stat(dplyr::na_if(count, 0))),
+        breaks = breaks, fill = shift_hist_fill, colour = shift_line_color,
+        alpha = 0.45, linewidth = 0.6, na.rm = TRUE
       ) +
       geom_rug(
         aes(y = 0),
@@ -175,9 +196,10 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
         position = position_jitter(width = 0.15, height = 0, seed = 42)
       )
     if (nrow(varying)) {
-      p <- p + geom_density(
-        data = varying, colour = shift_line_color, linewidth = 1.15,
-        trim = FALSE, na.rm = TRUE
+      p <- p + geom_line(
+        data = shift_normal_df(varying, "shift_label", bw),
+        aes(x = x, y = y), inherit.aes = FALSE,
+        colour = shift_line_color, linetype = "dashed", linewidth = 0.5
       )
     }
     if (is.finite(cap_value)) {
@@ -199,11 +221,17 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
   x_hi <- max(c(df$n_completed, cap_value, if (!is.null(cap_df)) cap_df$capacity), na.rm = TRUE)
   p +
     scale_x_continuous(breaks = integer_shift_breaks) +
-    coord_cartesian(xlim = c(x_lo - 1.5, x_hi + 1.5), clip = "off") +
+    # Replication counts are whole numbers; the bar tops are never clipped.
+    scale_y_continuous(
+      breaks = function(l) { b <- pretty(l); b[abs(b - round(b)) < 1e-8] },
+      limits = c(0, NA), expand = expansion(mult = c(0, 0.08))
+    ) +
+    # Wide bins can start or end past the data, so the window also covers every bin.
+    coord_cartesian(xlim = c(min(x_lo - 1.5, min(breaks)), max(x_hi + 1.5, max(breaks))), clip = "off") +
     labs(
       title = title,
       x = "Completed vehicles per shift",
-      y = "Density",
+      y = "Replications",
       caption = caption
     ) +
     theme(
