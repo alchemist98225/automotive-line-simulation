@@ -61,11 +61,12 @@ format_highlight_mean <- function(x) {
   if (!is.finite(x)) return("unavailable")
   if (abs(x) >= 1) sprintf("%.1f", x) else formatC(signif(x, 2), format = "fg", digits = 2)
 }
-# Short enough to wrap inside a half-width chart at base size 16. Means follow
-# ridge order (top set, then lower set) and omit the full titles.
+# Per-plot subtitle: just the two means and the change. The shared reading
+# notes (rug ticks, no-spread line, normal curves, 95% window) sit once in
+# the section intro above the plots instead of on every chart.
 comparison_highlight_subtitle <- function(mean_1, mean_2, delta = NA_real_) {
   text <- sprintf(
-    "Rug ticks are every replication. A vertical line means no spread. Each curve is scaled to its own peak. Means %s then %s.",
+    "Baseline mean %s. Experiment mean %s.",
     format_highlight_mean(mean_1),
     format_highlight_mean(mean_2)
   )
@@ -81,7 +82,9 @@ comparison_highlight_plot <- function(df, x_label, subtitle, palette, percent = 
     df, "set", "value", x_label, subtitle,
     percent = percent, palette = palette,
     subtitle_width = 32L, bounds = bounds
-  )
+  ) +
+    # The 95% window note lives in the section intro, not on each chart.
+    labs(caption = NULL)
 }
 comparison_highlight_frame <- function(id) {
   h <- comparison_highlight_height

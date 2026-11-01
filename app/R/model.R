@@ -427,7 +427,7 @@ timing_label <- function(spec) {
 # Flat parameter table safe for CSV (timing specs become text, not list-columns).
 params_to_tibble <- function(params) {
   params <- params %>% normalize_params()
-  note <- "PLACEHOLDER EXAMPLE PARAMETERS — not real plant data"
+  note <- "Example parameters"
   run_cols <- tibble(sim_length_min=params$sim_length_min,n_replications=as.integer(params$n_replications),
     base_seed=as.integer(params$base_seed),warmup_min=params$warmup_min,arrival_mean_min=params$arrival_mean_min,
     time_mode=params$time_mode,shift_length_min=params$shift_length_min,n_shifts=params$n_shifts,
