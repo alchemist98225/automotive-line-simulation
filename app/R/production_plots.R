@@ -88,7 +88,7 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
   }
   mean_out <- mean(df$n_completed)
   # One paragraph. A text box wraps it to the plot width instead of a fixed 32 characters.
-  caption <- "Each rug tick is one replication, and the dashed curve is a normal fit. The dashed vertical line is theoretical vehicles per shift at the slowest station, ignoring labor, failures, support work, and blocking."
+  caption <- "The dashed curve is a normal fit. The dashed vertical line is theoretical vehicles per shift at the slowest station, ignoring labor, failures, support work, and blocking."
   # Bin width comes from each set's (and shift's) own spread, not the pooled
   # values: two far-apart sets would otherwise make one giant bin each.
   grp <- intersect(c("set", "shift"), names(df))
@@ -119,14 +119,6 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
         aes(y = after_stat(dplyr::na_if(count, 0)), colour = set),
         breaks = breaks, position = "identity", alpha = 0.30, linewidth = 0.6,
         na.rm = TRUE
-      ) +
-      geom_rug(
-        aes(y = 0, colour = set),
-        sides = "b",
-        alpha = 0.6,
-        length = grid::unit(0.03, "npc"),
-        position = position_jitter(width = 0.15, height = 0, seed = 42),
-        show.legend = FALSE
       ) +
       scale_fill_manual(values = palette, drop = FALSE, name = NULL) +
       scale_colour_manual(values = palette, drop = FALSE, name = NULL) +
@@ -188,12 +180,6 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
         aes(y = after_stat(dplyr::na_if(count, 0))),
         breaks = breaks, fill = shift_hist_fill, colour = shift_line_color,
         alpha = 0.45, linewidth = 0.6, na.rm = TRUE
-      ) +
-      geom_rug(
-        aes(y = 0),
-        sides = "b",
-        colour = shift_line_color, alpha = 0.6, length = grid::unit(0.03, "npc"),
-        position = position_jitter(width = 0.15, height = 0, seed = 42)
       )
     if (nrow(varying)) {
       p <- p + geom_line(

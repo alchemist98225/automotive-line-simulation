@@ -53,7 +53,7 @@ comparison_ridge_plot <- function(id, n_ridges) {
     plotOutput(id, height = paste0(h, "px"), width = "100%", fill = FALSE)
   )
 }
-# Overlaid densities for one ranked metric. Rug ticks are every replication.
+# Overlaid histograms for one ranked metric.
 # A set with no spread is a vertical line in that set's color.
 comparison_highlight_height <- 460L
 # One decimal at or above 1; two significant digits below 1 (0.000338 -> 0.00034).
@@ -62,7 +62,7 @@ format_highlight_mean <- function(x) {
   if (abs(x) >= 1) sprintf("%.1f", x) else formatC(signif(x, 2), format = "fg", digits = 2)
 }
 # Per-plot subtitle: just the two means and the change. The shared reading
-# notes (rug ticks, no-spread line, normal curves, 95% window) sit once in
+# notes (no-spread line, normal curves, 95% window) sit once in
 # the section intro above the plots instead of on every chart.
 comparison_highlight_subtitle <- function(mean_1, mean_2, delta = NA_real_) {
   text <- sprintf(
@@ -108,7 +108,11 @@ comparison_flow <- function(df, column, y_label, facet = NULL, palette = compari
     if (is.null(facet)) 1L else df[[facet]],
     drop = TRUE
   )
-  p <- ggplot(df, aes(x = time, y = .data[[column]], color = set, fill = set)) +
+  if (!"hours" %in% names(df) && "time" %in% names(df)) {
+    df <- dplyr::mutate(df, hours = .data$time / 60)
+  }
+  max_h <- max(df$hours, na.rm = TRUE)
+  p <- ggplot(df, aes(x = hours, y = .data[[column]], color = set, fill = set)) +
     geom_line(aes(group = .line), alpha = 0.12, linewidth = 0.4, na.rm = TRUE) +
     geom_smooth(
       aes(group = set),
@@ -117,8 +121,12 @@ comparison_flow <- function(df, column, y_label, facet = NULL, palette = compari
     ) +
     scale_color_manual(values = palette, drop = FALSE, name = NULL) +
     scale_fill_manual(values = palette, drop = FALSE, name = NULL) +
+    scale_x_continuous(
+      breaks = observation_hour_breaks(max_h),
+      expand = expansion(mult = c(0.01, 0.03))
+    ) +
     labs(
-      x = "Simulation time (min)",
+      x = "Hours since settling ended",
       y = y_label,
       subtitle = plot_subtitle("Faint lines = each replication; bold = loess + ribbon. Each set uses its own window.")
     ) +

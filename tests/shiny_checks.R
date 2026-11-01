@@ -73,10 +73,14 @@ for (label in c(
   "Staffing comparison", "WIP", "Queues", "Cycle time", "Station metrics",
   "Timing comparison", "Downloads", "640px", "clamp(520px, 60vh, 720px)",
   "gap: 0.5rem", "Run settings", "Compare two sets",
-  "Parameters", "Interstation buffers",
+  "Parameters", "Queue",
   "Failures & support", "Results", "View charts", "Run simulation",
-  "Number of replications"
+  "Number of replications",
+  "Import settings from Compare"
 )) stopifnot(page_has(label))
+stopifnot(grepl("results_context_bar", ui_html, fixed = TRUE) || grepl("import_results", app_tree_src(), fixed = TRUE))
+stopifnot(grepl("Hours since settling ended", app_tree_src(), fixed = TRUE))
+stopifnot(!grepl("geom_rug", app_tree_src(), fixed = TRUE))
 # Downloads stay on the Lead time & data page, not in the sidebar.
 stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
 # Simulate main body: slim status bar, then KPI boxes, then guided example.
@@ -343,34 +347,30 @@ density_xs <- function(built) {
   stopifnot(length(idx) >= 1L)
   dplyr::bind_rows(built$data[idx])
 }
-rug_rows <- function(built) {
+no_rug <- function(built) {
   geoms <- layer_geoms(built)
   stopifnot(!any(geoms == "GeomPoint"))
-  idx <- which(geoms == "GeomRug")
-  stopifnot(length(idx) == 1L)
-  built$data[[idx]]
+  stopifnot(!any(geoms == "GeomRug"))
 }
 for (d in list(ridge_zero, ridge_mixed)) {
   built <- ggplot2::ggplot_build(e$replication_densities(d, "group", "metric", "Downtime fraction", "check"))
   stopifnot(length(built$data) >= 1L)
-  rugs <- rug_rows(built)
-  stopifnot(nrow(rugs) == nrow(d))
+  no_rug(built)
 }
 built <- ggplot2::ggplot_build(e$replication_densities(ridge_zero, "group", "metric", "Downtime fraction", "check"))
 stopifnot(!any(layer_geoms(built) == "GeomLine"))
 stopifnot(any(layer_geoms(built) == "GeomVline"))
 built <- ggplot2::ggplot_build(e$replication_densities(ridge_mixed, "group", "metric", "Downtime fraction", "check"))
 stopifnot(any(layer_geoms(built) == "GeomLine"), any(layer_geoms(built) == "GeomVline"))
+no_rug(built)
 dens <- density_xs(built)
 stopifnot(min(dens$x, na.rm = TRUE) >= -1e-8, max(dens$x, na.rm = TRUE) <= 1 + 1e-6)
 palette <- c(Paint = "#d95f0e", Inspection = "#756bb1")
 built <- ggplot2::ggplot_build(e$replication_densities(
   ridge_mixed, "group", "metric", "Downtime fraction", "check", fill_values = palette
 ))
-rugs <- rug_rows(built)
-stopifnot(length(unique(rugs$colour)) >= 2L)
-stopifnot(all(unique(rugs$colour) %in% unname(palette)))
-# Each operator pool has its own color, and the rug uses that same color.
+no_rug(built)
+# Each operator pool keeps its own color on the dashed normal curve.
 # A station palette passed by mistake must not collapse both pools to one color
 # or warn that the manual scale shares no levels with the data.
 op <- tibble::tibble(
@@ -378,6 +378,7 @@ op <- tibble::tibble(
   avg_util = c(stats::rnorm(6, 0.25, 0.02), stats::rnorm(6, 0.55, 0.02))
 )
 built <- ggplot2::ggplot_build(e$replication_densities(op, "label", "avg_util", "Operator utilization", "pools"))
+no_rug(built)
 # The opaque line layer maps colour; the fill layer fixes colour to NA.
 line_idx <- which(vapply(seq_along(built$plot$layers), function(i) {
   layer_geoms(built)[[i]] == "GeomLine" && is.null(built$plot$layers[[i]]$aes_params$colour)
@@ -385,9 +386,6 @@ line_idx <- which(vapply(seq_along(built$plot$layers), function(i) {
 stopifnot(length(line_idx) == 1L)
 line_cols <- unique(built$data[[line_idx]]$colour)
 stopifnot(length(line_cols) == 2L)
-rugs <- rug_rows(built)
-stopifnot(setequal(unique(rugs$colour), line_cols))
-stopifnot(nrow(rugs) == nrow(op))
 built <- ggplot2::ggplot_build(e$replication_densities(
   op, "label", "avg_util", "Operator utilization", "pools", fill_values = e$station_colors
 ))
@@ -498,7 +496,8 @@ one_shift <- tibble::tibble(shift = 1L, n_completed = c(48, 50, 51, 49, 52, 47))
 shift_built <- ggplot2::ggplot_build(e$shift_output_plot(one_shift, 53.3))
 shift_geoms <- vapply(shift_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
 shift_stats <- vapply(shift_built$plot$layers, function(layer) class(layer$stat)[1], character(1))
-stopifnot(any(shift_stats == "StatBin"), any(shift_geoms == "GeomLine"), any(shift_geoms == "GeomRug"))
+stopifnot(any(shift_stats == "StatBin"), any(shift_geoms == "GeomLine"))
+stopifnot(!any(shift_geoms == "GeomRug"))
 stopifnot(!any(shift_geoms == "GeomDensity"))
 stopifnot(any(shift_geoms == "GeomVline"))
 hist_layer <- shift_built$plot$layers[[which(shift_stats == "StatBin")[1]]]
@@ -513,11 +512,8 @@ hist_breaks <- hist_layer$stat_params$breaks
 stopifnot(length(hist_breaks) >= 2L, all(abs(diff(hist_breaks) - round(diff(hist_breaks))) < 1e-8))
 stopifnot(identical(e$shift_binwidth(one_shift$n_completed), 3L))
 stopifnot(e$shift_binwidth(c(1, 10, 40, 80)) > 1L)
-rug_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomRug")[1]]]
-stopifnot(abs(rug_layer$aes_params$alpha - 0.6) < 1e-8)
-stopifnot(abs(rug_layer$position$width - 0.15) < 1e-8)
-stopifnot(identical(rug_layer$position$height, 0))
-stopifnot(nrow(shift_built$data[[which(shift_geoms == "GeomRug")[1]]]) == nrow(one_shift))
+stopifnot(grepl("dashed curve is a normal fit", shift_built$plot$labels$caption, fixed = TRUE))
+stopifnot(!grepl("rug", shift_built$plot$labels$caption, ignore.case = TRUE))
 label_layer <- shift_built$plot$layers[[which(shift_geoms == "GeomText")[1]]]
 stopifnot(label_layer$aes_params$hjust > 0.9)
 x_range <- shift_built$layout$panel_params[[1]]$x.range
@@ -626,7 +622,7 @@ shiny::testServer(e$server, {
   stopifnot(all(seq_len(base$params$n_replications) %in% exported$replication[exported$rank == 1]))
   diff <- e$comparison_diff(comp$runs[[1]]$params, comp$runs[[2]]$params, two_set_study$titles())
   stopifnot(nrow(diff) == 1L)
-  stopifnot(grepl("Paint", diff$Parameter), grepl("Parallel bays", diff$Parameter))
+  stopifnot(grepl("Paint", diff$Parameter), grepl("Capacity", diff$Parameter))
   stopifnot(identical(names(diff), c("Parameter", e$comparison_guided_labels)))
   cat("Guided comparison metrics:", paste(ranked$shown$label, collapse = " | "), "\n")
   # The result on screen is already 2 bays, so Try it cannot reuse it as the
@@ -672,3 +668,120 @@ cat("Guided example checks passed\n")
 cat("Manual-scale level-mismatch warnings:", length(scale_warns$msgs), "\n")
 stopifnot(length(scale_warns$msgs) == 0L)
 cat("Shiny server checks passed\n")
+
+# Flow-over-time hours axis and post-warm-up failure counts.
+shiny::testServer(e$server, {
+  res <- sim_result()
+  stopifnot("hours" %in% names(res$queue_timeseries), "hours" %in% names(res$wip_timeseries))
+  stopifnot(isTRUE(all.equal(min(res$queue_timeseries$hours), 0)))
+  stopifnot(isTRUE(all.equal(max(res$queue_timeseries$hours), (res$params$sim_length_min - res$params$warmup_min) / 60)))
+  wip_plot <- e$wip_timeseries_plot(res$wip_timeseries)
+  stopifnot(identical(wip_plot$labels$x, "Hours since settling ended"))
+  built <- ggplot2::ggplot_build(wip_plot)
+  stopifnot(max(built$layout$panel_params[[1]]$x.range, na.rm = TRUE) >= 7.5)
+  # Observed failures in the reliability table exclude warm-up onsets.
+  w <- res$params$warmup_min; h <- res$params$sim_length_min
+  window_n <- res$failure_events %>%
+    dplyr::filter(is.finite(time), time >= w, time < h) %>%
+    nrow()
+  all_n <- nrow(res$failure_events)
+  stopifnot(window_n <= all_n)
+  stopifnot(sum(res$downtime_by_rep$n_repairs) == window_n)
+})
+# Import-from-Compare choice labels: Baseline/Experiment (not "Set 1 (Set 1)").
+stopifnot(identical(as.character(e$comparison_default_labels), c("Set 1", "Set 2")))
+# Helper lives inside server; mirror the label rule here for a unit check.
+compare_import_choice_labels_check <- function(titles, defaults = e$comparison_default_labels) {
+  titles <- as.character(titles[1:2])
+  defaults <- as.character(defaults[1:2])
+  labs <- c(
+    if (identical(titles[[1]], defaults[[1]])) "Baseline" else paste0("Baseline: ", titles[[1]]),
+    if (identical(titles[[2]], defaults[[2]])) "Experiment" else paste0("Experiment: ", titles[[2]])
+  )
+  stats::setNames(c("1", "2"), labs)
+}
+stopifnot(identical(
+  names(compare_import_choice_labels_check(c("Set 1", "Set 2"))),
+  c("Baseline", "Experiment")
+))
+stopifnot(identical(
+  names(compare_import_choice_labels_check(c("One paint", "Two paint"))),
+  c("Baseline: One paint", "Experiment: Two paint")
+))
+cat("Import choice label checks passed\n")
+
+# Import results from Compare without rerunning; preserve Set 2 selection.
+shiny::testServer(e$server, {
+  session$setInputs(n_reps = 1, main_page = "compare_sets")
+  # Front-door box keeps both editors at one replication for a fast pair.
+  session$setInputs(`two_set_study-shared_reps` = 1)
+  invisible(two_set_study$draft())
+  session$setInputs(`two_set_study-run` = 1)
+  r <- two_set_study$results()
+  stopifnot(!is.null(r), length(r$runs) == 2L)
+  stopifnot(identical(as.integer(r$params[[1]]$n_replications), 1L))
+  titles <- two_set_study$titles()
+  # (a) Default titles → Baseline / Experiment labels on Results bar.
+  session$setInputs(main_page = "results_flow")
+  ch <- compare_set_choices()
+  stopifnot(identical(unname(ch), c("1", "2")))
+  stopifnot(identical(names(ch), c("Baseline", "Experiment")))
+  # Avoid the old "Set 1 (Set 1)" style.
+  stopifnot(!any(grepl("Set 1 (Set 1)", names(ch), fixed = TRUE)))
+
+  session$setInputs(import_results_set = "2")
+  stopifnot(identical(import_results_selection(), "2"))
+  session$setInputs(import_results_compare = 1)
+  shown <- sim_result()
+  stopifnot(e$comparison_same(shown$params, r$runs[[2]]$params))
+  disp <- results_display()
+  stopifnot(identical(disp$kind, "compare"), identical(disp$label, titles[[2]]))
+  # (b) After import, selection stays on Set 2 (not snapped back to 1).
+  stopifnot(identical(import_results_selection(), "2"))
+  # Re-render the bar; selected must still be 2.
+  session$setInputs(main_page = "results_capacity")
+  session$setInputs(main_page = "results_flow")
+  stopifnot(identical(import_results_selection(), "2"))
+  ch2 <- compare_set_choices()
+  stopifnot(identical(names(ch2), c("Baseline", "Experiment")))
+
+  # Parameters page: empty-state still renders disabled controls + hint before Compare visit
+  # (card is always present in UI; here draft exists so ready=TRUE). Import Set 1.
+  session$setInputs(main_page = "parameters", import_params_set = "1")
+  stopifnot(identical(import_params_selection(), "1"))
+  pch <- compare_set_choices()
+  stopifnot(identical(names(pch), c("Baseline", "Experiment")))
+  session$setInputs(import_params_compare = 1)
+  stopifnot(grepl(titles[[1]], params_import_note(), fixed = TRUE))
+  stopifnot(identical(import_params_selection(), "1"))
+  # Switch selection to 2 and confirm it sticks across a page bounce.
+  session$setInputs(import_params_set = "2")
+  stopifnot(identical(import_params_selection(), "2"))
+  session$setInputs(main_page = "simulate")
+  session$setInputs(main_page = "parameters")
+  stopifnot(identical(import_params_selection(), "2"))
+})
+# Parameters import card is always present in UI (not an empty shell).
+params_ui_src <- paste(readLines("app/R/ui_pages.R"), collapse = "\n")
+stopifnot(grepl("params_import_compare", params_ui_src, fixed = TRUE))
+stopifnot(grepl("uiOutput(\"params_import_compare_ui\")", params_ui_src, fixed = TRUE))
+server_src <- paste(readLines("app/R/server_main.R"), collapse = "\n")
+stopifnot(grepl("disabled = !ready", server_src, fixed = TRUE))
+stopifnot(grepl("Open Compare two sets once", server_src, fixed = TRUE))
+stopifnot(grepl("import_params_selection", server_src, fixed = TRUE))
+stopifnot(grepl("import_results_selection", server_src, fixed = TRUE))
+stopifnot(grepl('"Baseline"', server_src, fixed = TRUE))
+stopifnot(grepl('"Experiment"', server_src, fixed = TRUE))
+# Fresh session: Parameters import UI renders controls (hint or ready).
+shiny::testServer(e$server, {
+  session$setInputs(main_page = "parameters")
+  # Access renderUI value the way testServer exposes it.
+  ui_val <- output$params_import_compare_ui
+  ui_txt <- paste(as.character(ui_val), collapse = " ")
+  stopifnot(grepl("import_params_set", ui_txt, fixed = TRUE) || grepl("Compare set", ui_txt, fixed = TRUE))
+  stopifnot(grepl("Import settings", ui_txt, fixed = TRUE))
+  ch <- compare_set_choices()
+  stopifnot(identical(names(ch), c("Baseline", "Experiment")))
+})
+cat("Hours axis and Compare-import checks passed\n")
+

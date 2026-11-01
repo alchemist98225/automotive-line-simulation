@@ -59,7 +59,10 @@ ui <- page_navbar(
     "navbar-bg" = "#1b4f72"
   ),
   # plotOutput cannot take clamp() directly. This overrides the 640px fallback.
-  header = app_header_tags(),
+  header = tagList(
+    app_header_tags(),
+    uiOutput("results_context_bar")
+  ),
   fillable = FALSE,
 
   simulate_page_ui(),

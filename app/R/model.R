@@ -361,6 +361,7 @@ time_grid <- function(params) {
 }
 build_queue_timeseries <- function(resources_ts,params,reps=NULL) {
   grid <- time_grid(params)
+  hours <- (grid - params$warmup_min) / 60
   if(is.null(reps)) reps <- resources_ts %>% distinct(replication,seed)
   rows <- vector("list",nrow(reps)*nrow(params$stations))
   k <- 0L
@@ -370,6 +371,7 @@ build_queue_timeseries <- function(resources_ts,params,reps=NULL) {
       d <- res_r %>% filter(resource==st) %>% arrange(time)
       k <- k+1L
       rows[[k]] <- tibble(replication=reps$replication[[i]],seed=reps$seed[[i]],resource=st,time=grid,
+        hours=hours,
         queue=coalesce(resample_step(d$time,d$queue,grid),0),
         server=coalesce(resample_step(d$time,d$server,grid),0))
     }
@@ -379,6 +381,7 @@ build_queue_timeseries <- function(resources_ts,params,reps=NULL) {
 # Vehicle-in-system WIP on the same grid. A vehicle counts once, matching avg_wip.
 build_wip_timeseries <- function(arrivals,reps,params) {
   grid <- time_grid(params)
+  hours <- (grid - params$warmup_min) / 60
   bind_rows(lapply(seq_len(nrow(reps)),function(i) {
     a <- arrivals %>% filter(replication==reps$replication[[i]])
     if (nrow(a)==0) wip <- rep(0,length(grid)) else {
@@ -387,10 +390,12 @@ build_wip_timeseries <- function(arrivals,reps,params) {
       # count(start<=t) - count(end<=t) == vehicles with start<=t and end>t
       wip <- findInterval(grid,sort(a$start_time)) - findInterval(grid,sort(end_eff))
     }
-    tibble(replication=reps$replication[[i]],seed=reps$seed[[i]],time=grid,wip=wip)
+    tibble(replication=reps$replication[[i]],seed=reps$seed[[i]],time=grid,hours=hours,wip=wip)
   }))
 }
 # Machine-time down inside the observation window, from sampled repair durations.
+# Minutes that straddle the settling boundary are clipped to the window.
+# n_repairs counts failures that start inside the window (not warm-up starts).
 build_downtime <- function(repairs,reps,params,failures=NULL) {
   warmup <- params$warmup_min; horizon <- params$sim_length_min; window <- horizon-warmup
   caps <- params$stations %>% transmute(station=name,capacity=capacity)
@@ -401,7 +406,21 @@ build_downtime <- function(repairs,reps,params,failures=NULL) {
   ov <- repairs %>%
     mutate(overlap=pmax(0,pmin(time+duration,horizon)-pmax(time,warmup))) %>%
     group_by(replication,station) %>%
-    summarise(downtime_min=sum(overlap),n_repairs=sum(overlap>0),.groups="drop")
+    summarise(downtime_min=sum(overlap),.groups="drop")
+  # Observed failures / repairs: onset inside [warmup, horizon).
+  if (!is.null(failures) && nrow(failures) > 0) {
+    nf <- failures %>%
+      filter(is.finite(time), time >= warmup, time < horizon) %>%
+      group_by(replication, station) %>%
+      summarise(n_repairs = dplyr::n(), .groups = "drop")
+  } else if (nrow(repairs) > 0) {
+    nf <- repairs %>%
+      filter(is.finite(time), time >= warmup, time < horizon) %>%
+      group_by(replication, station) %>%
+      summarise(n_repairs = dplyr::n(), .groups = "drop")
+  } else {
+    nf <- tibble(replication = integer(), station = character(), n_repairs = integer())
+  }
   if(!is.null(failures)) {
     down<-failures %>% left_join(repairs %>% transmute(replication,failure_id,repair_end=time+duration),by=c("replication","failure_id")) %>%
       mutate(overlap=pmax(0,pmin(coalesce(repair_end,horizon),horizon)-pmax(time,warmup))) %>%
@@ -409,6 +428,7 @@ build_downtime <- function(repairs,reps,params,failures=NULL) {
     grid<-grid %>% left_join(down,by=c("replication","station"))
   } else grid$total_downtime_min<-NA_real_
   grid %>% left_join(ov,by=c("replication","station")) %>%
+    left_join(nf, by = c("replication", "station")) %>%
     mutate(downtime_min=replace_na(downtime_min,0),
            n_repairs=as.integer(replace_na(n_repairs,0)),
            downtime_fraction=downtime_min/(capacity*window),
@@ -505,11 +525,12 @@ production_shift_metrics <- function(orders,reps,params) {
 }
 build_release_timeseries <- function(orders,reps,params) {
   grid<-time_grid(params)
+  hours <- (grid - params$warmup_min) / 60
   map2_dfr(reps$replication,reps$seed,function(id,seed) {
     a<-orders[orders$replication==id,]
     due<-findInterval(grid,sort(a$order_time));released<-findInterval(grid,sort(na.omit(a$release_time)))
     finished<-findInterval(grid,sort(a$end_time[a$finished]))
-    tibble(replication=id,seed=seed,time=grid,unreleased_backlog=due-released,wip=released-finished,
+    tibble(replication=id,seed=seed,time=grid,hours=hours,unreleased_backlog=due-released,wip=released-finished,
       cumulative_orders=due,cumulative_releases=released,cumulative_completions=finished)
   })
 }

@@ -58,9 +58,9 @@ The Shiny defaults are one 480-minute measured shift after 300 minutes of settli
 - Equipment failures with per-station MTBF/MTTR and a shared repair crew.
 - Fixed, distribution, or empirical activity timing, plus a variability comparison that holds expected task time constant.
 - Staffing comparison: current crews, one extra operator on the first or last team, and the same headcount in one shared team, with a 95% Student-t interval for mean throughput.
-- All-replication charts: a bay-occupancy boxplot with one point per replication; operator-utilization and downtime densities overlaid by category, with a rug tick per replication and a vertical line when every replication is identical; faint queue and WIP lines with a loess ribbon; faint per-replication cycle-time densities plus the pooled density.
+- All-replication charts: a bay-occupancy boxplot with one point per replication; operator-utilization and downtime densities overlaid by category, with a vertical line when every replication is identical; faint queue and WIP lines with a loess ribbon; faint per-replication cycle-time densities plus the pooled density.
 - CSV download for each table and a **Download all (zip)** bundle.
-- **Compare two sets:** two independently editable parameter snapshots, imported from the main controls. Charts use every replication. Summary metrics, bay occupancy, operator utilization, and active repair are overlaid densities with a rug tick per replication. CSV files sit with the comparison tables.
+- **Compare two sets:** two independently editable parameter snapshots, imported from the main controls. Charts use every replication. Summary metrics, bay occupancy, operator utilization, and active repair are overlaid histograms. CSV files sit with the comparison tables.
 - Self-contained `app/` and `quarto/` directories, each publishable with `rsconnect`.
 
 ## KPIs
@@ -73,8 +73,8 @@ The Shiny defaults are one 480-minute measured shift after 300 minutes of settli
 | Average WIP | Time-weighted vehicles in the system, counted once. The time series is that count on the grid |
 | Queue length | Time-weighted bay queue, and queue over time for every replication |
 | Bay occupancy | Time-weighted busy bays / capacity. The chart is a horizontal boxplot with one point per replication, in the station's color |
-| Operator utilization | Time-weighted busy operators / pool size. The chart is an overlaid density across replications, with a rug tick per run and a vertical line when every replication matches |
-| Downtime fraction | Repair machine-time in the window / (capacity × window). The chart is an overlaid density across replications, with a rug tick per run and a vertical line when every replication matches |
+| Operator utilization | Time-weighted busy operators / pool size. The chart is an overlaid density across replications, with a vertical line when every replication matches |
+| Downtime fraction | Repair machine-time in the window / (capacity × window). The chart is an overlaid density across replications, with a vertical line when every replication matches |
 | Bottleneck candidate | Station with the highest mean bay occupancy |
 
 ### Example plots
@@ -267,7 +267,7 @@ Blue is Set 1 and orange is Set 2 throughout the comparison, including when the
 titles are renamed. Headline cards report means, the descriptive Set 2 minus Set 1
 difference, and percent change where the baseline is nonzero. Throughput, mean lead
 time, WIP, output per operator-hour, bay occupancy, operator utilization, and active
-repair fraction are overlaid densities with a rug tick for every replication. A set
+repair fraction are overlaid densities for every replication. A set
 with no spread is a vertical line at that value. Occupancy stays inside 0–100%, and
 other non-negative metrics start at zero. Lead-time density curves pool every
 completed departure. WIP and queue charts draw every replication as a faint line,

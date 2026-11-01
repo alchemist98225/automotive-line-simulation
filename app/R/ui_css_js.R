@@ -6,6 +6,21 @@
 app_header_tags <- function() {
   tagList(
     tags$style(HTML("
+
+    .results-context-bar {
+      background: #eef6fb;
+      border-bottom: 1px solid #9ecae1;
+      color: #1a1a1a;
+      padding: 0.55rem 1rem;
+    }
+    .results-context-bar .form-label { color: #1a1a1a; font-weight: 600; }
+    .results-context-showing {
+      font-weight: 700;
+      color: #0a2540;
+      margin-right: 0.75rem;
+    }
+    .results-context-hint { color: #1a1a1a; font-size: 0.9rem; }
+
     .shiny-plot-output {
       width: 100% !important;
       height: clamp(520px, 60vh, 720px) !important;

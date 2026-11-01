@@ -111,7 +111,7 @@ shiny::testServer(e$comparison_page_server,args=list(main_params=shiny::reactive
   stopifnot(dirty(),results()$params[[2]]$stations$capacity[2]==1,one$params()$stations$capacity[2]==1)
   session$flushReact()
   diff_one <- paste(as.character(output$draft_diff), collapse = "")
-  stopifnot(grepl("Paint", diff_one, fixed = TRUE), grepl("Parallel bays", diff_one, fixed = TRUE))
+  stopifnot(grepl("Paint", diff_one, fixed = TRUE), grepl("Capacity", diff_one, fixed = TRUE))
   stopifnot(!grepl(e$comparison_identical_note, diff_one, fixed = TRUE))
   session$setInputs(title_one = "Alpha line", title_two = "Beta line")
   session$flushReact()
@@ -213,7 +213,7 @@ built <- ggplot2::ggplot_build(e$comparison_densities(
 ))
 stopifnot(length(built$data) >= 1L)
 rain_geoms <- vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-stopifnot(any(rain_geoms == "GeomBar"), any(rain_geoms == "GeomLine"), any(rain_geoms == "GeomVline"), any(rain_geoms == "GeomRug"))
+stopifnot(any(rain_geoms == "GeomBar"), any(rain_geoms == "GeomLine"), any(rain_geoms == "GeomVline"), !any(rain_geoms == "GeomRug"))
 # The normal-curve overlay is a thin dashed line.
 rain_line <- built$plot$layers[[which(rain_geoms == "GeomLine")[1]]]
 stopifnot(identical(rain_line$aes_params$linetype, "dashed"), rain_line$aes_params$linewidth <= 0.6)
@@ -246,12 +246,10 @@ flat <- tibble::tibble(
 layer_geoms <- function(built) {
   vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
 }
-rug_colours <- function(built) {
+assert_no_rug <- function(built) {
   geoms <- layer_geoms(built)
   stopifnot(!any(geoms == "GeomPoint"))
-  idx <- which(geoms == "GeomRug")
-  stopifnot(length(idx) == 1L)
-  built$data[[idx]]
+  stopifnot(!any(geoms == "GeomRug"))
 }
 built <- ggplot2::ggplot_build(e$comparison_densities(
   flat, "station", "downtime_fraction", "Active repair fraction", "check", percent = TRUE
@@ -259,11 +257,11 @@ built <- ggplot2::ggplot_build(e$comparison_densities(
 stopifnot(length(built$data) >= 1L)
 stopifnot(!any(layer_geoms(built) == "GeomLine"))
 stopifnot(any(layer_geoms(built) == "GeomVline"))
+assert_no_rug(built)
 flat_text <- dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomText")])
 stopifnot(nrow(flat_text) >= 1L, all(flat_text$label == "No spread"))
-flat_rug <- rug_colours(built)
-stopifnot(nrow(flat_rug) == nrow(flat))
-stopifnot(all(c("#2474A5", "#D46B25") %in% unique(flat_rug$colour)))
+flat_cols <- unique(dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomVline")])$colour)
+stopifnot(all(c("#2474A5", "#D46B25") %in% flat_cols))
 mixed <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 8),
   station = rep(rep(c("Paint", "Inspection"), each = 4), 2),
@@ -274,11 +272,11 @@ built <- ggplot2::ggplot_build(e$comparison_densities(
 ))
 stopifnot(length(built$data) >= 1L)
 stopifnot(any(layer_geoms(built) == "GeomLine"), any(layer_geoms(built) == "GeomVline"))
-mixed_rug <- rug_colours(built)
-stopifnot(nrow(mixed_rug) == nrow(mixed))
-stopifnot(all(c("#2474A5", "#D46B25") %in% unique(mixed_rug$colour)))
+assert_no_rug(built)
 mixed_dens <- dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomLine")])
 stopifnot(min(mixed_dens$x, na.rm = TRUE) >= -1e-8, max(mixed_dens$x, na.rm = TRUE) <= 1 + 1e-6)
+mixed_cols <- unique(mixed_dens$colour)
+stopifnot(all(c("#2474A5", "#D46B25") %in% mixed_cols))
 # Set colors stay on the set levels. A station-name palette must not be required.
 cmp_warns <- character()
 cmp <- tibble::tibble(
@@ -338,13 +336,13 @@ one_params <- base_params
 one_params$stations$capacity[one_params$stations$name == "paint"] <- 2L
 one_diff <- e$comparison_diff(base_params, one_params, e$comparison_guided_labels)
 stopifnot(nrow(one_diff) == 1L)
-stopifnot(grepl("Paint", one_diff$Parameter), grepl("Parallel bays", one_diff$Parameter))
+stopifnot(grepl("Paint", one_diff$Parameter), grepl("Capacity", one_diff$Parameter))
 stopifnot(identical(names(one_diff), c("Parameter", e$comparison_guided_labels)))
 stopifnot(one_diff[[2]] != one_diff[[3]])
 one_html <- paste(as.character(e$comparison_diff_table(base_params, one_params, e$comparison_guided_labels)), collapse = "")
 stopifnot(grepl("Baseline: 1 paint bay", one_html, fixed = TRUE))
 stopifnot(grepl("Experiment: 2 paint bays", one_html, fixed = TRUE))
-stopifnot(grepl("Parallel bays", one_html, fixed = TRUE))
+stopifnot(grepl("Capacity", one_html, fixed = TRUE))
 stopifnot(!grepl(e$comparison_identical_note, one_html, fixed = TRUE))
 multi_params <- one_params
 multi_params$arrival_mean_min <- 5
@@ -360,8 +358,8 @@ stopifnot(any(grepl("Number of measured shifts", multi$Parameter, fixed = TRUE))
 stopifnot(any(grepl("Admission policy", multi$Parameter, fixed = TRUE)))
 stopifnot(any(grepl("Order spacing", multi$Parameter, fixed = TRUE)))
 stopifnot(any(grepl("Entrance waiting positions", multi$Parameter, fixed = TRUE)))
-stopifnot(any(grepl("Incoming waiting positions", multi$Parameter, fixed = TRUE)))
-stopifnot(any(grepl("Parallel bays", multi$Parameter, fixed = TRUE)))
+stopifnot(any(grepl("Queue", multi$Parameter, fixed = TRUE)))
+stopifnot(any(grepl("Capacity", multi$Parameter, fixed = TRUE)))
 policy <- multi[multi$Parameter == "Admission policy", ]
 stopifnot(nrow(policy) == 1L)
 stopifnot(any(grepl("Entrance space", as.character(unlist(policy)))))
@@ -442,16 +440,16 @@ plot_df <- tibble::tibble(
 )
 built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
   plot_df, "Mean queue (vehicles)",
-  "One density per set. Rug ticks are every replication.",
+  "One histogram per set.",
   pal, percent = FALSE
 ))
 geoms <- vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
 stopifnot(any(geoms == "GeomLine"))
 stopifnot(!any(geoms == "GeomPoint"))
+stopifnot(!any(geoms == "GeomRug"))
 stopifnot(identical(built$plot$theme$text$size, 16))
-rug <- built$data[[which(geoms == "GeomRug")]]
-stopifnot(nrow(rug) >= 16L)
-stopifnot(all(c("#2474A5", "#D46B25") %in% unique(rug$colour)))
+line_cols <- unique(dplyr::bind_rows(built$data[which(geoms == "GeomLine")])$colour)
+stopifnot(all(c("#2474A5", "#D46B25") %in% line_cols))
 sub <- e$comparison_highlight_subtitle(0.000338, 3.998, 3.998 - 0.000338)
 sub_lines <- strsplit(sub, "\n", fixed = TRUE)[[1]]
 # The highlight plot wraps this subtitle at 32 characters for a 390px card.

@@ -12,7 +12,7 @@ comparison_guided_labels <- c("Baseline: 1 paint bay", "Experiment: 2 paint bays
 comparison_label_max <- 60L
 comparison_highlight_n <- 4L
 comparison_identical_note <- "The two sets have identical settings."
-comparison_activities <- c(load="Loading",auto="Automatic processing",unload="Unloading",task="Support work")
+comparison_activities <- c(load="Load",auto="Auto",unload="Unload",task="Support")
 comparison_globals <- c(shift_length_min="Shift duration (production minutes)",n_shifts="Number of measured shifts",warmup_min="Initial settling period (min)",
   n_replications="Simulation runs",base_seed="Base seed",planned_rate="Planned work rate (vehicles/hour)",entry_buffer="Entrance waiting positions",wip_limit="Maximum WIP (CONWIP)",
   grid_dt_min="Time-series interval (min)",repair_technicians="Repair technicians")
@@ -30,7 +30,7 @@ comparison_flatten <- function(p) {
   stations <- map_dfr(seq_len(nrow(p$stations)),function(i) {
     st <- p$stations[i,]
     cols <- c("capacity","buffer_before","operator_pool","mtbf_min","mttr_min","task_interval_min","task_every_n")
-    bind_rows(tibble(parameter=paste(label_station(st$name),c("Parallel bays","Incoming waiting positions","Operator pool","Mean up-time (min)","Mean repair (min)","Task interval (min)","Task every N units"),sep=" / "),value=map_chr(cols,~scalar(st[[.x]]))),
+    bind_rows(tibble(parameter=paste(label_station(st$name),c("Capacity","Queue","Operator pool","MTBF","MTTR","Support interval","Every N"),sep=" / "),value=map_chr(cols,~scalar(st[[.x]]))),
       tibble(parameter=paste(label_station(st$name),unname(comparison_activities),sep=" / "),
         value=map_chr(names(comparison_activities),~timing(activity_timing(st,.x)))))
   })
@@ -93,7 +93,7 @@ comparison_display_value <- function(parameter, value) {
     hit <- unname(labels[value])
     return(if (length(hit) == 1L && !is.na(hit)) hit else value)
   }
-  if (grepl("Incoming waiting positions", parameter, fixed = TRUE) && value %in% c("Inf", "inf")) {
+  if (grepl("Queue", parameter, fixed = TRUE) && value %in% c("Inf", "inf")) {
     return("Unlimited")
   }
   value
@@ -379,10 +379,10 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
       method_id <- key(paste0(prefix,"_method"))
       mean_value <- if(spec$method=="empirical") mean(spec$observations) else spec$mean_min
       tagList(
-        selectInput(ns(paste0(prefix,"_method")),"Timing method",
+        selectInput(ns(paste0(prefix,"_method")),"Method",
           c("Fixed"="fixed","Distribution"="distribution","Measured observations"="empirical"),selected=spec$method),
         conditionalPanel(sprintf("input['%s'] !== 'empirical'",method_id),ns=session$ns,
-          numericInput(ns(paste0(prefix,"_mean")),"Duration / mean (min)",mean_value,min=0,step=.1)),
+          numericInput(ns(paste0(prefix,"_mean")),"Mean",mean_value,min=0,step=.1)),
         conditionalPanel(sprintf("input['%s'] === 'distribution'",method_id),ns=session$ns,
           selectInput(ns(paste0(prefix,"_distribution")),"Distribution",c("Normal, floored at zero"="normal","Lognormal"="lognormal","Exponential"="exponential"),
             selected=if(spec$method=="distribution") spec$distribution else "normal"),
@@ -406,23 +406,27 @@ parameter_editor_server <- function(id) moduleServer(id,function(input,output,se
           if(pool %in% p$operators$pool) p$operators$count[match(pool,p$operators$pool)] else 0,min=0,step=1))),
         tagList(map(seq_len(nrow(p$stations)),function(i) selectInput(ns(paste0("assignment_",p$stations$name[i])),
           paste(label_station(p$stations$name[i]),"operator pool"),choices=c("No labor constraint"="",setNames(pools,pools)),selected=if(is.na(p$stations$operator_pool[i])) "" else p$stations$operator_pool[i])))),
-      accordion_panel("Stations & activity timing",tagList(map(seq_len(nrow(p$stations)),function(i) {
+      accordion_panel("Stations & activity timing",
+        p("Capacity is parallel bays. Queue is vehicles that can wait before the station. Timing values are mean minutes (Load / Auto / Unload / Support)."),
+        tagList(map(seq_len(nrow(p$stations)),function(i) {
         st <- p$stations[i,]
         accordion(open=FALSE,multiple=TRUE,accordion_panel(label_station(st$name),
-          numericInput(ns(paste0("capacity_",st$name)),"Parallel bays",st$capacity,min=1,step=1),
-          if(i>1) numericInput(ns(paste0("buffer_",st$name)),"Incoming waiting positions",if(is.finite(st$buffer_before)) st$buffer_before else 3,min=0,step=1),
+          numericInput(ns(paste0("capacity_",st$name)),"Capacity",st$capacity,min=1,step=1),
+          if(i>1) numericInput(ns(paste0("buffer_",st$name)),"Queue",if(is.finite(st$buffer_before)) st$buffer_before else 3,min=0,step=1),
           accordion(open=FALSE,multiple=TRUE,!!!map(names(comparison_activities),function(a)
             accordion_panel(comparison_activities[[a]],activity_ui(st,a))))))
       }))),
-      accordion_panel("Reliability & support triggers",tagList(map(seq_len(nrow(p$stations)),function(i) {
+      accordion_panel("Reliability & support triggers",
+        p("MTBF / MTTR are mean minutes. MTTR of 0 disables failures. Support interval is mean minutes; Every N of 0 uses a random exponential interval."),
+        tagList(map(seq_len(nrow(p$stations)),function(i) {
         st <- p$stations[i,]; n <- st$name
         tagList(h6(label_station(n)),
           checkboxInput(ns(paste0("failures_",n)),"Equipment failures",is.finite(st$mtbf_min) && st$mttr_min>0),
-          numericInput(ns(paste0("mtbf_",n)),"Mean up-time (min)",if(is.finite(st$mtbf_min)) st$mtbf_min else 10000,min=.001),
-          numericInput(ns(paste0("mttr_",n)),"Mean active repair (min; 0 disables)",st$mttr_min,min=0),
-          checkboxInput(ns(paste0("support_",n)),"Support work enabled",timing_mean(activity_timing(st,"task"))>0 && (st$task_every_n>0 || is.finite(st$task_interval_min))),
-          numericInput(ns(paste0("interval_",n)),"Random task mean interval (min)",if(is.finite(st$task_interval_min)) st$task_interval_min else 60,min=.001),
-          numericInput(ns(paste0("every_",n)),"Task every N completions (0 = random)",st$task_every_n,min=0,step=1))
+          numericInput(ns(paste0("mtbf_",n)),"MTBF",if(is.finite(st$mtbf_min)) st$mtbf_min else 10000,min=.001),
+          numericInput(ns(paste0("mttr_",n)),"MTTR",st$mttr_min,min=0),
+          checkboxInput(ns(paste0("support_",n)),"Support enabled",timing_mean(activity_timing(st,"task"))>0 && (st$task_every_n>0 || is.finite(st$task_interval_min))),
+          numericInput(ns(paste0("interval_",n)),"Support interval",if(is.finite(st$task_interval_min)) st$task_interval_min else 60,min=.001),
+          numericInput(ns(paste0("every_",n)),"Every N",st$task_every_n,min=0,step=1))
       }))))
   })
   outputOptions(output,"controls",suspendWhenHidden=FALSE)

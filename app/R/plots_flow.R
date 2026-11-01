@@ -420,12 +420,21 @@ queue_timeseries_plot <- function(df, station = "all", layout = "overlay") {
   if (!identical(station, "all")) {
     df <- dplyr::filter(df, resource == station)
   }
-  p <- ggplot(df, aes(x = time, y = queue, color = label)) +
+  if (!"hours" %in% names(df) && "time" %in% names(df)) {
+    # Fallback if an older table lacks hours: treat time as already zero-based minutes.
+    df <- dplyr::mutate(df, hours = .data$time / 60)
+  }
+  max_h <- max(df$hours, na.rm = TRUE)
+  p <- ggplot(df, aes(x = hours, y = queue, color = label)) +
     geom_line(aes(group = rep_station), alpha = 0.12, linewidth = 0.4, na.rm = TRUE) +
     geom_smooth(method = "loess", formula = y ~ x, se = TRUE,
                 linewidth = 1.15, alpha = 0.18, span = 0.35, na.rm = TRUE) +
     scale_color_manual(values = station_colors) +
-    labs(x = "Time (minutes)", y = "Queue length", color = "Station",
+    scale_x_continuous(
+      breaks = observation_hour_breaks(max_h),
+      expand = expansion(mult = c(0.01, 0.03))
+    ) +
+    labs(x = "Hours since settling ended", y = "Queue length", color = "Station",
          subtitle = plot_subtitle("Faint lines = each replication; bold = loess + ribbon")) +
     theme_sim(legend.position = "bottom")
   if (identical(layout, "facet") && identical(station, "all")) {
@@ -437,13 +446,22 @@ queue_timeseries_plot <- function(df, station = "all", layout = "overlay") {
 # Chart: "WIP" (Results → Flow over time → WIP)
 # Chart: WIP (Results → Flow over time).
 wip_timeseries_plot <- function(wip_timeseries) {
-  ggplot(wip_timeseries, aes(x = time, y = wip)) +
+  df <- wip_timeseries
+  if (!"hours" %in% names(df) && "time" %in% names(df)) {
+    df <- dplyr::mutate(df, hours = .data$time / 60)
+  }
+  max_h <- max(df$hours, na.rm = TRUE)
+  ggplot(df, aes(x = hours, y = wip)) +
     geom_line(aes(group = replication), alpha = 0.15, linewidth = 0.45,
               color = "#b35900", na.rm = TRUE) +
     geom_smooth(method = "loess", formula = y ~ x, se = TRUE,
                 linewidth = 1.2, color = "#b35900", fill = "#fdcc8a",
                 alpha = 0.25, span = 0.35, na.rm = TRUE) +
-    labs(x = "Time (minutes)", y = "WIP (vehicles)",
+    scale_x_continuous(
+      breaks = observation_hour_breaks(max_h),
+      expand = expansion(mult = c(0.01, 0.03))
+    ) +
+    labs(x = "Hours since settling ended", y = "WIP (vehicles)",
          subtitle = plot_subtitle("Faint lines = each replication; bold = loess + ribbon")) +
     theme_sim()
 }
