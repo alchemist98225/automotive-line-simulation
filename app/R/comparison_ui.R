@@ -399,9 +399,9 @@ comparison_page_ui <- function(id) {
       ),
       div(
         id = ns("saved_results"),
+        uiOutput(ns("kpis")),
         uiOutput(ns("change_story")),
         uiOutput(ns("highlights")),
-        uiOutput(ns("kpis")),
         uiOutput(ns("captured_settings")),
         navset_card_tab(
           id = ns("compare_tabs"),
