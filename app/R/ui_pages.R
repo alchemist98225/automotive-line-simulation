@@ -259,15 +259,15 @@ nav_panel(
       ggiraph::girafeOutput("plot_waits", width = "100%", height = "420px"),
       downloadButton("dl_waits_main", "Download wait data (.csv)", class = "btn-outline-secondary btn-sm mt-2")
     ),
-    card(
-      fill = FALSE,
-      card_header("Reliability losses"),
-      card_body(
-        fill = FALSE,
-        p(class = "small mb-2",
-          "Total unavailability = active repair plus waiting for a technician. Includes failures still waiting at the end of the run."),
-        DTOutput("reliability_losses")
-      )
+    plot_card(
+      "Downtime fraction (mean ± 95% CI)",
+      p(class = "small mb-2",
+        "Share of station capacity spent in active repair during the observation window. Bars are the mean across replications; error bars are the 95% CI."),
+      # Match the waits card height instead of the tall roomy_plot default.
+      plotOutput("plot_down", height = "420px", width = "100%", fill = FALSE),
+      p(class = "small mb-2 mt-1",
+        "Bars = mean across replications; error bars = 95% CI. Faint points = each replication."),
+      downloadButton("dl_down_summary", "Download mean ± 95% CI (.csv)", class = "btn-outline-secondary btn-sm mt-2")
     )
   ),
   navset_pill(
@@ -281,29 +281,78 @@ nav_panel(
         card_header("Bay occupancy by station"),
         card_body(
           fill = FALSE,
+          fillable = FALSE,
           p(
             class = "small mb-2",
             "Mean bay occupancy across replications, with 95% CI, min, and max. Sorted highest-first so the bottleneck candidate is on top. Blue bar inside the Mean cell scales from 0% to 100%."
           ),
-          # Compact DT; CSS keeps headers wrapping on phone instead of horizontal scroll.
+          # Compact DT; wrap on phone; height follows content (no tall empty card).
           tags$style(HTML("
-            #occupancy_summary_table { width: 100% !important; }
-            #occupancy_summary_table table.dataTable { width: 100% !important; table-layout: fixed; }
+            #occupancy_summary_table,
+            #labor_table,
+            #reliability_losses,
+            #reliability_table {
+              width: 100% !important;
+              height: auto !important;
+              min-height: 0 !important;
+            }
+            #occupancy_summary_table.html-widget,
+            #labor_table.html-widget,
+            #reliability_losses.html-widget,
+            #reliability_table.html-widget,
+            #occupancy_summary_table .datatables,
+            #labor_table .datatables,
+            #reliability_losses .datatables,
+            #reliability_table .datatables,
+            #occupancy_summary_table .dataTables_wrapper,
+            #labor_table .dataTables_wrapper,
+            #reliability_losses .dataTables_wrapper,
+            #reliability_table .dataTables_wrapper {
+              height: auto !important;
+              min-height: 0 !important;
+            }
+            #occupancy_summary_table table.dataTable,
+            #labor_table table.dataTable,
+            #reliability_losses table.dataTable,
+            #reliability_table table.dataTable {
+              width: 100% !important; table-layout: fixed;
+            }
+            #reliability_table {
+              overflow-x: auto !important;
+              -webkit-overflow-scrolling: touch;
+            }
             #occupancy_summary_table table.dataTable th,
-            #occupancy_summary_table table.dataTable td {
+            #occupancy_summary_table table.dataTable td,
+            #labor_table table.dataTable th,
+            #labor_table table.dataTable td,
+            #reliability_losses table.dataTable th,
+            #reliability_losses table.dataTable td,
+            #reliability_table table.dataTable th,
+            #reliability_table table.dataTable td {
               white-space: normal !important;
               word-break: break-word;
               vertical-align: middle;
               font-size: 0.92rem;
               color: #1a1a1a;
             }
-            #occupancy_summary_table table.dataTable th { font-weight: 700; }
+            #occupancy_summary_table table.dataTable th,
+            #labor_table table.dataTable th,
+            #reliability_losses table.dataTable th,
+            #reliability_table table.dataTable th { font-weight: 700; }
             @media (max-width: 576px) {
               #occupancy_summary_table table.dataTable th,
-              #occupancy_summary_table table.dataTable td { font-size: 0.82rem; padding: 0.35rem 0.3rem; }
+              #occupancy_summary_table table.dataTable td,
+              #labor_table table.dataTable th,
+              #labor_table table.dataTable td,
+              #reliability_losses table.dataTable th,
+              #reliability_losses table.dataTable td,
+              #reliability_table table.dataTable th,
+              #reliability_table table.dataTable td {
+                font-size: 0.78rem; padding: 0.3rem 0.25rem;
+              }
             }
           ")),
-          DTOutput("occupancy_summary_table"),
+          DTOutput("occupancy_summary_table", height = "auto", fill = FALSE),
           div(
             class = "d-flex flex-wrap gap-2 mt-2",
             downloadButton("dl_occupancy_reps", "Download by replication (.csv)", class = "btn-outline-secondary btn-sm"),
@@ -315,33 +364,55 @@ nav_panel(
     nav_panel(
       title = "Operators",
       value = "operators",
-      plot_card(
-        "Operator utilization (mean ± 95% CI)",
-        roomy_plot("plot_labor"),
-        downloadButton("dl_labor_summary", "Download mean ± 95% CI (.csv)", class = "btn-outline-secondary btn-sm mt-2")
-      ),
       card(
         fill = FALSE,
         card_header("Mean utilization by pool"),
-        card_body(fill = FALSE, DTOutput("labor_table"))
+        card_body(
+          fill = FALSE,
+          fillable = FALSE,
+          p(
+            class = "small mb-2",
+            "Mean utilization and queue across replications, sorted highest utilization first. Blue bar inside the Utilization cell scales from 0% to 100%."
+          ),
+          DTOutput("labor_table", height = "auto", fill = FALSE),
+          div(
+            class = "d-flex flex-wrap gap-2 mt-2",
+            downloadButton("dl_operator_reps", "Download by replication (.csv)", class = "btn-outline-secondary btn-sm"),
+            downloadButton("dl_labor_summary", "Download summary (.csv)", class = "btn-outline-secondary btn-sm")
+          )
+        )
       )
     ),
     nav_panel(
       title = "Downtime",
       value = "downtime",
-      plot_card(
-        "Downtime fraction (mean ± 95% CI)",
-        roomy_plot("plot_down"),
-        downloadButton("dl_down_summary", "Download mean ± 95% CI (.csv)", class = "btn-outline-secondary btn-sm mt-2")
+      card(
+        fill = FALSE,
+        card_header("Reliability losses"),
+        card_body(
+          fill = FALSE,
+          fillable = FALSE,
+          p(
+            class = "small mb-2",
+            "Total unavailability = active repair plus waiting for a technician. Includes failures still waiting at the end of the run. Sorted highest unavailable fraction first. Blue bar inside the Unavailable fraction cell scales to the highest value in this table."
+          ),
+          DTOutput("reliability_losses", height = "auto", fill = FALSE),
+          div(
+            class = "d-flex flex-wrap gap-2 mt-2",
+            downloadButton("dl_reliability_reps", "Download by replication (.csv)", class = "btn-outline-secondary btn-sm"),
+            downloadButton("dl_reliability_summary", "Download summary (.csv)", class = "btn-outline-secondary btn-sm")
+          )
+        )
       ),
       card(
         fill = FALSE,
         card_header("MTBF, MTTR, and observed failures"),
         card_body(
           fill = FALSE,
-          p(class = "text-muted small",
+          fillable = FALSE,
+          p(class = "small mb-2",
             "Mean up-time and active repair from the inputs, with failure counts from this run. MTTR of 0 disables failures at that station."),
-          DTOutput("reliability_table")
+          DTOutput("reliability_table", height = "auto", fill = FALSE)
         )
       )
     ),
@@ -533,14 +604,16 @@ by testing whether improving that station increases system throughput.
 
 Every chart uses **all replications**. Bay occupancy on Bottleneck & capacity is a
 compact table (mean, 95% CI, min, max) sorted highest-first. Operator utilization
-and downtime are bar charts with 95% CI; Compare overlays densities with a rug tick
-for every replication and a vertical line when every replication is identical. Queue and WIP series are faint lines plus a loess
-ribbon, resampled onto a 2-minute grid before the loess. WIP counts each vehicle
-once. Downtime is machine-time in repair during the observation window, divided
-by capacity. **Lead time & data → Downloads** exports the tidy tables behind the
-charts, including repair events, plus a zip of all of them. Staffing experiments
-sit under **Bottleneck & capacity**; the timing-variability comparison sits under
-**Lead time & data**.
+and reliability losses on that page are compact tables with the same look and an
+in-cell bar on the main metric; the downtime fraction chart uses bars with a 95%
+CI. Compare overlays densities with a rug tick for every replication and a
+vertical line when every replication is identical. Queue and WIP series are faint
+lines plus a loess ribbon, resampled onto a 2-minute grid before the loess. WIP
+counts each vehicle once. Downtime is machine-time in repair during the
+observation window, divided by capacity. **Lead time & data → Downloads** exports
+the tidy tables behind the charts, including repair events, plus a zip of all of
+them. Staffing experiments sit under **Bottleneck & capacity**; the
+timing-variability comparison sits under **Lead time & data**.
 
 **Compare two sets** keeps two editable copies of the line. Each set has a title
 used on the charts, tables, and downloads. A table above the editors lists only

@@ -264,15 +264,32 @@ server <- function(input, output, session) {
     comparison() %>% dplyr::select(scenario,comparison) %>% unnest(comparison) %>%
       datatable(rownames=FALSE,options=list(dom="t")) %>% formatRound(columns=3:10,digits=2)
   })
-  output$labor_table <- renderDT({sim_result()$labor %>% group_by(resource) %>% summarise(utilization=mean(avg_util),queue=mean(avg_queue),.groups="drop") %>% datatable(rownames=FALSE,options=list(dom="t")) %>% formatPercentage("utilization",1)})
+  # Same mean utilization + queue content as before; occupancy-style bar on utilization.
+  # fillContainer=FALSE keeps the card height to the table (no tall empty widget).
+  output$labor_table <- renderDT({
+    operator_pool_dt(operator_pool_df(sim_result()$labor))
+  }, fillContainer = FALSE)
 
+  # Readable labels only; same columns/content as before (no CI).
   output$reliability_table <- renderDT({
     r <- sim_result()
-    r$params$stations %>% dplyr::select(name,mtbf_min,mttr_min) %>%
-      left_join(r$failure_events %>% count(station,name="observed_failures"),by=c("name"="station")) %>%
-      mutate(observed_failures=replace_na(observed_failures,0L)) %>%
-      datatable(rownames=FALSE,options=list(dom="t"))
-  })
+    tbl <- r$params$stations %>%
+      dplyr::select(name, mtbf_min, mttr_min) %>%
+      dplyr::left_join(
+        r$failure_events %>% dplyr::count(station, name = "observed_failures"),
+        by = c("name" = "station")
+      ) %>%
+      dplyr::mutate(
+        observed_failures = tidyr::replace_na(.data$observed_failures, 0L),
+        Station = label_station(.data$name),
+        `MTBF (min)` = .data$mtbf_min,
+        `MTTR (min)` = .data$mttr_min,
+        `Observed failures` = .data$observed_failures
+      ) %>%
+      dplyr::select(Station, `MTBF (min)`, `MTTR (min)`, `Observed failures`)
+    # Integers / Inf from inputs — skip formatRound so Inf stays readable.
+    compact_metric_dt(tbl)
+  }, fillContainer = FALSE)
   # Run on button click; also fire once on load so KPIs appear immediately.
   # The fixed progress panel is opened from a click handler in JS so it paints
   # before this reactive blocks the session. hide_sim_progress() clears it.
@@ -354,8 +371,9 @@ server <- function(input, output, session) {
   output$result_freshness_style <- renderUI({
     opacity <- function(stale) if (isTRUE(stale)) "0.45" else "1"
     main_ids <- c(
-      "headline_kpis", "plot_util", "plot_labor", "plot_down", "plot_wip",
-      "plot_queue", "plot_cycle", "labor_table", "reliability_table", "table_metrics"
+      "headline_kpis", "plot_down", "plot_wip", "plot_queue", "plot_cycle",
+      "occupancy_summary_table", "labor_table", "reliability_losses",
+      "reliability_table", "table_metrics"
     )
     css <- paste0("#", main_ids, "{opacity:", opacity(main_settings_stale()), ";}", collapse = "")
     css <- paste0(
@@ -418,25 +436,7 @@ server <- function(input, output, session) {
     per_rep <- res$utilization_by_rep %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
     occupancy_summary_dt(occupancy_summary_df(per_rep))
-  })
-
-  output$plot_labor <- sim_render_plot({
-    res <- sim_result()
-    req(nrow(res$operator_by_rep) > 0)
-    pools <- sub("^operator_", "", res$operator_by_rep$resource)
-    levels <- if (all(pools %in% c("upstream", "downstream"))) {
-      c("upstream", "downstream")
-    } else if (all(pools %in% names(station_labels))) {
-      names(station_labels)[names(station_labels) %in% unique(pools)]
-    } else unique(pools)
-    df <- res$operator_by_rep %>%
-      mutate(label = factor(sub("^operator_", "", resource), levels = levels))
-    replication_bars(
-      df, "label", "avg_util",
-      x_label = "Operator utilization",
-      percent = TRUE
-    )
-  })
+  }, fillContainer = FALSE)
 
   output$plot_queue <- sim_render_plot({
     res <- sim_result()
@@ -461,11 +461,13 @@ server <- function(input, output, session) {
     res <- sim_result()
     per_rep <- res$downtime_by_rep %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
+    # Caption lives in the card HTML so it matches the waits-card note size.
     replication_bars(
       per_rep, "label", "downtime_fraction",
       x_label = "Downtime fraction",
       percent = TRUE,
-      fill_values = station_colors
+      fill_values = station_colors,
+      caption = NULL
     )
   })
 
@@ -484,20 +486,8 @@ server <- function(input, output, session) {
 
   output$reliability_losses <- renderDT({
     res <- sim_result()
-    res$downtime_by_rep %>%
-      group_by(station) %>%
-      summarise(
-        `Active repair minutes` = mean(downtime_min),
-        `Waiting for repair minutes` = mean(waiting_repair_min),
-        `Total unavailable minutes` = mean(total_downtime_min),
-        `Unavailable fraction` = mean(total_downtime_fraction),
-        .groups = "drop"
-      ) %>%
-      mutate(station = label_station(station)) %>%
-      datatable(rownames = FALSE, options = list(dom = "t", scrollX = TRUE)) %>%
-      formatRound(columns = 2:4, digits = 2) %>%
-      formatPercentage("Unavailable fraction", 1)
-  })
+    reliability_losses_dt(reliability_losses_df(res$downtime_by_rep))
+  }, fillContainer = FALSE)
 
   output$table_metrics <- renderDT({
     res <- sim_result()
@@ -538,11 +528,13 @@ server <- function(input, output, session) {
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
     occupancy_summary_df(per_rep)
   })
-  write_download("dl_labor_summary", "operator_util_mean_ci.csv", function() {
-    res <- sim_result()
-    df <- res$operator_by_rep %>%
-      mutate(label = sub("^operator_", "", resource))
-    rep_mean_ci(df, "label", "avg_util")
+  write_download("dl_operator_reps", "operator_by_rep.csv", function() sim_result()$operator_by_rep)
+  write_download("dl_labor_summary", "operator_pool_summary.csv", function() {
+    operator_pool_df(sim_result()$labor)
+  })
+  write_download("dl_reliability_reps", "downtime_by_rep.csv", function() sim_result()$downtime_by_rep)
+  write_download("dl_reliability_summary", "reliability_losses_summary.csv", function() {
+    reliability_losses_df(sim_result()$downtime_by_rep)
   })
   write_download("dl_down_summary", "downtime_mean_ci.csv", function() {
     res <- sim_result()

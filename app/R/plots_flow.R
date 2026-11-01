@@ -1,6 +1,7 @@
 # plots_flow.R
-# Occupancy, operator/downtime bars, and Flow-over-time / lead-time charts.
-# Drives: Station occupancy (legacy bars helper), Operators, Downtime bars,
+# Occupancy / operator / reliability summary tables, downtime bars, and
+# Flow-over-time / lead-time charts.
+# Drives: Station occupancy, Operators, Reliability losses, Downtime bars,
 # Queues, WIP, Cycle time.
 
 # can be compared directly; put far-apart stations (e.g. a bottleneck) on their
@@ -146,22 +147,30 @@ occupancy_boxes <- function(per_rep) {
   p + coord_cartesian(clip = "on")
 }
 
-# Category bars with 95% CI for operator / downtime style metrics.
-# Compact per-station occupancy summary for the Bottleneck table.
-# Sorted by mean descending so the bottleneck candidate is on top.
-# Data for chart/table: Bay occupancy by station (mean, CI, min, max).
-occupancy_summary_df <- function(per_rep, conf = 0.95) {
-  stopifnot(all(c("label", "avg_util") %in% names(per_rep)))
+# Generic per-entity summary across replications: mean, 95% CI, min, max.
+# Sorted highest-first. clamp = c(lo, hi) for fractions; NULL leaves CI unbounded.
+# Used by the bay-occupancy table (which keeps CI / min / max).
+rep_summary_df <- function(
+  per_rep,
+  value_col = "avg_util",
+  label_col = "label",
+  entity_name = "Station",
+  conf = 0.95,
+  clamp = c(0, 1)
+) {
+  stopifnot(all(c(label_col, value_col) %in% names(per_rep)))
   alpha <- (1 - conf) / 2
-  per_rep %>%
-    dplyr::filter(is.finite(.data$avg_util)) %>%
-    dplyr::group_by(.data$label) %>%
+  lab_sym <- rlang::sym(label_col)
+  val_sym <- rlang::sym(value_col)
+  out <- per_rep %>%
+    dplyr::filter(is.finite(!!val_sym)) %>%
+    dplyr::group_by(!!lab_sym) %>%
     dplyr::summarise(
       n = dplyr::n(),
-      mean = mean(.data$avg_util),
-      sd = stats::sd(.data$avg_util),
-      min = min(.data$avg_util),
-      max = max(.data$avg_util),
+      mean = mean(!!val_sym),
+      sd = stats::sd(!!val_sym),
+      min = min(!!val_sym),
+      max = max(!!val_sym),
       .groups = "drop"
     ) %>%
     dplyr::mutate(
@@ -172,20 +181,21 @@ occupancy_summary_df <- function(per_rep, conf = 0.95) {
         NA_real_
       ),
       half = .data$se * .data$tcrit,
-      ci_low = dplyr::if_else(
-        is.finite(.data$half),
-        pmax(0, .data$mean - .data$half),
-        .data$mean
-      ),
-      ci_high = dplyr::if_else(
-        is.finite(.data$half),
-        pmin(1, .data$mean + .data$half),
-        .data$mean
+      ci_low = dplyr::if_else(is.finite(.data$half), .data$mean - .data$half, .data$mean),
+      ci_high = dplyr::if_else(is.finite(.data$half), .data$mean + .data$half, .data$mean)
+    )
+  if (!is.null(clamp)) {
+    stopifnot(length(clamp) == 2L, is.finite(clamp[[1]]), is.finite(clamp[[2]]))
+    out <- out %>%
+      dplyr::mutate(
+        ci_low = pmax(clamp[[1]], .data$ci_low),
+        ci_high = pmin(clamp[[2]], .data$ci_high)
       )
-    ) %>%
-    dplyr::arrange(dplyr::desc(.data$mean), .data$label) %>%
+  }
+  out %>%
+    dplyr::arrange(dplyr::desc(.data$mean), !!lab_sym) %>%
     dplyr::transmute(
-      Station = as.character(.data$label),
+      !!entity_name := as.character(!!lab_sym),
       Mean = .data$mean,
       `CI low` = .data$ci_low,
       `CI high` = .data$ci_high,
@@ -194,16 +204,27 @@ occupancy_summary_df <- function(per_rep, conf = 0.95) {
     )
 }
 
-# DT wrapper: percent columns, mean data-bar shading, phone-friendly compact layout.
-# Chart/table: Bay occupancy by station (Bottleneck → Station occupancy).
-occupancy_summary_dt <- function(tbl) {
-  stopifnot(is.data.frame(tbl), "Mean" %in% names(tbl))
-  pct_cols <- c("Mean", "CI low", "CI high", "Min", "Max")
-  DT::datatable(
+# Compact DT look shared by occupancy / operators / reliability tables:
+# no search box, full-contrast text, optional percent/round columns, and an
+# in-cell styleColorBar on the main metric (the "geom" flavor Eddie wants).
+compact_metric_dt <- function(
+  tbl,
+  percent_cols = character(),
+  round_cols = character(),
+  round_digits = 2,
+  bar_col = NULL,
+  bar_range = c(0, 1)
+) {
+  stopifnot(is.data.frame(tbl), ncol(tbl) >= 1L)
+  n_cols <- ncol(tbl)
+  right_targets <- if (n_cols >= 2L) seq.int(1L, n_cols - 1L) else integer()
+  dt <- DT::datatable(
     tbl,
     rownames = FALSE,
-    class = "compact stripe hover nowrap",
+    class = "compact stripe hover",
     escape = TRUE,
+    width = "100%",
+    height = "auto",
     options = list(
       dom = "t",
       ordering = FALSE,
@@ -213,25 +234,144 @@ occupancy_summary_dt <- function(tbl) {
       autoWidth = FALSE,
       columnDefs = list(
         list(className = "dt-left", targets = 0),
-        list(className = "dt-right", targets = 1:5)
+        list(className = "dt-right", targets = right_targets)
       )
     )
-  ) %>%
-    DT::formatPercentage(pct_cols, digits = 1) %>%
-    DT::formatStyle(
-      "Mean",
-      background = DT::styleColorBar(c(0, 1), "#6baed6"),
+  )
+  pct_keep <- intersect(percent_cols, names(tbl))
+  if (length(pct_keep)) {
+    dt <- DT::formatPercentage(dt, pct_keep, digits = 1)
+  }
+  rnd_keep <- intersect(round_cols, names(tbl))
+  if (length(rnd_keep)) {
+    dt <- DT::formatRound(dt, rnd_keep, digits = round_digits)
+  }
+  if (!is.null(bar_col)) {
+    stopifnot(bar_col %in% names(tbl))
+    dt <- DT::formatStyle(
+      dt,
+      bar_col,
+      background = DT::styleColorBar(bar_range, "#6baed6"),
       backgroundSize = "98% 62%",
       backgroundRepeat = "no-repeat",
       backgroundPosition = "center",
       color = "#1a1a1a",
       fontWeight = "700"
     )
+  }
+  # htmlwidgets often ships a 400px inline height; collapse to content.
+  htmlwidgets::onRender(
+    dt,
+    "function(el, x) {
+       el.style.height = 'auto';
+       el.style.minHeight = '0';
+       var wrap = el.querySelector('.dataTables_wrapper');
+       if (wrap) { wrap.style.height = 'auto'; wrap.style.minHeight = '0'; }
+     }"
+  )
 }
 
+# Chart/table: Bay occupancy by station (Bottleneck → Station occupancy).
+occupancy_summary_df <- function(per_rep, conf = 0.95) {
+  rep_summary_df(
+    per_rep,
+    value_col = "avg_util",
+    label_col = "label",
+    entity_name = "Station",
+    conf = conf,
+    clamp = c(0, 1)
+  )
+}
+
+# Chart/table: Bay occupancy by station (Bottleneck → Station occupancy).
+occupancy_summary_dt <- function(tbl) {
+  keep <- c("Station", "Mean", "CI low", "CI high", "Min", "Max")
+  stopifnot(all(keep %in% names(tbl)))
+  compact_metric_dt(
+    tbl[, keep, drop = FALSE],
+    percent_cols = keep[-1],
+    bar_col = "Mean",
+    bar_range = c(0, 1)
+  )
+}
+
+# Reliability losses: same content as before (means of repair / wait / total
+# minutes and unavailable fraction). Display labels only; sorted worst-first.
+# Bar on Unavailable fraction scales to the column max so small fractions show.
+reliability_losses_df <- function(downtime_by_rep) {
+  stopifnot(all(c(
+    "station", "downtime_min", "waiting_repair_min",
+    "total_downtime_min", "total_downtime_fraction"
+  ) %in% names(downtime_by_rep)))
+  downtime_by_rep %>%
+    dplyr::group_by(.data$station) %>%
+    dplyr::summarise(
+      `Active repair minutes` = mean(.data$downtime_min),
+      `Waiting for repair minutes` = mean(.data$waiting_repair_min),
+      `Total unavailable minutes` = mean(.data$total_downtime_min),
+      `Unavailable fraction` = mean(.data$total_downtime_fraction),
+      .groups = "drop"
+    ) %>%
+    dplyr::arrange(dplyr::desc(.data$`Unavailable fraction`), .data$station) %>%
+    dplyr::mutate(Station = label_station(.data$station), .before = 1L) %>%
+    dplyr::select(-"station")
+}
+
+reliability_losses_dt <- function(tbl) {
+  stopifnot("Unavailable fraction" %in% names(tbl))
+  frac <- tbl[["Unavailable fraction"]]
+  bar_max <- max(frac[is.finite(frac)], na.rm = TRUE)
+  if (!is.finite(bar_max) || bar_max <= 0) bar_max <- 1
+  compact_metric_dt(
+    tbl,
+    percent_cols = "Unavailable fraction",
+    round_cols = c(
+      "Active repair minutes",
+      "Waiting for repair minutes",
+      "Total unavailable minutes"
+    ),
+    round_digits = 2,
+    bar_col = "Unavailable fraction",
+    bar_range = c(0, bar_max)
+  )
+}
+
+# Operator pool table: same content as the old mean-utilization chart / labor
+# table (mean utilization + mean queue), no CI. Readable labels; bar on Utilization.
+operator_pool_df <- function(labor) {
+  stopifnot(all(c("resource", "avg_util", "avg_queue") %in% names(labor)))
+  labor %>%
+    dplyr::group_by(.data$resource) %>%
+    dplyr::summarise(
+      Utilization = mean(.data$avg_util),
+      Queue = mean(.data$avg_queue),
+      .groups = "drop"
+    ) %>%
+    dplyr::arrange(dplyr::desc(.data$Utilization), .data$resource) %>%
+    dplyr::transmute(
+      Resource = label_resource(.data$resource),
+      Utilization = .data$Utilization,
+      Queue = .data$Queue
+    )
+}
+
+operator_pool_dt <- function(tbl) {
+  stopifnot("Utilization" %in% names(tbl))
+  compact_metric_dt(
+    tbl,
+    percent_cols = "Utilization",
+    round_cols = "Queue",
+    round_digits = 2,
+    bar_col = "Utilization",
+    bar_range = c(0, 1)
+  )
+}
 
 # Chart helper: mean bars with 95% CI (Operator utilization, Downtime fraction).
-replication_bars <- function(df, category, value, x_label, percent = TRUE, fill_values = NULL) {
+replication_bars <- function(
+  df, category, value, x_label, percent = TRUE, fill_values = NULL,
+  caption = "Bars = mean across replications; error bars = 95% CI. Faint points = each replication."
+) {
   cat_sym <- rlang::sym(category)
   val_sym <- rlang::sym(value)
   df <- df %>% dplyr::filter(is.finite(!!val_sym))
@@ -265,10 +405,7 @@ replication_bars <- function(df, category, value, x_label, percent = TRUE, fill_
     scale_fill_manual(values = colors, drop = FALSE, guide = "none") +
     scale_colour_manual(values = colors, drop = FALSE, guide = "none") +
     labeled_continuous_scale("y", percent = percent, n = 3L, expand = expansion(mult = c(0, 0.08))) +
-    labs(
-      x = NULL, y = x_label,
-      caption = "Bars = mean across replications; error bars = 95% CI. Faint points = each replication."
-    ) +
+    labs(x = NULL, y = x_label, caption = caption) +
     theme_sim(legend.position = "none", plot.margin = margin(8, 12, 14, 10)) +
     theme_plot_width_text() +
     theme_minor_ticks() +
