@@ -92,7 +92,8 @@ stopifnot(grepl("kpi_nav_bottleneck", ui_html, fixed = TRUE))
 # Run settings lives on the Lead time & data page and starts collapsed.
 stopifnot(settings_at[[1]] > 0L)
 stopifnot(!grepl('class="run-settings[^"]*" open', ui_html))
-stopifnot(!grepl("<details open>", ui_html, fixed = TRUE))
+# Guided example starts open so it fills the Simulate page.
+stopifnot(grepl("<details open", ui_html, fixed = TRUE) || grepl('<details open=', ui_html))
 stopifnot(page_has("Start here: guided example"))
 stopifnot(page_has("Try it"))
 stopifnot(page_has("Reset to defaults"))
@@ -131,6 +132,16 @@ stopifnot(grepl('id="warmup" type="number" class="shiny-input-number form-contro
 stopifnot(grepl('id="wip_limit" type="number" class="shiny-input-number form-control" value="20"', items[[1]], fixed = TRUE))
 stopifnot(grepl('id="planned_rate"', items[[1]], fixed = TRUE))
 stopifnot(grepl("Number of replications", items[[1]], fixed = TRUE))
+# After replications: shift duration, then initial settling period.
+sim_at <- regexpr('id="sim_length"', items[[1]], fixed = TRUE)
+warm_at <- regexpr('id="warmup"', items[[1]], fixed = TRUE)
+plan_at <- regexpr('id="planned_rate"', items[[1]], fixed = TRUE)
+stopifnot(sim_at[[1]] > reps_at[[1]], warm_at[[1]] > sim_at[[1]], plan_at[[1]] > warm_at[[1]])
+stopifnot(grepl("Why occupied bays wait", ui_html, fixed = TRUE))
+stopifnot(grepl("Reliability losses", ui_html, fixed = TRUE))
+stopifnot(grepl("girafeOutput", paste(readLines("app/app.R"), collapse = "\n"), fixed = TRUE) || grepl("plot_waits", ui_html, fixed = TRUE))
+stopifnot(grepl("closeResultsNavChrome", paste(readLines("app/app.R"), collapse = "\n"), fixed = TRUE))
+stopifnot(grepl("HPU", ui_html, fixed = TRUE) || grepl("labor-hours", ui_html, fixed = TRUE))
 stopifnot(!grepl('id="body_cap"', items[[1]], fixed = TRUE))
 stopifnot(!grepl('id="body_mean"', items[[1]], fixed = TRUE))
 stopifnot(!grepl('id="staffing"', items[[1]], fixed = TRUE))
@@ -387,9 +398,8 @@ qcols <- qenv$ridge_fill_values(c("upstream", "downstream"))
 stopifnot(length(unique(unname(qcols))) == 2L)
 stopifnot(identical(names(qcols), c("upstream", "downstream")))
 cat("Density checks passed\n")
-# Stations piled far apart (0.5 vs 100%) must land in separate free-axis panels
-# so the mid-occupancy box is not squashed. Boxes and points share a color.
-# Jitter stays on the station axis. Outliers are not drawn a second time by the box.
+# Stations piled far apart (0.5 vs 100%) must land in separate free-y panels
+# so a bottleneck does not squash mid-occupancy bars. Bars + error bars + points.
 flat <- tibble::tibble(
   label = factor(rep(c("Body shop", "Paint"), each = 8), levels = c("Body shop", "Paint")),
   avg_util = c(stats::rnorm(8, 0.5, 0.04), rep(1, 8))
@@ -399,39 +409,23 @@ stopifnot(dplyr::n_distinct(groups$band) == 2L)
 stopifnot(all(c("Lower occupancy", "Higher occupancy") %in% as.character(groups$band)))
 built_flat <- ggplot2::ggplot_build(e$occupancy_boxes(flat))
 flat_geoms <- layer_geoms(built_flat)
-box_idx <- which(flat_geoms == "GeomBoxplot")
+col_idx <- which(flat_geoms == "GeomCol")
+err_idx <- which(flat_geoms == "GeomErrorbar")
 point_idx <- which(flat_geoms == "GeomPoint")
-stopifnot(length(box_idx) == 1L, length(point_idx) == 1L)
-outlier_shape <- built_flat$plot$layers[[box_idx]]$geom_params$outlier.shape
-if (is.null(outlier_shape)) outlier_shape <- built_flat$plot$layers[[box_idx]]$geom_params$outlier_gp$shape
-stopifnot(identical(outlier_shape, NA))
-stopifnot(identical(built_flat$plot$layers[[point_idx]]$aes_params$size, 3))
-stopifnot(identical(built_flat$plot$layers[[point_idx]]$aes_params$alpha, 0.5))
-stopifnot(identical(built_flat$plot$layers[[box_idx]]$aes_params$alpha, 0.5))
-# Jitter along the station axis only (height on the y = label layout).
-stopifnot(identical(built_flat$plot$layers[[point_idx]]$position$width, 0))
+stopifnot(length(col_idx) == 1L, length(err_idx) == 1L, length(point_idx) == 1L)
+stopifnot(identical(built_flat$plot$layers[[point_idx]]$aes_params$alpha, 0.45))
 stopifnot(inherits(built_flat$plot$facet, "FacetWrap"))
-stopifnot(isTRUE(built_flat$plot$facet$params$free$x))
 stopifnot(isTRUE(built_flat$plot$facet$params$free$y))
-stopifnot(is.null(built_flat$plot$scales$get_scales("x")$limits))
 stopifnot(nrow(built_flat$data[[point_idx]]) == nrow(flat))
-stopifnot(any(abs(built_flat$data[[point_idx]]$x - 1) < 1e-8))
-point_cols <- built_flat$data[[point_idx]] %>%
-  dplyr::distinct(PANEL, colour)
-box_cols <- built_flat$data[[box_idx]] %>%
-  dplyr::filter(!is.na(fill)) %>%
-  dplyr::distinct(PANEL, colour, fill)
-stopifnot(nrow(point_cols) == 2L)
-stopifnot(all(box_cols$colour == box_cols$fill))
-stopifnot(setequal(point_cols$colour, box_cols$colour))
-# Independent occupancy axes: each panel's trained x range stays local.
-x_scales <- built_flat$layout$panel_scales_x
-stopifnot(length(x_scales) == 2L)
-r1 <- range(x_scales[[1]]$get_limits())
-r2 <- range(x_scales[[2]]$get_limits())
+# Independent occupancy axes: each panel's trained y range stays local.
+# Bars start at 0, so mins match; the free upper limit separates the bands.
+y_scales <- built_flat$layout$panel_scales_y
+stopifnot(length(y_scales) == 2L)
+r1 <- range(y_scales[[1]]$get_limits())
+r2 <- range(y_scales[[2]]$get_limits())
 stopifnot(!identical(r1, r2))
 stopifnot(max(r1) < 0.85 || max(r2) < 0.85)
-stopifnot(min(r1) > 0.85 || min(r2) > 0.85)
+stopifnot(max(r1) > 0.85 || max(r2) > 0.85)
 # Close medians stay on one panel.
 close <- tibble::tibble(
   label = factor(rep(c("Body shop", "Paint"), each = 8), levels = c("Body shop", "Paint")),
@@ -445,19 +439,22 @@ xlim95 <- e$density_xlim(c(stats::rnorm(40, 0.4, 0.05), 0.95, 0.02), level = 0.9
 stopifnot(xlim95[[1]] >= 0, xlim95[[2]] <= 1, xlim95[[2]] < 0.95)
 op_xlim <- e$density_xlim(stats::rnorm(30, 0.45, 0.08), level = 0.95, bounds = c(0, 1))
 stopifnot(op_xlim[[2]] < 0.85)
+# Axis helpers expose minor ticks and at least 3 labeled majors.
+stopifnot(exists("labeled_continuous_scale", envir = e))
+stopifnot(exists("theme_minor_ticks", envir = e))
+stopifnot(exists("replication_bars", envir = e))
+stopifnot(exists("wait_reason_bars_interactive", envir = e))
 qmd_lines <- readLines("quarto/line_sim.qmd")
-stopifnot(any(grepl("outlier.shape = NA", qmd_lines, fixed = TRUE)))
 stopifnot(any(grepl("occupancy_boxes", qmd_lines, fixed = TRUE)))
 stopifnot(any(grepl("occupancy_groups", qmd_lines, fixed = TRUE)))
 stopifnot(any(grepl("density_xlim", qmd_lines, fixed = TRUE)))
-stopifnot(any(grepl('scales = "free"', qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("ggridges", qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("ggrain", qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", readLines("app/app.R"), fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", readLines("app/R/comparison.R"), fixed = TRUE)))
 stopifnot(any(grepl("theme_sim", qmd_lines, fixed = TRUE)))
-cat("Occupancy boxplot checks passed\n")
+cat("Occupancy bar checks passed\n")
 one_shift <- tibble::tibble(shift = 1L, n_completed = c(48, 50, 51, 49, 52, 47))
 shift_built <- ggplot2::ggplot_build(e$shift_output_plot(one_shift, 53.3))
 shift_geoms <- vapply(shift_built$plot$layers, function(layer) class(layer$geom)[1], character(1))

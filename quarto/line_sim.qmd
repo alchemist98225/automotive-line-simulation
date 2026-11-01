@@ -21,6 +21,7 @@ library(bslib)
 library(bsicons)
 library(tidyverse)
 library(ggtext) # plot-width subtitle/caption textboxes on phone
+library(ggiraph)
 library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
@@ -274,21 +275,7 @@ theme_plot_width_text <- function(...) {
     ...
   )
 }
-# Sparse x breaks so percent/time tick labels do not collide after a 95% zoom.
-sparse_x_continuous <- function(percent = FALSE, n = 3L, expand = expansion(mult = 0.08)) {
-  n <- as.integer(n)
-  break_fn <- function(lim) {
-    br <- scales::breaks_pretty(n = n)(lim)
-    # pretty() can overshoot the request; keep the phone axis readable.
-    if (length(br) > n + 1L) br <- scales::breaks_pretty(n = max(2L, n - 1L))(lim)
-    br
-  }
-  scale_x_continuous(
-    labels = if (isTRUE(percent)) scales::percent_format(accuracy = 1) else waiver(),
-    breaks = break_fn,
-    expand = expand
-  )
-}
+
 # Central fraction of the data for coord_cartesian xlim. Densities stay
 # computed on the full sample; rugs outside the window may clip. Bounded
 # metrics (utilization, occupancy) stay inside the supplied bounds.
@@ -458,6 +445,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     ) +
     theme_sim(legend.position = "bottom", plot.margin = margin(12, 12, 14, 14)) +
     theme_plot_width_text() +
+    theme_minor_ticks() +
     guides(
       # One column so long station names are not clipped on a 390px phone.
       colour = guide_legend(ncol = 1, byrow = TRUE),
@@ -552,16 +540,37 @@ occupancy_groups <- function(per_rep, gap = 0.15, max_groups = 3L) {
   )
   med
 }
-# Horizontal boxes of bay occupancy. Stations with similar medians share a
-# panel (free x) so a bottleneck does not squash the rest. Box and points share
-# a color. Outlier glyphs are off so the point layer is the only copy of each
-# replication. Jitter stays on the station axis only.
+# Mean ± 95% CI across replications for a numeric column, one row per category.
+rep_mean_ci <- function(df, category, value, conf = 0.95) {
+  cat_sym <- rlang::sym(category)
+  val_sym <- rlang::sym(value)
+  df %>%
+    dplyr::filter(is.finite(!!val_sym)) %>%
+    dplyr::group_by(!!cat_sym) %>%
+    dplyr::summarise(
+      n = dplyr::n(),
+      mean = mean(!!val_sym, na.rm = TRUE),
+      sd = stats::sd(!!val_sym, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      se = dplyr::if_else(n > 1L, sd / sqrt(n), NA_real_),
+      tcrit = dplyr::if_else(n > 1L, stats::qt(1 - (1 - conf) / 2, n - 1L), NA_real_),
+      half = se * tcrit,
+      lower = mean - half,
+      upper = mean + half,
+      lower = dplyr::if_else(is.finite(lower), lower, mean),
+      upper = dplyr::if_else(is.finite(upper), upper, mean)
+    )
+}
+
+# Vertical bars of bay occupancy with 95% CI error bars. Stations with similar
+# medians still share a free-y panel so a bottleneck does not squash the rest.
+# Faint points keep every replication visible without cluttering the mean bars.
 occupancy_boxes <- function(per_rep) {
   groups <- occupancy_groups(per_rep)
   plot_df <- per_rep %>%
     dplyr::left_join(groups %>% dplyr::select(label, band), by = "label")
-  # Keep station order within each band by median occupancy (low to high on the
-  # vertical axis after the horizontal layout).
   station_order <- groups %>% dplyr::arrange(median_util) %>% dplyr::pull(label)
   wrap_lab <- function(x) stringr::str_wrap(as.character(x), width = 10)
   plot_df <- plot_df %>%
@@ -569,47 +578,57 @@ occupancy_boxes <- function(per_rep) {
       label = factor(label, levels = station_order),
       label_wrapped = factor(wrap_lab(label), levels = wrap_lab(station_order))
     )
+  summary_df <- rep_mean_ci(plot_df, "label_wrapped", "avg_util") %>%
+    dplyr::left_join(
+      plot_df %>% dplyr::distinct(label_wrapped, label, band),
+      by = "label_wrapped"
+    )
   n_bands <- dplyr::n_distinct(plot_df$band)
-  # Short subtitle above; band note as a caption below. Both use plot-width
-  # textboxes. Wrapped station labels free horizontal space on a phone.
-  p <- ggplot(plot_df, aes(x = avg_util, y = label_wrapped, colour = label, fill = label)) +
-    geom_boxplot(
-      alpha = 0.5, outlier.shape = NA, width = 0.55, linewidth = 0.5,
-      orientation = "y"
+  p <- ggplot() +
+    geom_col(
+      data = summary_df,
+      aes(x = label_wrapped, y = mean, fill = label),
+      width = 0.72, colour = "#1a1a1a", linewidth = 0.25
+    ) +
+    geom_errorbar(
+      data = summary_df,
+      aes(x = label_wrapped, ymin = lower, ymax = upper),
+      width = 0.22, linewidth = 0.7, colour = "#1a1a1a"
     ) +
     geom_point(
-      size = 3,
-      alpha = 0.5,
-      position = position_jitter(height = 0.12, width = 0, seed = 42)
+      data = plot_df,
+      aes(x = label_wrapped, y = avg_util, colour = label),
+      size = 2.2, alpha = 0.45,
+      position = position_jitter(width = 0.08, height = 0, seed = 42)
     ) +
-    scale_colour_manual(values = station_colors, drop = FALSE, guide = "none") +
     scale_fill_manual(values = station_colors, drop = FALSE, guide = "none") +
-    sparse_x_continuous(percent = TRUE, n = 2L) +
+    scale_colour_manual(values = station_colors, drop = FALSE, guide = "none") +
+    labeled_continuous_scale("y", percent = TRUE, n = 3L, expand = expansion(mult = c(0, 0.08))) +
     labs(
-      x = "Bay occupancy", y = NULL,
-      # Caption only: a subtitle sits on top of facet strips on a 390px phone.
+      x = NULL, y = "Bay occupancy",
       caption = if (n_bands > 1L) {
-        "One point per replication. Similar-occupancy stations share a panel; each panel has its own axis."
+        "Bars = mean across replications; error bars = 95% CI. Faint points = each replication. Similar-occupancy stations share a panel with its own axis."
       } else {
-        "One point per replication. Points are jittered along the station only."
+        "Bars = mean across replications; error bars = 95% CI. Faint points = each replication."
       }
     ) +
     theme_sim(legend.position = "none", plot.margin = margin(8, 12, 14, 10)) +
-    theme_plot_width_text(panel.spacing.y = grid::unit(22, "pt")) +
+    theme_plot_width_text(panel.spacing.y = grid::unit(18, "pt")) +
+    theme_minor_ticks() +
     theme(
       strip.text = element_text(
         size = 16, colour = "#1a1a1a", hjust = 0, margin = margin(8, 4, 8, 4)
-      )
+      ),
+      axis.text.x = element_text(size = 14, colour = "#1a1a1a")
     )
   if (n_bands > 1L) {
     p <- p + facet_wrap(
-      ~band, scales = "free", ncol = 1,
+      ~band, scales = "free_y", ncol = 1,
       labeller = label_wrap_gen(width = 18)
     )
   }
   p + coord_cartesian(clip = "on")
 }
-
 provenance_warning <- function(message, button_id = NULL) {
   div(
     class = "alert alert-warning provenance-warning d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3",
@@ -939,6 +958,7 @@ guided_example_ui <- function() {
       card_body(
         fill = FALSE,
         tags$details(
+          open = NA,
           tags$summary(
             tagList(
               bs_icon("lightbulb"),

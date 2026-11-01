@@ -8,6 +8,7 @@ library(bslib)
 library(bsicons)
 library(tidyverse)
 library(ggtext) # declared so shinyapps.io installs it; the shift caption wraps to the plot width
+library(ggiraph) # interactive hover tooltips on bottleneck wait bars
 library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
 
@@ -273,19 +274,50 @@ theme_plot_width_text <- function(...) {
     ...
   )
 }
-# Sparse x breaks so percent/time tick labels do not collide after a 95% zoom.
-sparse_x_continuous <- function(percent = FALSE, n = 3L, expand = expansion(mult = 0.08)) {
-  n <- as.integer(n)
-  break_fn <- function(lim) {
+# Labeled major breaks plus visible minor ticks between them.
+# At least `n` labeled majors (default 3). Minor ticks: about 3 between each pair.
+labeled_continuous_scale <- function(aesthetic = "x", percent = FALSE, n = 3L,
+                                      expand = expansion(mult = 0.08), ...) {
+  n <- max(3L, as.integer(n))
+  major_fn <- function(lim) {
     br <- scales::breaks_pretty(n = n)(lim)
-    # pretty() can overshoot the request; keep the phone axis readable.
-    if (length(br) > n + 1L) br <- scales::breaks_pretty(n = max(2L, n - 1L))(lim)
+    if (length(br) < n) br <- scales::breaks_pretty(n = n + 1L)(lim)
     br
   }
-  scale_x_continuous(
-    labels = if (isTRUE(percent)) scales::percent_format(accuracy = 1) else waiver(),
-    breaks = break_fn,
-    expand = expand
+  # Exactly three minor ticks between each pair of labeled majors.
+  minor_fn <- function(lim, breaks) {
+    br <- breaks[is.finite(breaks)]
+    if (length(br) < 2L) return(numeric())
+    unlist(lapply(seq_len(length(br) - 1L), function(i) {
+      seq(br[[i]], br[[i + 1L]], length.out = 5L)[2:4]
+    }), use.names = FALSE)
+  }
+  labs <- if (isTRUE(percent)) scales::percent_format(accuracy = 1) else waiver()
+  guide <- ggplot2::guide_axis(minor.ticks = TRUE)
+  if (identical(aesthetic, "y")) {
+    scale_y_continuous(
+      labels = labs, breaks = major_fn, minor_breaks = minor_fn,
+      expand = expand, guide = guide, ...
+    )
+  } else {
+    scale_x_continuous(
+      labels = labs, breaks = major_fn, minor_breaks = minor_fn,
+      expand = expand, guide = guide, ...
+    )
+  }
+}
+# Back-compat alias used by existing call sites.
+sparse_x_continuous <- function(percent = FALSE, n = 3L, expand = expansion(mult = 0.08)) {
+  labeled_continuous_scale("x", percent = percent, n = n, expand = expand)
+}
+# Theme rules that make minor ticks visible (ggplot2 3.5+ / 4.x).
+theme_minor_ticks <- function() {
+  theme(
+    axis.ticks = element_line(colour = "#1a1a1a", linewidth = 0.4),
+    axis.minor.ticks.x.bottom = element_line(colour = "#1a1a1a", linewidth = 0.3),
+    axis.minor.ticks.y.left = element_line(colour = "#1a1a1a", linewidth = 0.3),
+    axis.ticks.length = grid::unit(5, "pt"),
+    axis.minor.ticks.length = grid::unit(2.5, "pt")
   )
 }
 # Central fraction of the data for coord_cartesian xlim. Densities stay
@@ -457,6 +489,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     ) +
     theme_sim(legend.position = "bottom", plot.margin = margin(12, 12, 14, 14)) +
     theme_plot_width_text() +
+    theme_minor_ticks() +
     guides(
       # One column so long station names are not clipped on a 390px phone.
       colour = guide_legend(ncol = 1, byrow = TRUE),
@@ -551,16 +584,37 @@ occupancy_groups <- function(per_rep, gap = 0.15, max_groups = 3L) {
   )
   med
 }
-# Horizontal boxes of bay occupancy. Stations with similar medians share a
-# panel (free x) so a bottleneck does not squash the rest. Box and points share
-# a color. Outlier glyphs are off so the point layer is the only copy of each
-# replication. Jitter stays on the station axis only.
+# Mean ± 95% CI across replications for a numeric column, one row per category.
+rep_mean_ci <- function(df, category, value, conf = 0.95) {
+  cat_sym <- rlang::sym(category)
+  val_sym <- rlang::sym(value)
+  df %>%
+    dplyr::filter(is.finite(!!val_sym)) %>%
+    dplyr::group_by(!!cat_sym) %>%
+    dplyr::summarise(
+      n = dplyr::n(),
+      mean = mean(!!val_sym, na.rm = TRUE),
+      sd = stats::sd(!!val_sym, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      se = dplyr::if_else(n > 1L, sd / sqrt(n), NA_real_),
+      tcrit = dplyr::if_else(n > 1L, stats::qt(1 - (1 - conf) / 2, n - 1L), NA_real_),
+      half = se * tcrit,
+      lower = mean - half,
+      upper = mean + half,
+      lower = dplyr::if_else(is.finite(lower), lower, mean),
+      upper = dplyr::if_else(is.finite(upper), upper, mean)
+    )
+}
+
+# Vertical bars of bay occupancy with 95% CI error bars. Stations with similar
+# medians still share a free-y panel so a bottleneck does not squash the rest.
+# Faint points keep every replication visible without cluttering the mean bars.
 occupancy_boxes <- function(per_rep) {
   groups <- occupancy_groups(per_rep)
   plot_df <- per_rep %>%
     dplyr::left_join(groups %>% dplyr::select(label, band), by = "label")
-  # Keep station order within each band by median occupancy (low to high on the
-  # vertical axis after the horizontal layout).
   station_order <- groups %>% dplyr::arrange(median_util) %>% dplyr::pull(label)
   wrap_lab <- function(x) stringr::str_wrap(as.character(x), width = 10)
   plot_df <- plot_df %>%
@@ -568,45 +622,179 @@ occupancy_boxes <- function(per_rep) {
       label = factor(label, levels = station_order),
       label_wrapped = factor(wrap_lab(label), levels = wrap_lab(station_order))
     )
+  summary_df <- rep_mean_ci(plot_df, "label_wrapped", "avg_util") %>%
+    dplyr::left_join(
+      plot_df %>% dplyr::distinct(label_wrapped, label, band),
+      by = "label_wrapped"
+    )
   n_bands <- dplyr::n_distinct(plot_df$band)
-  # Short subtitle above; band note as a caption below. Both use plot-width
-  # textboxes. Wrapped station labels free horizontal space on a phone.
-  p <- ggplot(plot_df, aes(x = avg_util, y = label_wrapped, colour = label, fill = label)) +
-    geom_boxplot(
-      alpha = 0.5, outlier.shape = NA, width = 0.55, linewidth = 0.5,
-      orientation = "y"
+  p <- ggplot() +
+    geom_col(
+      data = summary_df,
+      aes(x = label_wrapped, y = mean, fill = label),
+      width = 0.72, colour = "#1a1a1a", linewidth = 0.25
+    ) +
+    geom_errorbar(
+      data = summary_df,
+      aes(x = label_wrapped, ymin = lower, ymax = upper),
+      width = 0.22, linewidth = 0.7, colour = "#1a1a1a"
     ) +
     geom_point(
-      size = 3,
-      alpha = 0.5,
-      position = position_jitter(height = 0.12, width = 0, seed = 42)
+      data = plot_df,
+      aes(x = label_wrapped, y = avg_util, colour = label),
+      size = 2.2, alpha = 0.45,
+      position = position_jitter(width = 0.08, height = 0, seed = 42)
     ) +
-    scale_colour_manual(values = station_colors, drop = FALSE, guide = "none") +
     scale_fill_manual(values = station_colors, drop = FALSE, guide = "none") +
-    sparse_x_continuous(percent = TRUE, n = 2L) +
+    scale_colour_manual(values = station_colors, drop = FALSE, guide = "none") +
+    labeled_continuous_scale("y", percent = TRUE, n = 3L, expand = expansion(mult = c(0, 0.08))) +
     labs(
-      x = "Bay occupancy", y = NULL,
-      # Caption only: a subtitle sits on top of facet strips on a 390px phone.
+      x = NULL, y = "Bay occupancy",
       caption = if (n_bands > 1L) {
-        "One point per replication. Similar-occupancy stations share a panel; each panel has its own axis."
+        "Bars = mean across replications; error bars = 95% CI. Faint points = each replication. Similar-occupancy stations share a panel with its own axis."
       } else {
-        "One point per replication. Points are jittered along the station only."
+        "Bars = mean across replications; error bars = 95% CI. Faint points = each replication."
       }
     ) +
     theme_sim(legend.position = "none", plot.margin = margin(8, 12, 14, 10)) +
-    theme_plot_width_text(panel.spacing.y = grid::unit(22, "pt")) +
+    theme_plot_width_text(panel.spacing.y = grid::unit(18, "pt")) +
+    theme_minor_ticks() +
     theme(
       strip.text = element_text(
         size = 16, colour = "#1a1a1a", hjust = 0, margin = margin(8, 4, 8, 4)
-      )
+      ),
+      axis.text.x = element_text(size = 14, colour = "#1a1a1a")
     )
   if (n_bands > 1L) {
     p <- p + facet_wrap(
-      ~band, scales = "free", ncol = 1,
+      ~band, scales = "free_y", ncol = 1,
       labeller = label_wrap_gen(width = 18)
     )
   }
   p + coord_cartesian(clip = "on")
+}
+
+# Category bars with 95% CI for operator / downtime style metrics.
+replication_bars <- function(df, category, value, x_label, percent = TRUE, fill_values = NULL) {
+  cat_sym <- rlang::sym(category)
+  val_sym <- rlang::sym(value)
+  df <- df %>% dplyr::filter(is.finite(!!val_sym))
+  if (!nrow(df)) {
+    return(ggplot() + theme_void(base_size = 16) + labs(subtitle = plot_subtitle("No replications to plot")))
+  }
+  if (is.factor(df[[category]])) {
+    df[[category]] <- factor(df[[category]], levels = levels(df[[category]]))
+  } else {
+    df[[category]] <- factor(df[[category]], levels = unique(df[[category]]))
+  }
+  summary_df <- rep_mean_ci(df, category, value)
+  colors <- ridge_fill_values(levels(df[[category]]), fill_values)
+  ggplot() +
+    geom_col(
+      data = summary_df,
+      aes(x = !!cat_sym, y = mean, fill = !!cat_sym),
+      width = 0.72, colour = "#1a1a1a", linewidth = 0.25
+    ) +
+    geom_errorbar(
+      data = summary_df,
+      aes(x = !!cat_sym, ymin = lower, ymax = upper),
+      width = 0.22, linewidth = 0.7, colour = "#1a1a1a"
+    ) +
+    geom_point(
+      data = df,
+      aes(x = !!cat_sym, y = !!val_sym, colour = !!cat_sym),
+      size = 2.2, alpha = 0.45,
+      position = position_jitter(width = 0.08, height = 0, seed = 42)
+    ) +
+    scale_fill_manual(values = colors, drop = FALSE, guide = "none") +
+    scale_colour_manual(values = colors, drop = FALSE, guide = "none") +
+    labeled_continuous_scale("y", percent = percent, n = 3L, expand = expansion(mult = c(0, 0.08))) +
+    labs(
+      x = NULL, y = x_label,
+      caption = "Bars = mean across replications; error bars = 95% CI. Faint points = each replication."
+    ) +
+    theme_sim(legend.position = "none", plot.margin = margin(8, 12, 14, 10)) +
+    theme_plot_width_text() +
+    theme_minor_ticks() +
+    theme(axis.text.x = element_text(size = 14, colour = "#1a1a1a")) +
+    coord_cartesian(clip = "on")
+}
+
+# Dodged wait-reason bars with ggiraph hover tooltips (mean and 95% CI).
+wait_reason_bars_interactive <- function(waits) {
+  type_lab <- c(
+    blocked = "Blocked after processing",
+    waiting_for_operator = "Waiting for operator",
+    waiting_for_automatic_capacity = "Awaiting automatic capacity"
+  )
+  df <- waits %>%
+    dplyr::mutate(
+      station = factor(label_station(station), levels = unname(station_labels)),
+      type = factor(
+        unname(type_lab[as.character(type)]),
+        levels = unname(type_lab)
+      )
+    )
+  summary_df <- df %>%
+    dplyr::group_by(station, type) %>%
+    dplyr::summarise(
+      n = dplyr::n(),
+      mean = mean(minutes, na.rm = TRUE),
+      sd = stats::sd(minutes, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    dplyr::mutate(
+      se = dplyr::if_else(n > 1L, sd / sqrt(n), NA_real_),
+      tcrit = dplyr::if_else(n > 1L, stats::qt(0.975, n - 1L), NA_real_),
+      half = se * tcrit,
+      lower = dplyr::if_else(is.finite(half), mean - half, mean),
+      upper = dplyr::if_else(is.finite(half), mean + half, mean),
+      tooltip = sprintf(
+        "%s · %s<br/>Mean: %.1f bay-min<br/>95%% CI: %.1f – %.1f",
+        as.character(station), as.character(type), mean, lower, upper
+      ),
+      data_id = paste(station, type, sep = "::")
+    )
+  fill_cols <- c(
+    "Blocked after processing" = "#d95f0e",
+    "Waiting for operator" = "#2c7fb8",
+    "Awaiting automatic capacity" = "#31a354"
+  )
+  p <- ggplot(summary_df, aes(x = station, y = mean, fill = type)) +
+    ggiraph::geom_col_interactive(
+      aes(tooltip = tooltip, data_id = data_id),
+      position = position_dodge(width = 0.8), width = 0.72,
+      colour = "#1a1a1a", linewidth = 0.25
+    ) +
+    ggiraph::geom_errorbar_interactive(
+      aes(ymin = lower, ymax = upper, tooltip = tooltip, data_id = data_id),
+      position = position_dodge(width = 0.8), width = 0.2,
+      linewidth = 0.65, colour = "#1a1a1a"
+    ) +
+    scale_fill_manual(values = fill_cols, drop = FALSE) +
+    labeled_continuous_scale("y", percent = FALSE, n = 3L, expand = expansion(mult = c(0, 0.08))) +
+    labs(
+      x = NULL, y = "Mean bay-minutes per measured run", fill = NULL,
+      caption = "Bars = mean across replications; error bars = 95% CI. Hover or tap a bar for its value."
+    ) +
+    theme_sim(legend.position = "bottom", plot.margin = margin(8, 12, 14, 10)) +
+    theme_plot_width_text() +
+    theme_minor_ticks() +
+    theme(axis.text.x = element_text(size = 14, colour = "#1a1a1a")) +
+    coord_cartesian(clip = "on")
+  ggiraph::girafe(
+    ggobj = p,
+    width_svg = 9, height_svg = 5.2,
+    options = list(
+      ggiraph::opts_tooltip(
+        css = "background:#1a1a1a;color:#fff;padding:8px 10px;border-radius:6px;font-size:14px;line-height:1.35;",
+        opacity = 0.95
+      ),
+      ggiraph::opts_hover(css = "filter:brightness(1.08);stroke-width:1.2px;"),
+      ggiraph::opts_selection(type = "none"),
+      ggiraph::opts_toolbar(saveaspng = FALSE)
+    )
+  )
 }
 
 provenance_warning <- function(message, button_id = NULL) {
@@ -814,6 +1002,7 @@ guided_example_ui <- function() {
       card_body(
         fill = FALSE,
         tags$details(
+          open = NA,
           tags$summary(
             tagList(
               bs_icon("lightbulb"),
@@ -1246,10 +1435,38 @@ ui <- page_navbar(
         }
         setTimeout(go, 50);
       });
+      function closeResultsNavChrome() {
+        document.querySelectorAll('.navbar .dropdown-menu.show').forEach(function(m) {
+          m.classList.remove('show');
+        });
+        document.querySelectorAll('.navbar .nav-item.dropdown.show, .navbar .dropdown.show').forEach(function(d) {
+          d.classList.remove('show');
+          var toggle = d.querySelector('[data-bs-toggle=dropdown], .dropdown-toggle');
+          if (toggle) {
+            toggle.classList.remove('show');
+            toggle.setAttribute('aria-expanded', 'false');
+          }
+        });
+        var collapse = document.querySelector('.navbar-collapse.show');
+        if (collapse) {
+          if (window.bootstrap && bootstrap.Collapse) {
+            try { bootstrap.Collapse.getOrCreateInstance(collapse, {toggle: false}).hide(); }
+            catch (err) {
+              collapse.classList.remove('show');
+            }
+          } else {
+            collapse.classList.remove('show');
+          }
+        }
+      }
       function kpiNavigate(el) {
         var page = el && el.getAttribute('data-page');
         if (!page) return;
+        closeResultsNavChrome();
         Shiny.setInputValue('kpi_nav', page, {priority: 'event'});
+        // Nav may re-open the menu while switching; close again after paint.
+        setTimeout(closeResultsNavChrome, 0);
+        setTimeout(closeResultsNavChrome, 120);
       }
       $(document).on('click', '.kpi-nav-card', function(e) {
         kpiNavigate(this);
@@ -1258,6 +1475,22 @@ ui <- page_navbar(
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           kpiNavigate(this);
+        }
+      });
+      Shiny.addCustomMessageHandler('closeResultsNav', function(msg) {
+        closeResultsNavChrome();
+        [0, 50, 150, 300, 500].forEach(function(ms) {
+          setTimeout(closeResultsNavChrome, ms);
+        });
+      });
+      // If a Results nav item becomes active, force the dropdown/toggler shut.
+      $(document).on('shown.bs.tab shown.bs.dropdown', function() {
+        var active = document.querySelector('.navbar .nav-link.active, .navbar .dropdown-item.active');
+        if (!active) return;
+        var val = active.getAttribute('data-value') || '';
+        if (val.indexOf('results_') === 0 || val === 'production_schedule') {
+          setTimeout(closeResultsNavChrome, 0);
+          setTimeout(closeResultsNavChrome, 100);
         }
       });
     "))
@@ -1284,18 +1517,18 @@ ui <- page_navbar(
             actionButton("run", "Run simulation", class = "btn-primary w-100 mb-3", icon = icon("play")),
             numericInput("n_reps", "Number of replications",
                          value = 5, min = 1, max = 100, step = 1),
+            numericInput("sim_length", "Shift duration (production minutes)",
+                         value = 480, min = 1, max = 1440, step = 30),
+            numericInput("warmup", "Initial settling period (minutes)",
+                         value = 300, min = 0, max = 10080, step = 15),
+            helpText("Settling happens first. Shifts are measured separately and run consecutively; nights and weekends are not simulated."),
+            numericInput("n_shifts","Number of measured shifts",value=1,min=1,max=100,step=1),
             numericInput("planned_rate","Planned work rate (vehicles/hour)",value=15,min=.01,max=600,step=1),
             selectInput("order_spacing","Order spacing",c("Evenly scheduled"="fixed","Random (exponential)"="exponential"),selected="fixed"),
             selectInput("release_policy","Admission policy",c("When entrance space is available"="space","Limit total line WIP (CONWIP)"="conwip","Release all scheduled work"="scheduled"),selected="space"),
             numericInput("entry_buffer","Entrance waiting positions",3,min=0,step=1),
             numericInput("wip_limit","Maximum line WIP (CONWIP only)",20,min=1,step=1),
             helpText("Planned work waits outside production until admitted. Release-all allows an unlimited entrance queue. Interstation buffers apply to every policy."),
-            numericInput("sim_length", "Shift duration (production minutes)",
-                         value = 480, min = 1, max = 1440, step = 30),
-            numericInput("n_shifts","Number of measured shifts",value=1,min=1,max=100,step=1),
-            helpText("Settling happens first. Shifts are measured separately and run consecutively; nights and weekends are not simulated."),
-            numericInput("warmup", "Initial settling period (minutes)",
-                         value = 300, min = 0, max = 10080, step = 15),
             numericInput("seed", "Base seed",
                          value = 20261027, min = 1, step = 1),
             actionButton("compare_timing", "Compare timing variability", class = "w-100"),
@@ -1505,7 +1738,28 @@ ui <- page_navbar(
     title = "Bottleneck & capacity",
     value = "results_capacity",
     p(class = "text-muted small px-2 pt-2 mb-1",
-      "The Bottleneck KPI is the station with the highest occupancy excluding blocked time. These tabs show whether bays, operators, or downtime explain it."),
+      "The Bottleneck KPI is the station with the highest occupancy excluding blocked time. These charts show whether waits, reliability, bays, or operators explain it."),
+    layout_columns(
+      fill = FALSE,
+      col_widths = c(6, 6),
+      plot_card(
+        "Why occupied bays wait",
+        p(class = "small mb-2",
+          "Machine-minutes blocked after processing, waiting for operators, or awaiting automatic capacity. These do not include active processing or ongoing failure interruptions. Hover or tap a bar for its value."),
+        ggiraph::girafeOutput("plot_waits", width = "100%", height = "420px"),
+        downloadButton("dl_waits_main", "Download wait data (.csv)", class = "btn-outline-secondary btn-sm mt-2")
+      ),
+      card(
+        fill = FALSE,
+        card_header("Reliability losses"),
+        card_body(
+          fill = FALSE,
+          p(class = "small mb-2",
+            "Total unavailability = active repair plus waiting for a technician. Includes failures still waiting at the end of the run."),
+          DTOutput("reliability_losses")
+        )
+      )
+    ),
     navset_pill(
       id = "capacity_tabs",
       selected = "occupancy",
@@ -1513,16 +1767,18 @@ ui <- page_navbar(
         title = "Station occupancy",
         value = "occupancy",
         plot_card(
-          "Bay occupancy (all replications)",
-          roomy_plot("plot_util")
+          "Bay occupancy (mean ± 95% CI)",
+          roomy_plot("plot_util"),
+          downloadButton("dl_util_summary", "Download mean ± 95% CI (.csv)", class = "btn-outline-secondary btn-sm mt-2")
         )
       ),
       nav_panel(
         title = "Operators",
         value = "operators",
         plot_card(
-          "Operator utilization (all replications)",
-          roomy_plot("plot_labor")
+          "Operator utilization (mean ± 95% CI)",
+          roomy_plot("plot_labor"),
+          downloadButton("dl_labor_summary", "Download mean ± 95% CI (.csv)", class = "btn-outline-secondary btn-sm mt-2")
         ),
         card(
           fill = FALSE,
@@ -1534,8 +1790,9 @@ ui <- page_navbar(
         title = "Downtime",
         value = "downtime",
         plot_card(
-          "Downtime fraction (all replications)",
-          roomy_plot("plot_down")
+          "Downtime fraction (mean ± 95% CI)",
+          roomy_plot("plot_down"),
+          downloadButton("dl_down_summary", "Download mean ± 95% CI (.csv)", class = "btn-outline-secondary btn-sm mt-2")
         ),
         card(
           fill = FALSE,
@@ -1999,6 +2256,7 @@ server <- function(input, output, session) {
     page <- input$kpi_nav
     if (!is.null(page) && nzchar(page)) {
       nav_select("main_page", page, session = session)
+      session$sendCustomMessage("closeResultsNav", list())
     }
   }, ignoreInit = TRUE)
   output$timing_table <- renderDT({
@@ -2169,10 +2427,9 @@ server <- function(input, output, session) {
     } else unique(pools)
     df <- res$operator_by_rep %>%
       mutate(label = factor(sub("^operator_", "", resource), levels = levels))
-    replication_densities(
+    replication_bars(
       df, "label", "avg_util",
       x_label = "Operator utilization",
-      subtitle = "Overlaid densities. Rug ticks are every replication. A vertical line means no spread.",
       percent = TRUE
     )
   })
@@ -2219,10 +2476,9 @@ server <- function(input, output, session) {
     res <- sim_result()
     per_rep <- res$downtime_by_rep %>%
       mutate(label = factor(label_station(station), levels = unname(station_labels)))
-    replication_densities(
+    replication_bars(
       per_rep, "label", "downtime_fraction",
       x_label = "Downtime fraction",
-      subtitle = "Overlaid densities. Rug ticks are every replication. A vertical line means no spread.",
       percent = TRUE,
       fill_values = station_colors
     )
@@ -2252,7 +2508,31 @@ server <- function(input, output, session) {
         caption = "x-axis shows the central 95% of values"
       ) +
       theme_sim() +
-      theme_plot_width_text()
+      theme_plot_width_text() +
+      theme_minor_ticks()
+  })
+
+  output$plot_waits <- ggiraph::renderGirafe({
+    res <- sim_result()
+    req(nrow(res$station_waits) > 0)
+    wait_reason_bars_interactive(res$station_waits)
+  })
+
+  output$reliability_losses <- renderDT({
+    res <- sim_result()
+    res$downtime_by_rep %>%
+      group_by(station) %>%
+      summarise(
+        `Active repair minutes` = mean(downtime_min),
+        `Waiting for repair minutes` = mean(waiting_repair_min),
+        `Total unavailable minutes` = mean(total_downtime_min),
+        `Unavailable fraction` = mean(total_downtime_fraction),
+        .groups = "drop"
+      ) %>%
+      mutate(station = label_station(station)) %>%
+      datatable(rownames = FALSE, options = list(dom = "t", scrollX = TRUE)) %>%
+      formatRound(columns = 2:4, digits = 2) %>%
+      formatPercentage("Unavailable fraction", 1)
   })
 
   output$table_metrics <- renderDT({
@@ -2286,6 +2566,25 @@ server <- function(input, output, session) {
   write_download("dl_down", "downtime_by_rep.csv", function() sim_result()$downtime_by_rep)
   write_download("dl_repairs", "repair_events.csv", function() sim_result()$repair_events)
   write_download("dl_ops", "operator_by_rep.csv", function() sim_result()$operator_by_rep)
+  write_download("dl_waits_main", "station_waits_by_rep.csv", function() sim_result()$station_waits)
+  write_download("dl_util_summary", "occupancy_mean_ci.csv", function() {
+    res <- sim_result()
+    per_rep <- res$utilization_by_rep %>%
+      mutate(label = factor(label_station(station), levels = unname(station_labels)))
+    rep_mean_ci(per_rep, "label", "avg_util")
+  })
+  write_download("dl_labor_summary", "operator_util_mean_ci.csv", function() {
+    res <- sim_result()
+    df <- res$operator_by_rep %>%
+      mutate(label = sub("^operator_", "", resource))
+    rep_mean_ci(df, "label", "avg_util")
+  })
+  write_download("dl_down_summary", "downtime_mean_ci.csv", function() {
+    res <- sim_result()
+    per_rep <- res$downtime_by_rep %>%
+      mutate(label = factor(label_station(station), levels = unname(station_labels)))
+    rep_mean_ci(per_rep, "label", "downtime_fraction")
+  })
   write_download("dl_params", "run_parameters.csv", function() sim_result()$run_parameters)
   output$dl_all <- downloadHandler(
     filename = function() paste0("automotive_line_sim_data_", format(Sys.time(), "%Y%m%d_%H%M%S"), ".zip"),

@@ -600,7 +600,7 @@ comparison_download_catalog <- function(ns) {
     ),
     entry(
       "dl_summaries", "Replication summaries",
-      "Throughput, lead time, WIP, and output per operator-hour for every replication."
+      "Throughput, lead time, WIP, and HPU (labor-hours per unit) for every replication."
     ),
     entry(
       "dl_cycle", "Cycle times",
@@ -665,6 +665,37 @@ comparison_page_ui <- function(id) {
         .comparison-change-story,
         .comparison-change-story h4,
         .comparison-change-story p { color: #1a1a1a; }
+        .compare-progress-card {
+          background: #fff;
+          border: 2px solid #2c7fb8;
+          border-radius: 0.5rem;
+          box-shadow: 0 4px 12px rgba(0,0,0,.10);
+          min-height: 3.4rem;
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          padding: 0.45rem 1rem;
+          margin: 0 0 0.85rem 0;
+        }
+        .compare-progress-card.compare-progress-idle {
+          border-color: #adb5bd;
+          box-shadow: none;
+          background: #f8f9fa;
+        }
+        .compare-progress-card.compare-progress-done {
+          border-color: #2e7d32;
+        }
+        .compare-progress-title {
+          font-size: 1.05rem;
+          font-weight: 700;
+          color: #1b4f72;
+          margin: 0;
+          white-space: nowrap;
+        }
+        .compare-progress-idle .compare-progress-title { color: #495057; }
+        .compare-progress-done .compare-progress-title { color: #1b5e20; }
+        .compare-progress-detail { flex: 1 1 auto; min-width: 0; margin: 0 !important; font-size: 0.95rem; color: #1a1a1a !important; font-weight: 500; }
+        .compare-progress-card .progress { width: 11rem; max-width: 30%; height: 1.1rem; margin: 0; }
       ")),
       tags$script(HTML("
         (function() {
@@ -711,18 +742,53 @@ comparison_page_ui <- function(id) {
             register();
             if (window.__twoSetCollapseEditors || ++tries > 50) window.clearInterval(timer);
           }, 100);
+          $(document).on('click', '.two-set-study .compare-run-btn', function() {
+            var card = document.querySelector('.two-set-study .compare-progress-card');
+            if (card) {
+              card.classList.remove('d-none', 'compare-progress-idle', 'compare-progress-done');
+              var title = card.querySelector('.compare-progress-title');
+              var detail = card.querySelector('.compare-progress-detail');
+              var barWrap = card.querySelector('.progress');
+              if (!barWrap) {
+                barWrap = document.createElement('div');
+                barWrap.className = 'progress';
+                var bar = document.createElement('div');
+                bar.className = 'progress-bar progress-bar-striped progress-bar-animated';
+                bar.setAttribute('role', 'progressbar');
+                bar.style.width = '100%';
+                bar.textContent = 'In progress';
+                barWrap.appendChild(bar);
+                card.appendChild(barWrap);
+              } else {
+                var bar = card.querySelector('.progress-bar');
+                if (bar) { bar.style.width = '100%'; bar.textContent = 'In progress'; }
+              }
+              if (title) title.textContent = 'Comparison running';
+              if (detail) { detail.textContent = 'Running both parameter sets…'; detail.style.color = '#1a1a1a'; }
+            }
+            document.querySelectorAll('.two-set-study .alert-info').forEach(function(el) {
+              if ((el.textContent || '').indexOf('ready to edit') >= 0) el.classList.add('d-none');
+            });
+            var btn = this;
+            btn.classList.remove('btn-primary', 'btn-success');
+            btn.classList.add('btn-warning');
+            btn.disabled = true;
+            var label = btn.querySelector('.compare-run-label');
+            if (label) label.textContent = 'Running…';
+          });
         })();
       ")),
       h3("Compare two parameter sets"),
       p("Start from the main page, change one parameter at a time, and compare output and flow. The two sets stay independent of the main page after import. Each title is editable and is used on the charts, tables, and downloads."),
       p("Results are illustrative only. They are not predictions for any employer."),
       div(
-        class = "d-flex flex-wrap gap-2 mb-3",
+        class = "d-flex flex-wrap gap-2 mb-3 align-items-center",
         actionButton(ns("import"), "Import main settings into both sets"),
         actionButton(ns("clone"), "Copy Set 1 to Set 2"),
         actionButton(ns("match_reps"), "Match Set 2 replications to Set 1"),
-        actionButton(ns("run"), "Run comparison", class = "btn-primary")
+        uiOutput(ns("run_button"))
       ),
+      uiOutput(ns("compare_progress")),
       uiOutput(ns("status")),
       uiOutput(ns("result_fade")),
       uiOutput(ns("draft_diff")),
@@ -779,7 +845,7 @@ comparison_page_ui <- function(id) {
                     "Throughput (vehicles/hour)" = "throughput_per_hr",
                     "Lead time (min)" = "cycle_time_mean",
                     "Average WIP (vehicles)" = "avg_wip",
-                    "Output per operator-hour" = "throughput_per_labor_hr"
+                    "HPU (labor-hours / unit)" = "hpu"
                   )
                 )
               )
@@ -832,6 +898,8 @@ comparison_page_server <- function(id, main_params, active_page) {
     # Titles are display state. Editing one does not rerun the simulation
     # and does not mark a saved comparison stale.
     titles <- reactiveVal(comparison_default_labels)
+    # idle | running | done — drives the compare status banner and run button.
+    run_state <- reactiveVal("idle")
     observeEvent(input$title_one, {
       updated <- sanitize_set_labels(c(input$title_one, isolate(titles())[[2]]))
       if (!identical(updated, isolate(titles()))) titles(updated)
@@ -875,6 +943,64 @@ comparison_page_server <- function(id, main_params, active_page) {
       d <- draft()
       !is.null(r) && (inherits(d, "error") || !comparison_same(d$one, r$params[[1]]) || !comparison_same(d$two, r$params[[2]]))
     })
+    observe({
+      # Inputs changed after a completed run: allow another run without looking "done".
+      if (isTRUE(dirty()) && identical(isolate(run_state()), "done")) run_state("idle")
+    })
+    output$run_button <- renderUI({
+      state <- run_state()
+      if (identical(state, "running")) {
+        actionButton(
+          session$ns("run"),
+          tagList(icon("spinner"), span(class = "compare-run-label", "Running…")),
+          class = "btn-warning compare-run-btn", disabled = TRUE
+        )
+      } else if (identical(state, "done") && !isTRUE(dirty())) {
+        actionButton(
+          session$ns("run"),
+          tagList(icon("check"), span(class = "compare-run-label", "Done – run again")),
+          class = "btn-success compare-run-btn"
+        )
+      } else {
+        actionButton(
+          session$ns("run"),
+          span(class = "compare-run-label", "Run comparison"),
+          class = "btn-primary compare-run-btn"
+        )
+      }
+    })
+    output$compare_progress <- renderUI({
+      state <- run_state()
+      if (identical(state, "running")) {
+        div(
+          id = session$ns("compare_progress_card"),
+          class = "compare-progress-card",
+          div(class = "compare-progress-title", "Comparison running"),
+          div(class = "compare-progress-detail text-dark", "Running both parameter sets…"),
+          div(
+            class = "progress",
+            div(
+              class = "progress-bar progress-bar-striped progress-bar-animated",
+              role = "progressbar", style = "width:100%", "In progress"
+            )
+          )
+        )
+      } else if (identical(state, "done") && !isTRUE(dirty())) {
+        div(
+          id = session$ns("compare_progress_card"),
+          class = "compare-progress-card compare-progress-done",
+          div(class = "compare-progress-title", "Comparison complete"),
+          div(class = "compare-progress-detail text-dark", "Both parameter sets finished. Charts below are current.")
+        )
+      } else {
+        div(
+          id = session$ns("compare_progress_card"),
+          class = "compare-progress-card compare-progress-idle",
+          div(class = "compare-progress-title", "Ready"),
+          div(class = "compare-progress-detail text-dark", "Press Run comparison when both sets are ready.")
+        )
+      }
+    })
     bind_runs <- function(r, field) {
       map2_dfr(r$runs, names(comparison_colors), ~ mutate(.x[[field]], set = .y))
     }
@@ -882,9 +1008,13 @@ comparison_page_server <- function(id, main_params, active_page) {
       d <- draft()
       if (inherits(d, "error")) {
         error(conditionMessage(d))
+        run_state("idle")
         return()
       }
       error(NULL)
+      run_state("running")
+      # Flush UI so the amber button and banner paint before the sim blocks.
+      tryCatch(session$requestFlush(), error = function(cond) NULL)
       succeeded <- FALSE
       tryCatch({
         r <- withProgress(message = "Running both parameter sets…", value = 0, {
@@ -903,7 +1033,12 @@ comparison_page_server <- function(id, main_params, active_page) {
       }, error = function(e) error(conditionMessage(e)))
       # Invalid input returns before this, and a failed sim leaves succeeded FALSE,
       # so open editors stay open when the run does not update.
-      if (isTRUE(succeeded)) collapse_editors(scroll = TRUE)
+      if (isTRUE(succeeded)) {
+        run_state("done")
+        collapse_editors(scroll = TRUE)
+      } else {
+        run_state("idle")
+      }
     }
     # Close both editors after a saved comparison. Scroll only when this page
     # is the one on screen, so a guided run started from Simulate does not
@@ -971,7 +1106,7 @@ comparison_page_server <- function(id, main_params, active_page) {
             actionButton(session$ns("rerun"), "Rerun comparison", class = "btn-warning btn-sm")
           )
         },
-        if (is.null(r)) {
+        if (is.null(r) && !identical(run_state(), "running")) {
           div(class = "alert alert-info", "Both sets are ready to edit. Press Run comparison to generate results.")
         },
         if (length(mismatches)) {
@@ -1105,7 +1240,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         throughput_per_hr = "Throughput / hour",
         cycle_time_mean = "Mean lead time / min",
         avg_wip = "Average WIP",
-        throughput_per_labor_hr = "Output / operator-hour"
+        hpu = "HPU (labor-hours / unit)"
       )
       layout_columns(
         fill = FALSE,
@@ -1165,15 +1300,23 @@ comparison_page_server <- function(id, main_params, active_page) {
         throughput_per_hr = "Throughput (vehicles/hour)",
         cycle_time_mean = "Mean lead time (min)",
         avg_wip = "Average WIP (vehicles)",
-        throughput_per_labor_hr = "Output per operator-hour"
+        hpu = "HPU (labor-hours / unit, lower is better)"
       )
       metric <- input$metric %||% "throughput_per_hr"
       df <- table_for("summaries")
       validate(need(any(is.finite(df[[metric]])), "No completed observations for this metric."))
+      caption_extra <- if (identical(metric, "hpu")) {
+        " HPU = (operators × observation hours) / units completed. Lower is better."
+      } else {
+        ""
+      }
       comparison_densities(
         df %>% mutate(value = .data[[metric]]),
         "set", "value", labels[[metric]],
-        "Overlaid densities of every replication. Rug ticks are each run. A vertical line means that set did not vary.",
+        paste0(
+          "Overlaid densities of every replication. Rug ticks are each run. A vertical line means that set did not vary.",
+          caption_extra
+        ),
         percent = FALSE, palette = palette(), bounds = c(0, Inf)
       )
     })
@@ -1244,7 +1387,8 @@ comparison_page_server <- function(id, main_params, active_page) {
           caption = "x-axis shows the central 95% of values"
         ) +
         theme_sim(legend.position = "bottom") +
-        theme_plot_width_text()
+        theme_plot_width_text() +
+        theme_minor_ticks()
     })
     output$shift_output <- renderPlot({
       r <- results()
@@ -1276,7 +1420,7 @@ comparison_page_server <- function(id, main_params, active_page) {
           throughput_upper = throughput + ci_half,
           mean_lead_time = mean(cycle_time_mean, na.rm = TRUE),
           mean_wip = mean(avg_wip),
-          output_per_operator_hour = mean(throughput_per_labor_hr, na.rm = TRUE),
+          hpu = mean(hpu[is.finite(hpu)], na.rm = TRUE),
           .groups = "drop"
         )
     })
@@ -1285,7 +1429,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       names(df) <- c(
         "Parameter set", "Replications", "Throughput / hour", "Standard error",
         "95% CI half-width", "95% CI lower", "95% CI upper", "Mean lead time / min",
-        "Average WIP", "Output / operator-hour"
+        "Average WIP", "HPU (labor-hours / unit)"
       )
       datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE)) %>%
         formatRound(columns = 3:10, digits = 2)

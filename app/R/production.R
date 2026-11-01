@@ -226,9 +226,8 @@ production_page_ui <- function(id) {
         plot_card("Output per measured shift",plotOutput(ns("shifts"),height=400)),
         plot_card("Waiting for admission versus work in production",plotOutput(ns("inventory"),height=400))),
       card(fill=FALSE,card_header("Shift results"),DTOutput(ns("shift_table")),downloadButton(ns("dl_shifts"),"Download every shift (.csv)")),
-      layout_columns(fill=FALSE,col_widths=c(6,6),
-        plot_card("Why occupied bays wait",p("Machine-minutes blocked after processing, waiting for operators, or awaiting automatic capacity. These do not include active processing or ongoing failure interruptions."),plotOutput(ns("waits"),height=400)),
-        card(fill=FALSE,card_header("Reliability losses"),p("Total unavailability = active repair plus waiting for a technician. Includes failures still waiting at the end of the run."),DTOutput(ns("repairs")))),
+      p(class="text-muted small",
+        "Why occupied bays wait and Reliability losses now live under Results → Bottleneck & capacity (top of that page)."),
       accordion(open=FALSE,
         accordion_panel("Admission and buffer assumptions",DTOutput(ns("buffers")),
           p("A downstream position is reserved before the upstream bay is released. A zero-position buffer permits direct transfer only. Unloading releases its operator before the bay blocks. Production-count support tasks can delay the vehicle after transfer while retaining its reserved downstream position.")),
@@ -266,20 +265,6 @@ production_page_server <- function(id,result,current_fingerprint) moduleServer(i
       `Production lead time (min)`=mean(release_lead_time,na.rm=TRUE),
       `Order-to-completion (min)`=mean(order_lead_time,na.rm=TRUE),.groups="drop") %>%
       datatable(rownames=FALSE,options=list(scrollX=TRUE,pageLength=20)) %>% formatRound(columns=2:9,digits=2)
-  })
-  output$waits<-renderPlot({
-    saved()$station_waits %>% mutate(station=label_station(station),type=recode(type,
-      blocked="Blocked after processing",waiting_for_operator="Waiting for operator",waiting_for_automatic_capacity="Awaiting automatic capacity")) %>%
-      group_by(station,type) %>% summarise(minutes=mean(minutes),.groups="drop") %>%
-      ggplot(aes(station,minutes,fill=type))+geom_col(position="dodge")+coord_flip()+
-      labs(x=NULL,y="Mean bay-minutes per measured run",fill=NULL)+theme_sim()
-  })
-  output$repairs<-renderDT({
-    saved()$downtime_by_rep %>% group_by(station) %>% summarise(
-      `Active repair minutes`=mean(downtime_min),`Waiting for repair minutes`=mean(waiting_repair_min),
-      `Total unavailable minutes`=mean(total_downtime_min),`Unavailable fraction`=mean(total_downtime_fraction),.groups="drop") %>%
-      mutate(station=label_station(station)) %>% datatable(rownames=FALSE,options=list(dom="t",scrollX=TRUE)) %>%
-      formatRound(columns=2:4,digits=2) %>% formatPercentage("Unavailable fraction",1)
   })
   output$buffers<-renderDT({r<-saved();p<-r$params
     p$stations %>% transmute(Station=label_station(name),Bays=capacity,
