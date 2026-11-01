@@ -623,7 +623,7 @@ occupancy_boxes <- function(per_rep) {
     )
   if (n_bands > 1L) {
     p <- p + facet_wrap(
-      ~band, scales = "free_y", ncol = 1,
+      ~band, scales = "free", ncol = 1,
       labeller = label_wrap_gen(width = 18)
     )
   }

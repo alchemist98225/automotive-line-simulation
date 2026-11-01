@@ -416,6 +416,7 @@ stopifnot(length(col_idx) == 1L, length(err_idx) == 1L, length(point_idx) == 1L)
 stopifnot(identical(built_flat$plot$layers[[point_idx]]$aes_params$alpha, 0.45))
 stopifnot(inherits(built_flat$plot$facet, "FacetWrap"))
 stopifnot(isTRUE(built_flat$plot$facet$params$free$y))
+stopifnot(isTRUE(built_flat$plot$facet$params$free$x))
 stopifnot(nrow(built_flat$data[[point_idx]]) == nrow(flat))
 # Independent occupancy axes: each panel's trained y range stays local.
 # Bars start at 0, so mins match; the free upper limit separates the bands.
