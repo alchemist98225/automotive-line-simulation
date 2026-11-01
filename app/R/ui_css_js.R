@@ -92,6 +92,11 @@ app_header_tags <- function() {
     #headline_kpis .kpi-nav-card > .bslib-value-box {
       flex: 1 1 auto; height: 100%; min-height: 170px; margin-bottom: 0;
     }
+    /* Compare page reuses the same equal-size value boxes (no nav chrome). */
+    .compare-headline-kpis .bslib-grid { align-items: stretch; grid-auto-rows: 1fr; }
+    .compare-headline-kpis .bslib-value-box {
+      height: 100%; min-height: 170px; margin-bottom: 0;
+    }
     .text-muted,
     .text-body-secondary,
     .form-text,
