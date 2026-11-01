@@ -25,7 +25,7 @@ parse_args <- function(argv) {
     pop = 24L, gen = 15L, reps = 3L, elite_reps = 15L, elites = 5L,
     out = "results/opt_run", seed = 42L,
     cores = max(1L, parallel::detectCores() - 1L),
-    penalty = 10, p_mut = 0.2, help = FALSE
+    penalty = 10, p_mut = 0.25, help = FALSE
   )
   if (!length(argv) || "--help" %in% argv || "-h" %in% argv) {
     opts$help <- TRUE
@@ -59,7 +59,7 @@ usage <- function() {
   cat("Usage:\n",
       "  Rscript scripts/opt_run.R --pop N --gen N --reps N --out DIR",
       " [--seed N] [--cores N] [--elite-reps N] [--elites N]",
-      " [--penalty X] [--p-mut X]\n\n",
+      " [--penalty X] [--p-mut X]  (default 0.25; at least one gene always changes)\n\n",
       "  Minimizes mean HPU with mean throughput >= baseline mean.\n",
       "  Knobs: queues (paint/FA/inspection), zone operators, paint capacity.\n",
       sep = "")
@@ -100,9 +100,13 @@ wall <- proc.time()[["elapsed"]] - t_wall0
 # Writes
 readr::write_csv(res$history, file.path(out_dir, "convergence.csv"))
 readr::write_csv(res$evaluations, file.path(out_dir, "evaluations.csv.gz"))
+readr::write_csv(res$generation0, file.path(out_dir, "generation0.csv"))
+readr::write_csv(res$history %>% dplyr::select(generation, n_unique, mean_pairwise_l1, pct_feasible),
+                 file.path(out_dir, "diversity.csv"))
 readr::write_csv(res$elites, file.path(out_dir, "elites.csv"))
 readr::write_csv(res$best_summary, file.path(out_dir, "best_vs_baseline.csv"))
 readr::write_csv(res$param_diff, file.path(out_dir, "param_diff.csv"))
+readr::write_csv(res$operator_util, file.path(out_dir, "operator_util.csv"))
 
 # Best design row (DOE columns) — feed doe_params_from_row / future Compare import
 best_row <- opt_genome_to_row(res$best$genome, design_id = "optimized")
@@ -123,6 +127,8 @@ info <- list(
   seed = opts$seed, cores = opts$cores, penalty = opts$penalty,
   p_mut = opts$p_mut, wall_sec = wall,
   thr_floor = res$thr_floor,
+  thr_floor_elite = res$thr_floor_elite,
+  baseline_source = "default_params()",
   best_fitness = res$best$fitness,
   best_hpu = res$best$hpu_mean,
   best_thr = res$best$thr_mean,

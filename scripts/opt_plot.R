@@ -69,16 +69,40 @@ p_conv <- ggplot(conv_long, aes(generation, fitness, color = series, linetype = 
     subtitle = "Fitness = mean HPU + penalty × throughput shortfall vs baseline",
     x = "Generation", y = "Fitness (lower is better)",
     color = NULL, linetype = NULL,
-    caption = "Illustrative only — placeholder parameters, not plant predictions."
   ) +
   theme_minimal(base_size = 16) +
   theme(
     legend.position = "bottom",
-    legend.direction = "horizontal",
-    plot.caption = element_text(hjust = 0, size = rel(0.7))
+    legend.direction = "horizontal"
   )
 
+
 ggsave(file.path(plot_dir, "convergence.png"), p_conv, width = 9, height = 5.5, dpi = 120)
+
+if (all(c("n_unique", "mean_pairwise_l1") %in% names(hist))) {
+  div_long <- hist %>%
+    select(generation, n_unique, mean_pairwise_l1) %>%
+    tidyr::pivot_longer(-generation, names_to = "metric", values_to = "value") %>%
+    mutate(metric = dplyr::recode(metric,
+      n_unique = "Unique genomes",
+      mean_pairwise_l1 = "Mean pairwise L1 distance"))
+  p_div <- ggplot(div_long, aes(generation, value, color = metric)) +
+    geom_line(linewidth = 0.9) +
+    geom_point(size = 2) +
+    facet_wrap(~metric, scales = "free_y", ncol = 1) +
+    scale_color_manual(values = c(
+      "Unique genomes" = "#0072B2",
+      "Mean pairwise L1 distance" = "#D55E00")) +
+    labs(
+      title = "Population diversity by generation",
+      x = "Generation (0 = initial population)", y = NULL, color = NULL
+    ) +
+    theme_minimal(base_size = 16) +
+    theme(legend.position = "none", strip.text = element_text(hjust = 0))
+  ggsave(file.path(plot_dir, "diversity.png"), p_div, width = 9, height = 6, dpi = 120)
+  readr::write_csv(div_long, file.path(plot_dir, "diversity_data.csv"))
+}
+
 readr::write_csv(conv_long, file.path(plot_dir, "convergence_data.csv"))
 
 # Chart: Best vs baseline decision variables
@@ -93,7 +117,7 @@ p_diff <- ggplot(diff_plot, aes(y = label)) +
   labs(
     title = "Best vs baseline decision variables",
     x = "Value", y = NULL, color = NULL,
-    caption = "Queues are waiting positions; capacity is paint bays; operators are zone crews."
+    caption = "Queue = inter-station buffer; operators are zone crews."
   ) +
   theme_minimal(base_size = 16) +
   theme(legend.position = "bottom", legend.direction = "horizontal")

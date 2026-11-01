@@ -15,6 +15,19 @@ fitness = mean(HPU) + penalty × max(0, thr_floor − mean(throughput_per_hr))
 `thr_floor` is the baseline mean throughput (same seed schedule, same search
 replication count). Default `penalty = 10`. Lower fitness is better.
 
+
+## Baseline
+
+The optimizer baseline is pristine `default_params()` (1 paint capacity, zone
+crews of 2+2, space release, fixed arrivals) — the same as a fresh Simulate /
+Parameters run. That yields about **6 vehicles/hour**. The guided example’s
+**2 paint capacity** experiment is closer to **11/hour**; do not confuse that
+Compare experiment set with the optimizer baseline.
+
+Final `best_vs_baseline.csv` re-evaluates baseline and elites with the same
+`--elite-reps` count and **shared CRN seeds** (`base_seed` … `base_seed+n-1`).
+Search generations still use indexed seeds per genome for exploration.
+
 ## Decision variables
 
 | Knob | Bounds | Default | Meaning |
@@ -33,7 +46,9 @@ replication count). Default `penalty = 10`. Lower fitness is better.
   `cand_index`, then `seed = base + (cand_index−1)×n_reps + (rep−1)` via
   `doe_rep_seed()`.
 - After the last generation, the top `--elites` genomes are re-run with
-  `--elite-reps` (default 15) and ranked on that fresher estimate.
+  `--elite-reps` (default 15) and ranked on that fresher estimate. This
+  **mitigates false positives** by re-screening top candidates at higher
+  replication; it does not eliminate estimation error.
 
 ## Quick start
 
@@ -93,3 +108,10 @@ hosts that disallow forks.
 | `scripts/opt_ga.R` | Integer GA loop + elite re-eval |
 | `scripts/opt_run.R` | CLI runner |
 | `scripts/opt_plot.R` | Convergence / param-diff plots |
+
+## Mutation and diversity
+
+Default `--p-mut` is **0.25** per gene. Mutation always changes at least one
+locus (never a no-op). Each generation records `n_unique` genomes and mean
+pairwise L1 distance in `diversity.csv` / `plots/diversity.png`. Generation
+**0** is the initial population (`generation0.csv`).
