@@ -19,6 +19,28 @@ label_station <- function(resource) {
   lab <- station_labels[as.character(resource)]
   ifelse(is.na(lab), as.character(resource), unname(lab))
 }
+# Labor resource ids are "operator_<pool>" from the model. Display only —
+# CSV/helpers keep calling this rather than rewriting model output.
+label_resource <- function(resource) {
+  raw <- as.character(resource)
+  pool <- ifelse(
+    startsWith(raw, "operator_"),
+    sub("^operator_", "", raw),
+    raw
+  )
+  known <- c(
+    upstream = "Upstream operators",
+    downstream = "Downstream operators",
+    shared = "Shared operators"
+  )
+  out <- unname(known[pool])
+  station_lab <- unname(station_labels[pool])
+  ifelse(
+    !is.na(out),
+    out,
+    ifelse(!is.na(station_lab), paste(station_lab, "operators"), raw)
+  )
+}
 
 # Snapshot comparison. UI defaults that do not change the run (fixed-timing SD,
 # exponential SD, and MTBF while MTTR is 0) match the first-load fallback.

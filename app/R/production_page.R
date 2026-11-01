@@ -13,7 +13,7 @@ production_page_ui <- function(id) {
         plot_card("Waiting for admission versus work in production",plotOutput(ns("inventory"),height=400))),
       card(fill=FALSE,card_header("Shift results"),DTOutput(ns("shift_table")),downloadButton(ns("dl_shifts"),"Download every shift (.csv)")),
       p(class="text-muted small",
-        "Why occupied bays wait and Reliability losses now live under Results → Bottleneck & capacity (top of that page)."),
+        "Why occupied bays wait and the downtime fraction chart live under Results → Bottleneck & capacity (top of that page). Reliability losses is in that page's Downtime tab."),
       accordion(open=FALSE,
         accordion_panel("Admission and buffer assumptions",DTOutput(ns("buffers")),
           p("A downstream position is reserved before the upstream bay is released. A zero-position buffer permits direct transfer only. Unloading releases its operator before the bay blocks. Production-count support tasks can delay the vehicle after transfer while retaining its reserved downstream position.")),

@@ -56,10 +56,10 @@ shiny::testServer(e$server, {
   invisible(output$plot_queue)
   invisible(output$plot_wip)
   invisible(output$plot_down)
-  invisible(output$plot_labor)
   invisible(output$plot_cycle)
   invisible(output$table_metrics)
   invisible(output$reliability_table)
+  invisible(output$reliability_losses)
   invisible(output$labor_table)
 })
 ui_html <- as.character(e$ui)
@@ -453,6 +453,46 @@ stopifnot(!any(grepl("base_size = 13", qmd_lines, fixed = TRUE)))
 stopifnot(!any(grepl("base_size = 13", app_tree_src(), fixed = TRUE)))
 stopifnot(any(grepl("theme_sim", qmd_lines, fixed = TRUE)))
 stopifnot(any(grepl("occupancy_summary_table", app_tree_src(), fixed = TRUE)))
+stopifnot(exists("compact_metric_dt", envir = e))
+stopifnot(exists("reliability_losses_df", envir = e))
+stopifnot(exists("reliability_losses_dt", envir = e))
+stopifnot(exists("operator_pool_df", envir = e))
+stopifnot(exists("operator_pool_dt", envir = e))
+# Reliability losses keep the original mean columns; bar is visual only.
+rel_flat <- tibble::tibble(
+  station = rep(c("body", "paint"), each = 4),
+  downtime_min = c(1, 2, 1.5, 2.5, 8, 9, 7, 10),
+  waiting_repair_min = c(0.5, 0.2, 0.4, 0.3, 3, 2, 4, 2.5),
+  total_downtime_min = c(1.5, 2.2, 1.9, 2.8, 11, 11, 11, 12.5),
+  total_downtime_fraction = c(0.02, 0.03, 0.025, 0.035, 0.12, 0.11, 0.13, 0.14)
+)
+rel_tbl <- e$reliability_losses_df(rel_flat)
+stopifnot(identical(
+  names(rel_tbl),
+  c("Station", "Active repair minutes", "Waiting for repair minutes",
+    "Total unavailable minutes", "Unavailable fraction")
+))
+stopifnot(identical(rel_tbl$Station[[1]], "Paint"))
+stopifnot(inherits(e$reliability_losses_dt(rel_tbl), "datatables"))
+# Operator pool table: mean utilization + queue, highest first, no CI columns.
+op_flat <- tibble::tibble(
+  resource = rep(c("operator_upstream", "operator_downstream"), each = 3),
+  avg_util = c(0.4, 0.42, 0.41, 0.8, 0.82, 0.79),
+  avg_queue = c(0.1, 0.2, 0.15, 1.0, 1.1, 0.9)
+)
+op_tbl <- e$operator_pool_df(op_flat)
+stopifnot(identical(names(op_tbl), c("Resource", "Utilization", "Queue")))
+stopifnot(identical(op_tbl$Resource[[1]], "Downstream operators"))
+stopifnot(!any(c("CI low", "CI high", "Min", "Max", "Mean") %in% names(op_tbl)))
+stopifnot(inherits(e$operator_pool_dt(op_tbl), "datatables"))
+stopifnot(exists("label_resource", envir = e))
+stopifnot(identical(e$label_resource("operator_upstream"), "Upstream operators"))
+stopifnot(identical(e$label_resource("operator_body_shop"), "Body shop operators"))
+# Chart removed; Operators tab reuses labor_table. Downtime chart stays as plot_down.
+stopifnot(any(grepl("labor_table", app_tree_src(), fixed = TRUE)))
+stopifnot(any(grepl("reliability_losses", app_tree_src(), fixed = TRUE)))
+stopifnot(any(grepl('plotOutput("plot_down"', app_tree_src(), fixed = TRUE)))
+stopifnot(!any(grepl("plot_labor", app_tree_src(), fixed = TRUE)))
 cat("Occupancy table checks passed\n")
 one_shift <- tibble::tibble(shift = 1L, n_completed = c(48, 50, 51, 49, 52, 47))
 shift_built <- ggplot2::ggplot_build(e$shift_output_plot(one_shift, 53.3))

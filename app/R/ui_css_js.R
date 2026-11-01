@@ -11,6 +11,12 @@ app_header_tags <- function() {
       height: clamp(520px, 60vh, 720px) !important;
       min-height: 520px !important;
     }
+    /* Bottleneck downtime card sits beside the 420px waits girafe; keep it short. */
+    #plot_down.shiny-plot-output {
+      height: 420px !important;
+      min-height: 420px !important;
+      max-height: 420px !important;
+    }
     /* Page scrolls as a normal document. Fillable nesting was trapping overflow. */
     html, body {
       height: auto !important;
@@ -79,8 +85,9 @@ app_header_tags <- function() {
     .caption {
       color: #1a1a1a !important;
     }
-    #headline_kpis, #plot_util, #plot_labor, #plot_down, #plot_wip,
-    #plot_queue, #plot_cycle, #labor_table, #reliability_table, #table_metrics,
+    #headline_kpis, #plot_down, #plot_wip, #plot_queue, #plot_cycle,
+    #occupancy_summary_table, #labor_table, #reliability_losses,
+    #reliability_table, #table_metrics,
     #scenario_table_wrap, #timing_table_wrap {
       transition: opacity 0.15s ease;
     }
