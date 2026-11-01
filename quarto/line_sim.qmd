@@ -619,7 +619,7 @@ occupancy_boxes <- function(per_rep) {
       strip.text = element_text(
         size = 16, colour = "#1a1a1a", hjust = 0, margin = margin(8, 4, 8, 4)
       ),
-      axis.text.x = element_text(size = 14, colour = "#1a1a1a")
+      axis.text.x = element_text(size = 13, colour = "#1a1a1a", angle = 28, hjust = 1, vjust = 1)
     )
   if (n_bands > 1L) {
     p <- p + facet_wrap(
