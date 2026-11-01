@@ -67,3 +67,18 @@ Search the app UI (or this table) for the chart title, then open the function.
 ## Compare → main handoff
 
 Parameters and Results pages import from Compare (no send buttons on Compare). `apply_params_to_inputs()` writes a set into the main controls; Results uses `sim_result_store` so a finished Compare run can be viewed without rerunning.
+
+## DOE CLI (`scripts/`)
+
+Batch design-of-experiments runner (no Shiny). Sources `app/R/model.R` only.
+
+| File | Purpose | Key functions / charts |
+|------|---------|------------------------|
+| `scripts/doe_lib.R` | Entry: paths, `doe_source_model()`, loads siblings | `doe_repo_root`, `doe_source_model`, `doe_format_duration` |
+| `scripts/doe_design.R` | Design CSV schema → `default_params()` | `doe_known_columns`, `doe_validate_design`, `doe_params_from_row` |
+| `scripts/doe_metrics.R` | HPU / throughput extract + summarise | `doe_extract_rep_metrics`, `doe_summarise_reps` |
+| `scripts/doe_checkpoint.R` | Resume chunks under `out/chunks/` | `doe_write_chunk`, `doe_read_chunk` |
+| `scripts/doe_make_design.R` | Build example `tidyr::crossing` CSV | CLI |
+| `scripts/doe_run.R` | Run design with checkpoint / parallel | CLI |
+| `scripts/doe_plot.R` | HPU / throughput / heatmap plots | "HPU across the design (all replications)"; "Throughput across the design (all replications)"; "Mean HPU heatmap" |
+| `docs/DOE.md` | How to run the DOE CLI | — |
