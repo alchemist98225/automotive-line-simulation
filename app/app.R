@@ -508,7 +508,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     if (isTRUE(percent)) {
       p <- p + labeled_continuous_scale(
         "x", percent = TRUE, n = 3L,
-        expand = expansion(mult = c(0.05, 0.14)),
+        expand = expansion(mult = c(0.06, 0.18)),
         limits = c(0, 1)
       )
     } else {
@@ -525,14 +525,27 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
           size = 15, colour = "#1a1a1a", hjust = 0,
           margin = margin(8, 8, 10, 4)
         ),
-        plot.margin = margin(14, 28, 18, 12),
-        axis.text.x = element_text(size = 13, colour = "#1a1a1a")
+        plot.margin = margin(14, 32, 18, 12),
+        # Match other axis text (16) so phone occupancy ticks are not tiny.
+        axis.text.x = element_text(size = 16, colour = "#1a1a1a"),
+        axis.text.y = element_text(size = 16, colour = "#1a1a1a"),
+        axis.title.x = element_text(size = 16, colour = "#1a1a1a")
       )
     p + coord_cartesian(ylim = c(0, 1.32), expand = FALSE, clip = "off")
   } else {
     p <- p +
-      sparse_x_continuous(percent = percent, n = 3L, expand = expansion(mult = c(0.08, 0.12))) +
-      labs(caption = "x-axis shows the central 95% of values")
+      sparse_x_continuous(
+        percent = percent, n = 3L,
+        # Extra right expand so phone edge labels (e.g. 0.75) are not clipped.
+        expand = expansion(mult = c(0.10, 0.22))
+      ) +
+      labs(caption = "x-axis shows the central 95% of values") +
+      theme(
+        plot.margin = margin(14, 40, 22, 12),
+        axis.text.x = element_text(size = 16, colour = "#1a1a1a"),
+        axis.text.y = element_text(size = 16, colour = "#1a1a1a"),
+        axis.title.x = element_text(size = 16, colour = "#1a1a1a")
+      )
     p + coord_cartesian(xlim = xlim, ylim = c(0, 1.32), expand = FALSE, clip = "off")
   }
 }
@@ -1545,16 +1558,20 @@ ui <- page_navbar(
         setTimeout(go, 50);
       });
       function closeResultsNavChrome() {
-        document.querySelectorAll('.navbar .dropdown-menu.show').forEach(function(m) {
-          m.classList.remove('show');
-        });
-        document.querySelectorAll('.navbar .nav-item.dropdown.show, .navbar .dropdown.show').forEach(function(d) {
-          d.classList.remove('show');
+        document.querySelectorAll('.navbar .nav-item.dropdown, .navbar .dropdown').forEach(function(d) {
           var toggle = d.querySelector('[data-bs-toggle=dropdown], .dropdown-toggle');
+          if (toggle && window.bootstrap && bootstrap.Dropdown) {
+            try { bootstrap.Dropdown.getOrCreateInstance(toggle).hide(); } catch (err) {}
+          }
+          d.classList.remove('show');
           if (toggle) {
             toggle.classList.remove('show');
             toggle.setAttribute('aria-expanded', 'false');
+            try { toggle.blur(); } catch (e) {}
           }
+        });
+        document.querySelectorAll('.navbar .dropdown-menu.show').forEach(function(m) {
+          m.classList.remove('show');
         });
         var collapse = document.querySelector('.navbar-collapse.show');
         if (collapse) {
@@ -1585,6 +1602,12 @@ ui <- page_navbar(
           e.preventDefault();
           kpiNavigate(this);
         }
+      });
+      // Results menu item click: close the dropdown after nav switches pages.
+      $(document).on('click', '.navbar .dropdown-menu .dropdown-item', function() {
+        [0, 50, 120, 250, 450].forEach(function(ms) {
+          setTimeout(closeResultsNavChrome, ms);
+        });
       });
       Shiny.addCustomMessageHandler('closeResultsNav', function(msg) {
         closeResultsNavChrome();

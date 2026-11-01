@@ -669,8 +669,8 @@ comparison_page_ui <- function(id) {
         /* Match Simulate status bar: strong border, full-contrast text, progress. */
         .compare-status-bar { width: 100%; margin-bottom: 0.85rem; }
         .compare-progress-card {
-          background: #eef6fb;
-          border: 2px solid #2c7fb8;
+          background: #cfe8f6;
+          border: 3px solid #1b6ca8;
           border-radius: 0.5rem;
           box-shadow: 0 4px 12px rgba(0,0,0,.10);
           min-height: 3.4rem;
@@ -687,15 +687,27 @@ comparison_page_ui <- function(id) {
           box-shadow: none;
           background: #f8f9fa;
         }
+        .compare-progress-card.compare-progress-running {
+          border-color: #1b6ca8 !important;
+          background: #cfe8f6 !important;
+          box-shadow: 0 4px 12px rgba(0,0,0,.12) !important;
+          opacity: 1 !important;
+        }
+        .compare-progress-card.compare-progress-running .compare-progress-title,
+        .compare-progress-card.compare-progress-running .compare-progress-detail,
+        .compare-progress-card.compare-progress-running .compare-progress-title i {
+          color: #0a2540 !important;
+          opacity: 1 !important;
+        }
         .compare-progress-card.compare-progress-done {
           border-color: #198754;
           background: #f3faf5;
           box-shadow: 0 4px 12px rgba(25,135,84,.12);
         }
         .compare-progress-title {
-          font-size: 1.05rem;
-          font-weight: 700;
-          color: #1b4f72 !important;
+          font-size: 1.1rem;
+          font-weight: 800;
+          color: #0a2540 !important;
           margin: 0;
           white-space: nowrap;
           display: flex;
@@ -705,7 +717,7 @@ comparison_page_ui <- function(id) {
         .compare-progress-title i,
         .compare-progress-title .fa,
         .compare-progress-title .fas {
-          color: #1b4f72 !important;
+          color: #0a2540 !important;
         }
         .compare-progress-idle .compare-progress-title { color: #495057 !important; }
         .compare-progress-done .compare-progress-title { color: #146c43 !important; }
@@ -713,9 +725,9 @@ comparison_page_ui <- function(id) {
           flex: 1 1 auto;
           min-width: 0;
           margin: 0 !important;
-          font-size: 0.95rem;
-          color: #1a1a1a !important;
-          font-weight: 600;
+          font-size: 1rem;
+          color: #0a2540 !important;
+          font-weight: 700;
         }
         .compare-status-bar .progress {
           width: 11rem;
@@ -756,6 +768,21 @@ comparison_page_ui <- function(id) {
           font-weight: 700;
         }
         .two-set-study.compare-is-running .compare-idle-alert { display: none !important; }
+        /* Shiny fades .recalculating outputs to ~0.3; the status banner must stay full-strength
+           for the whole blocking run (same visual weight as the Done banner). */
+        #two_set_study-compare_progress,
+        #two_set_study-compare_progress.recalculating,
+        #two_set_study-compare_progress.recalculating *,
+        #two_set_study-run_button.recalculating,
+        #two_set_study-run_button.recalculating *,
+        .two-set-study .compare-status-bar,
+        .two-set-study .compare-status-bar.recalculating,
+        .two-set-study .compare-status-bar .recalculating,
+        .shiny-busy #two_set_study-compare_progress,
+        .shiny-busy #two_set_study-compare_progress * {
+          opacity: 1 !important;
+          filter: none !important;
+        }
       ")),
       tags$script(HTML("
         (function() {
@@ -813,9 +840,11 @@ comparison_page_ui <- function(id) {
             var card = document.querySelector('.two-set-study .compare-progress-card');
             if (card) {
               card.classList.remove('d-none', 'compare-progress-idle', 'compare-progress-done');
-              card.style.borderColor = '#2c7fb8';
-              card.style.background = '#eef6fb';
-              card.style.boxShadow = '0 4px 12px rgba(0,0,0,.10)';
+              card.classList.add('compare-progress-running');
+              card.style.setProperty('border-color', '#1b6ca8', 'important');
+              card.style.setProperty('background', '#cfe8f6', 'important');
+              card.style.setProperty('box-shadow', '0 4px 12px rgba(0,0,0,.10)', 'important');
+              card.style.setProperty('opacity', '1', 'important');
               var title = card.querySelector('.compare-progress-title');
               var detail = card.querySelector('.compare-progress-detail');
               var barWrap = card.querySelector('.progress');
@@ -839,7 +868,8 @@ comparison_page_ui <- function(id) {
                 }
               }
               if (title) {
-                title.style.color = '#1b4f72';
+                title.style.setProperty('color', '#0a2540', 'important');
+                title.style.setProperty('opacity', '1', 'important');
                 title.textContent = '';
                 var ic = document.createElement('i');
                 ic.className = 'fa fa-spinner fa-spin';
@@ -851,8 +881,9 @@ comparison_page_ui <- function(id) {
               }
               if (detail) {
                 detail.textContent = 'Running both parameter sets…';
-                detail.style.color = '#1a1a1a';
-                detail.style.fontWeight = '600';
+                detail.style.setProperty('color', '#0a2540', 'important');
+                detail.style.setProperty('font-weight', '700', 'important');
+                detail.style.setProperty('opacity', '1', 'important');
               }
             }
             document.querySelectorAll('.two-set-study .compare-idle-alert, .two-set-study .alert-info').forEach(function(el) {
@@ -1083,7 +1114,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       card <- if (identical(state, "running")) {
         div(
           id = session$ns("compare_progress_card"),
-          class = "compare-progress-card",
+          class = "compare-progress-card compare-progress-running",
           div(
             class = "compare-progress-title",
             icon("spinner", class = "fa-spin"),
@@ -1362,7 +1393,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         throughput_per_hr = "Throughput / hour",
         cycle_time_mean = "Mean lead time / min",
         avg_wip = "Average WIP",
-        hpu = "HPU (labor-hours / unit)"
+        hpu = "HPU (labor-h/unit)"
       )
       layout_columns(
         fill = FALSE,
@@ -1422,7 +1453,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         throughput_per_hr = "Throughput (vehicles/hour)",
         cycle_time_mean = "Mean lead time (min)",
         avg_wip = "Average WIP (vehicles)",
-        hpu = "HPU (labor-hours / unit)"
+        hpu = "HPU (labor-h/unit)"
       )
       metric <- input$metric %||% "throughput_per_hr"
       df <- table_for("summaries")
