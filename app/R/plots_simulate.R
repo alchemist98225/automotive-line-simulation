@@ -6,7 +6,7 @@
 # Each curve is scaled to its own peak so a tight set cannot flatten the other.
 # A series with no spread is a labeled vertical line: the kernel has no bandwidth.
 # The line is opaque; the fill uses the same color at alpha 0.30.
-# Chart helper: overlaid densities with rug ticks (Compare Output distributions and faceted station densities).
+# Chart helper: overlaid histograms (Compare Output distributions and faceted station densities).
 overlay_densities <- function(df, value, series, colors, x_label, subtitle,
                               percent = FALSE, bounds = NULL, facet = NULL,
                               subtitle_width = 32L) {
@@ -120,16 +120,6 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
       )
   }
   p <- p +
-    geom_rug(
-      mapping = aes(x = .value, colour = series),
-      inherit.aes = FALSE,
-      alpha = 0.85,
-      linewidth = 0.45,
-      sides = "b",
-      length = grid::unit(0.035, "npc"),
-      show.legend = FALSE,
-      na.rm = TRUE
-    ) +
     scale_colour_manual(
       values = colors, aesthetics = c("colour", "fill"),
       limits = names(colors), drop = FALSE, name = NULL
@@ -202,7 +192,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
   }
 }
 # One overlaid density per category. A category with no spread is a vertical line.
-# Chart helper: one density per category (station/pool), with rug ticks.
+# Chart helper: one histogram per category (station/pool).
 replication_densities <- function(df, y, x, x_label, subtitle, percent = TRUE, fill_values = NULL) {
   y_sym <- rlang::sym(y)
   x_sym <- rlang::sym(x)

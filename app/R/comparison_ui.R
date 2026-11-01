@@ -433,7 +433,7 @@ comparison_page_ui <- function(id) {
           ),
           nav_panel(
             "Operators",
-            p("One panel per pool. Rug ticks are every replication. A vertical line means that set did not vary."),
+            p("One panel per pool. A vertical line means that set did not vary."),
             uiOutput(ns("labor_frame"))
           ),
           nav_panel(

@@ -273,12 +273,14 @@ server <- function(input, output, session) {
   # Readable labels only; same columns/content as before (no CI).
   output$reliability_table <- renderDT({
     r <- sim_result()
+    w <- r$params$warmup_min
+    h <- r$params$sim_length_min
+    failures_in_window <- r$failure_events %>%
+      dplyr::filter(is.finite(.data$time), .data$time >= w, .data$time < h) %>%
+      dplyr::count(station, name = "observed_failures")
     tbl <- r$params$stations %>%
       dplyr::select(name, mtbf_min, mttr_min) %>%
-      dplyr::left_join(
-        r$failure_events %>% dplyr::count(station, name = "observed_failures"),
-        by = c("name" = "station")
-      ) %>%
+      dplyr::left_join(failures_in_window, by = c("name" = "station")) %>%
       dplyr::mutate(
         observed_failures = tidyr::replace_na(.data$observed_failures, 0L),
         Station = label_station(.data$name),
@@ -290,10 +292,14 @@ server <- function(input, output, session) {
     # Integers / Inf from inputs — skip formatRound so Inf stays readable.
     compact_metric_dt(tbl)
   }, fillContainer = FALSE)
+  # Compare can load a finished set into Results without rerunning.
+  # When non-NULL, this overrides the Simulate bindEvent result.
+  compare_result_override <- reactiveVal(NULL)
+  results_display <- reactiveVal(list(kind = "main", label = NULL))
   # Run on button click; also fire once on load so KPIs appear immediately.
   # The fixed progress panel is opened from a click handler in JS so it paints
   # before this reactive blocks the session. hide_sim_progress() clears it.
-  sim_result <- reactive({
+  main_sim_result <- reactive({
     p <- build_params()
     fp <- params_fingerprint(p)
     settings <- format_run_settings(p)
@@ -309,6 +315,17 @@ server <- function(input, output, session) {
     stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings)
   }) %>% bindEvent(input$run, guide_run(), ignoreNULL = FALSE)
 
+  # A fresh Simulate / Try-it run clears any Compare override.
+  observeEvent(main_sim_result(), {
+    compare_result_override(NULL)
+    results_display(list(kind = "main", label = NULL))
+  }, ignoreInit = FALSE)
+
+  sim_result <- reactive({
+    override <- compare_result_override()
+    if (!is.null(override)) override else main_sim_result()
+  })
+
   # The experiment is the guided run that just finished. Pair it with the
   # baseline captured above instead of simulating the 2-bay line again.
   # ignoreInit is omitted on purpose: this observer is created after the
@@ -317,11 +334,164 @@ server <- function(input, output, session) {
   observeEvent(sim_result(), {
     pair <- isolate(guide_pair())
     if (is.null(pair)) return()
+    # Only pair when this result came from Simulate, not a Compare import.
+    if (!is.null(isolate(compare_result_override()))) return()
     guide_pair(NULL)
     experiment <- sim_result()
     if (!comparison_same(experiment$params, pair$experiment_params)) return()
     two_set_study$load_pair(pair$baseline, experiment, comparison_guided_labels)
   })
+
+  # Import-from-Compare dropdown labels. Defaults stay "Baseline" / "Experiment";
+  # custom titles become "Baseline: <title>" / "Experiment: <title>".
+  compare_import_choice_labels <- function(titles) {
+    titles <- as.character(titles[1:2])
+    defaults <- as.character(comparison_default_labels[1:2])
+    labs <- c(
+      if (identical(titles[[1]], defaults[[1]])) "Baseline" else paste0("Baseline: ", titles[[1]]),
+      if (identical(titles[[2]], defaults[[2]])) "Experiment" else paste0("Experiment: ", titles[[2]])
+    )
+    stats::setNames(c("1", "2"), labs)
+  }
+  compare_set_choices <- reactive({
+    titles <- tryCatch(two_set_study$titles(), error = function(e) comparison_default_labels)
+    compare_import_choice_labels(titles)
+  })
+  compare_has_results <- reactive({
+    r <- tryCatch(two_set_study$results(), error = function(e) NULL)
+    !is.null(r) && !is.null(r$runs) && length(r$runs) >= 2L
+  })
+  # Draft params exist once Compare has initialized (visit or import-main).
+  compare_has_params <- reactive({
+    d <- tryCatch(two_set_study$draft(), error = function(e) NULL)
+    !is.null(d) && !inherits(d, "error") && !is.null(d$one) && !is.null(d$two)
+  })
+
+  # Keep the imported set selected across renderUI refreshes (choice labels change
+  # when titles edit). Values stay "1"/"2".
+  import_params_selection <- reactiveVal("1")
+  import_results_selection <- reactiveVal("1")
+  observeEvent(input$import_params_set, {
+    v <- as.character(input$import_params_set %||% "1")
+    if (v %in% c("1", "2")) import_params_selection(v)
+  }, ignoreNULL = TRUE)
+  observeEvent(input$import_results_set, {
+    v <- as.character(input$import_results_set %||% "1")
+    if (v %in% c("1", "2")) import_results_selection(v)
+  }, ignoreNULL = TRUE)
+
+  params_import_note <- reactiveVal(NULL)
+  output$params_import_compare_ui <- renderUI({
+    choices <- compare_set_choices()
+    ready <- isTRUE(compare_has_params())
+    selected <- isolate(import_params_selection())
+    if (!selected %in% c("1", "2")) selected <- "1"
+    tagList(
+      div(
+        class = "d-flex flex-wrap gap-3 align-items-end",
+        selectInput(
+          "import_params_set",
+          "Compare set",
+          choices = choices,
+          selected = selected,
+          width = "22rem"
+        ),
+        actionButton(
+          "import_params_compare",
+          "Import settings",
+          class = "btn-primary",
+          disabled = !ready
+        )
+      ),
+      if (!ready) {
+        p(class = "small mb-0 mt-2 results-context-hint",
+          "Open Compare two sets once so both parameter sets are available to import.")
+      }
+    )
+  })
+  output$params_import_compare_note <- renderUI({
+    note <- params_import_note()
+    if (is.null(note) || !nzchar(note)) return(NULL)
+    div(class = "alert alert-success py-2 px-3 mb-0 mt-2", note)
+  })
+  observeEvent(input$import_params_compare, {
+    d <- two_set_study$draft()
+    if (inherits(d, "error") || is.null(d)) return()
+    idx <- suppressWarnings(as.integer(import_params_selection() %||% input$import_params_set %||% "1"))
+    if (!idx %in% c(1L, 2L)) idx <- 1L
+    import_params_selection(as.character(idx))
+    p <- if (identical(idx, 1L)) d$one else d$two
+    apply_params_to_inputs(session, p)
+    titles <- two_set_study$titles()
+    params_import_note(sprintf(
+      "Imported parameters from %s. Adjust anything you need, then Run simulation.",
+      titles[[idx]]
+    ))
+  }, ignoreInit = TRUE)
+
+  results_pages <- c(
+    "results_capacity", "results_flow", "results_lead", "production_schedule"
+  )
+  output$results_context_bar <- renderUI({
+    page <- input$main_page
+    if (is.null(page) || !page %in% results_pages) return(NULL)
+    choices <- compare_set_choices()
+    ready <- isTRUE(compare_has_results())
+    disp <- results_display()
+    selected <- isolate(import_results_selection())
+    if (!selected %in% c("1", "2")) selected <- "1"
+    showing <- if (identical(disp$kind, "compare") && !is.null(disp$label)) {
+      span(class = "results-context-showing",
+           sprintf("Showing: %s from Compare", disp$label))
+    } else {
+      span(class = "results-context-showing", "Showing: latest Simulate run")
+    }
+    div(
+      class = "results-context-bar",
+      div(
+        class = "d-flex flex-wrap gap-3 align-items-end",
+        showing,
+        selectInput(
+          "import_results_set",
+          "Import results from Compare",
+          choices = choices,
+          selected = selected,
+          width = "22rem"
+        ),
+        actionButton(
+          "import_results_compare",
+          "Import results",
+          class = "btn-primary",
+          disabled = !ready
+        )
+      ),
+      if (!ready) {
+        div(class = "results-context-hint mt-1",
+            "Run a comparison first to import either set into these Results pages.")
+      }
+    )
+  })
+  observeEvent(input$import_results_compare, {
+    r <- two_set_study$results()
+    if (is.null(r) || is.null(r$runs) || length(r$runs) < 2L) return()
+    idx <- suppressWarnings(as.integer(import_results_selection() %||% input$import_results_set %||% "1"))
+    if (!idx %in% c(1L, 2L)) idx <- 1L
+    import_results_selection(as.character(idx))
+    run <- r$runs[[idx]]
+    titles <- two_set_study$titles()
+    label <- titles[[idx]]
+    p <- run$params
+    fp <- params_fingerprint(p)
+    settings <- format_run_settings(p)
+    run_seq$main <- run_seq$main + 1L
+    compare_result_override(stamp_run(run, p, run_seq$main, fingerprint = fp, summary = settings))
+    results_display(list(kind = "compare", label = label))
+    # Stay on the current Results page when possible; otherwise open Flow.
+    page <- isolate(input$main_page)
+    if (is.null(page) || !page %in% results_pages) {
+      nav_select("main_page", "results_flow", session = session)
+    }
+  }, ignoreInit = TRUE)
 
   current_fingerprint <- reactive(params_fingerprint(build_params()))
   production_page_server("production_results",sim_result,current_fingerprint)

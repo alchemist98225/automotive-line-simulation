@@ -36,7 +36,7 @@ nav_panel(
           selectInput("release_policy","Admission policy",c("When entrance space is available"="space","Limit total line WIP (CONWIP)"="conwip","Release all scheduled work"="scheduled"),selected="space"),
           numericInput("entry_buffer","Entrance waiting positions",3,min=0,step=1),
           numericInput("wip_limit","Maximum line WIP (CONWIP only)",20,min=1,step=1),
-          helpText("Planned work waits outside production until admitted. Release-all allows an unlimited entrance queue. Interstation buffers apply to every policy."),
+          helpText("Planned work waits outside production until admitted. Release-all allows an unlimited entrance queue. Interstation queues apply to every policy."),
           numericInput("seed", "Base seed",
                        value = 20261027, min = 1, step = 1),
           actionButton("compare_timing", "Compare timing variability", class = "w-100"),
@@ -54,7 +54,7 @@ nav_panel(
         ),
         actionLink(
           "jump_cycle_times",
-          tagList("Cycle times", span(class = "jump-hint", "Load, automatic, and unload timing")),
+          tagList("Cycle times", span(class = "jump-hint", "Load, auto, and unload timing")),
           class = "param-jump"
         ),
         actionLink(
@@ -128,23 +128,39 @@ nav_panel(
       "Edit station capacity, timing, crews, and reliability here in a wider layout. ",
       "Arrivals, shifts, and replications stay under Run simulation on Simulate. The Run button still uses these values."),
     card(
+      id = "params_import_compare",
+      class = "params-section mb-3",
+      fill = FALSE,
+      card_header("Import settings from Compare"),
+      card_body(
+        fill = FALSE,
+        p(class = "small mb-2",
+          "Load one Compare set into these main inputs, then tweak and Run from Simulate. ",
+          "Titles match the editable names on Compare two sets."),
+        uiOutput("params_import_compare_ui"),
+        uiOutput("params_import_compare_note")
+      )
+    ),
+    card(
       id = "params_capacity",
       class = "params-section mb-3",
       fill = FALSE,
-      card_header("Capacity (bays)"),
+      card_header("Capacity"),
       card_body(
         fill = FALSE,
+        p(class = "small mb-2",
+          "Number of parallel bays at each station."),
         layout_columns(
           fill = FALSE,
           col_widths = c(3, 3, 3, 3),
           station_group("Body shop",
-            numericInput("body_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
+            numericInput("body_cap", NULL, value = 2, min = 1, max = 20, step = 1)),
           station_group("Paint",
-            numericInput("paint_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1)),
+            numericInput("paint_cap", NULL, value = 1, min = 1, max = 20, step = 1)),
           station_group("Final assembly",
-            numericInput("fa_cap", "Capacity (bays)", value = 2, min = 1, max = 20, step = 1)),
+            numericInput("fa_cap", NULL, value = 2, min = 1, max = 20, step = 1)),
           station_group("Inspection",
-            numericInput("insp_cap", "Capacity (bays)", value = 1, min = 1, max = 20, step = 1))
+            numericInput("insp_cap", NULL, value = 1, min = 1, max = 20, step = 1))
         )
       )
     ),
@@ -152,18 +168,18 @@ nav_panel(
       id = "params_buffers",
       class = "params-section mb-3",
       fill = FALSE,
-      card_header("Interstation buffers"),
+      card_header("Queue"),
       card_body(
         fill = FALSE,
         p(class = "small mb-2",
-          "Waiting positions before each downstream process. Zero means direct transfer only. ",
+          "Vehicles that can wait between stations. Zero means direct transfer only. ",
           "A completed vehicle holds its upstream bay until space opens."),
         layout_columns(
           fill = FALSE,
           col_widths = c(4, 4, 4),
-          numericInput("buffer_paint","Waiting positions before paint",3,min=0,step=1),
-          numericInput("buffer_final_assembly","Waiting positions before final assembly",3,min=0,step=1),
-          numericInput("buffer_inspection","Waiting positions before inspection",3,min=0,step=1)
+          numericInput("buffer_paint", "Paint", 3, min = 0, step = 1),
+          numericInput("buffer_final_assembly", "Final assembly", 3, min = 0, step = 1),
+          numericInput("buffer_inspection", "Inspection", 3, min = 0, step = 1)
         )
       )
     ),
@@ -175,22 +191,22 @@ nav_panel(
       card_body(
         fill = FALSE,
         p(class = "small mb-2",
-          "Automatic duration / mean in minutes. ",
-          "Load, unload, and distribution choices sit under each station."),
+          "Values are mean minutes. Auto is the machine process; Load and Unload are the operator steps. ",
+          "Distribution and measured-observation choices sit under each station."),
         layout_columns(
           fill = FALSE,
           col_widths = c(6, 6),
           station_group("Body shop",
-            numericInput("body_mean", "Automatic duration / mean (min)", value = 6, min = 0.5, max = 60, step = 0.5),
+            numericInput("body_mean", "Auto", value = 6, min = 0.5, max = 60, step = 0.5),
             uiOutput("cycle_body_shop")),
           station_group("Paint",
-            numericInput("paint_mean", "Automatic duration / mean (min)", value = 8, min = 0.5, max = 60, step = 0.5),
+            numericInput("paint_mean", "Auto", value = 8, min = 0.5, max = 60, step = 0.5),
             uiOutput("cycle_paint")),
           station_group("Final assembly",
-            numericInput("fa_mean", "Automatic duration / mean (min)", value = 7, min = 0.5, max = 60, step = 0.5),
+            numericInput("fa_mean", "Auto", value = 7, min = 0.5, max = 60, step = 0.5),
             uiOutput("cycle_final_assembly")),
           station_group("Inspection",
-            numericInput("insp_mean", "Automatic duration / mean (min)", value = 3, min = 0.5, max = 60, step = 0.5),
+            numericInput("insp_mean", "Auto", value = 3, min = 0.5, max = 60, step = 0.5),
             uiOutput("cycle_inspection"))
         )
       )
@@ -220,8 +236,9 @@ nav_panel(
       card_body(
         fill = FALSE,
         p(class = "small mb-2",
-          "Mean up-time (MTBF) is calendar up-time in minutes. ",
-          "Mean active repair (MTTR) of 0 disables failures at that station. Support every N units uses 0 for a random exponential interval."),
+          "MTBF is mean up-time between failures (minutes). MTTR is mean active repair (minutes); 0 disables failures. ",
+          "Support interval is mean minutes between random tasks; every N uses 0 for a random exponential interval. ",
+          "Support duration is mean minutes."),
         layout_columns(
           fill = FALSE,
           col_widths = c(4, 4, 4),
@@ -411,7 +428,7 @@ nav_panel(
           fill = FALSE,
           fillable = FALSE,
           p(class = "small mb-2",
-            "Mean up-time and active repair from the inputs, with failure counts from this run. MTTR of 0 disables failures at that station."),
+            "Mean up-time and active repair from the inputs, with failure counts that start after settling ends. MTTR of 0 disables failures at that station."),
           DTOutput("reliability_table", height = "auto", fill = FALSE)
         )
       )
@@ -441,7 +458,7 @@ nav_panel(
   title = "Flow over time",
   value = "results_flow",
   p(class = "text-muted small px-2 pt-2 mb-1",
-    "Does the line settle after warmup, or does work keep building? Faint lines are each replication. The ribbon is a loess smooth on the 2-minute grid."),
+    "Hours start at zero when the settling period ends (default 0 to 8). Faint lines are each replication. The ribbon is a loess smooth on the 2-minute grid."),
   navset_pill(
     id = "flow_tabs",
     selected = "wip",
@@ -606,7 +623,7 @@ Every chart uses **all replications**. Bay occupancy on Bottleneck & capacity is
 compact table (mean, 95% CI, min, max) sorted highest-first. Operator utilization
 and reliability losses on that page are compact tables with the same look and an
 in-cell bar on the main metric; the downtime fraction chart uses bars with a 95%
-CI. Compare overlays densities with a rug tick for every replication and a
+CI. Compare overlays histograms for every replication and a
 vertical line when every replication is identical. Queue and WIP series are faint
 lines plus a loess ribbon, resampled onto a 2-minute grid before the loess. WIP
 counts each vehicle once. Downtime is machine-time in repair during the
@@ -619,7 +636,7 @@ timing-variability comparison sits under **Lead time & data**.
 used on the charts, tables, and downloads. A table above the editors lists only
 the settings that differ. After a run, the metrics that moved the most are
 overlaid histograms of every replication, with a dashed normal curve per set and
-a rug tick on each run. Throughput, lead time, WIP, HPU (labor hours per unit),
+a vertical line when a set does not vary. Throughput, lead time, WIP, HPU (labor hours per unit),
 bay occupancy, operator utilization, and active repair use the same chart. A vertical line means that set did not
 vary. CSV files there are the data behind those charts. The guided example fills
 this page with the 1-bay baseline and the 2-bay experiment.

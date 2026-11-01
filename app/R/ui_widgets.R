@@ -125,8 +125,8 @@ parse_observations <- function(text) {
 timing_controls <- function(st,activity,label) {
   id <- paste0(activity,"_",st$name)
   auto <- activity=="auto"
-  tagList(h6(paste(label,"timing")),
-    selectInput(paste0(id,"_method"),"Timing method",c("Fixed"="fixed","Distribution"="distribution","Measured observations"="empirical"),selected=if(auto) "distribution" else "fixed"),
+  tagList(h6(label),
+    selectInput(paste0(id,"_method"),"Method",c("Fixed"="fixed","Distribution"="distribution","Measured observations"="empirical"),selected=if(auto) "distribution" else "fixed"),
     conditionalPanel(sprintf("input['%s_method'] === 'distribution'",id),
       selectInput(paste0(id,"_distribution"),"Distribution",c("Normal (negative draws become zero)"="normal","Lognormal"="lognormal","Exponential"="exponential"),selected=if(auto) st$dist else "normal"),
       numericInput(paste0(id,"_sd"),"SD (min; exponential ignores SD)",if(auto && is.finite(st$sd_min)) st$sd_min else .25,min=0,step=.1)),
@@ -151,21 +151,21 @@ register_station_panels <- function(output) {
     rel_id <- paste0("reliability_", n)
     output[[cycle_id]] <- renderUI({
       tagList(
-        numericInput(paste0("load_", n), "Load duration / mean (min)", st$load_min, min = 0, step = .25),
-        numericInput(paste0("unload_", n), "Unload duration / mean (min)", st$unload_min, min = 0, step = .25),
-        timing_controls(st, "load", "Loading"),
-        timing_controls(st, "auto", "Automatic processing"),
-        timing_controls(st, "unload", "Unloading")
+        numericInput(paste0("load_", n), "Load", st$load_min, min = 0, step = .25),
+        numericInput(paste0("unload_", n), "Unload", st$unload_min, min = 0, step = .25),
+        timing_controls(st, "load", "Load"),
+        timing_controls(st, "auto", "Auto"),
+        timing_controls(st, "unload", "Unload")
       )
     })
     output[[rel_id]] <- renderUI({
       tagList(
-        numericInput(paste0("mtbf_", n), "Mean up-time between failures (min)", if (is.finite(st$mtbf_min)) st$mtbf_min else 10000, min = 1),
-        numericInput(paste0("mttr_", n), "Mean active repair (min; 0 disables)", st$mttr_min, min = 0),
-        numericInput(paste0("interval_", n), "Mean support-task interval (min)", st$task_interval_min, min = 1),
-        numericInput(paste0("every_", n), "Support task every N units (0 = random)", 0, min = 0, step = 1),
-        numericInput(paste0("task_", n), "Support duration / mean (min)", st$task_duration_min, min = 0),
-        timing_controls(st, "task", "Support work")
+        numericInput(paste0("mtbf_", n), "MTBF", if (is.finite(st$mtbf_min)) st$mtbf_min else 10000, min = 1),
+        numericInput(paste0("mttr_", n), "MTTR", st$mttr_min, min = 0),
+        numericInput(paste0("interval_", n), "Support interval", st$task_interval_min, min = 1),
+        numericInput(paste0("every_", n), "Every N", 0, min = 0, step = 1),
+        numericInput(paste0("task_", n), "Support duration", st$task_duration_min, min = 0),
+        timing_controls(st, "task", "Support")
       )
     })
     outputOptions(output, cycle_id, suspendWhenHidden = FALSE)
@@ -205,38 +205,67 @@ kpi_nav_box <- function(page_value, title, value, showcase, theme, ...,
 }
 
 
-# Push every sidebar control back to the value it shows on first load.
-restore_default_inputs <- function(session) {
-  stations <- default_params()$stations
-  updateNumericInput(session,"planned_rate",value=15)
-  updateNumericInput(session,"n_shifts",value=1)
-  updateSelectInput(session,"release_policy",selected="space")
-  updateSelectInput(session,"order_spacing",selected="fixed")
-  updateNumericInput(session,"entry_buffer",value=3)
-  updateNumericInput(session,"wip_limit",value=20)
-  walk(default_params()$stations$name[-1],~updateNumericInput(session,paste0("buffer_",.x),value=3))
-  updateNumericInput(session, "sim_length", value = 480)
-  updateNumericInput(session, "warmup", value = 300)
-  updateNumericInput(session, "n_reps", value = 5)
-  updateNumericInput(session, "seed", value = 20261027)
-  updateNumericInput(session, "body_cap", value = 2)
-  updateNumericInput(session, "paint_cap", value = 1)
-  updateNumericInput(session, "fa_cap", value = 2)
-  updateNumericInput(session, "insp_cap", value = 1)
-  updateNumericInput(session, "body_mean", value = 6)
-  updateNumericInput(session, "paint_mean", value = 8)
-  updateNumericInput(session, "fa_mean", value = 7)
-  updateNumericInput(session, "insp_mean", value = 3)
-  updateSelectInput(session, "staffing", selected = "zones")
-  updateCheckboxInput(session, "reliability", value = TRUE)
-  updateCheckboxInput(session, "noncyclic", value = TRUE)
-  updateNumericInput(session, "repair_staff", value = 1)
-  updateNumericInput(session, "op_a", value = 2)
-  updateNumericInput(session, "op_b", value = 2)
-  updateNumericInput(session, "op_all", value = 4)
-  for (nm in names(station_labels)) {
-    updateNumericInput(session, paste0("op_", nm), value = 1)
+# Map a params list onto every main-page / Parameters control.
+# Used by Restore defaults and by "Import settings from Compare".
+apply_params_to_inputs <- function(session, params) {
+  p <- normalize_params(params)
+  stations <- p$stations
+  updateNumericInput(session, "planned_rate", value = 60 / p$arrival_mean_min)
+  updateNumericInput(session, "n_shifts", value = as.integer(p$n_shifts))
+  updateSelectInput(session, "release_policy", selected = p$release_policy)
+  updateSelectInput(session, "order_spacing", selected = p$order_spacing)
+  updateNumericInput(session, "entry_buffer", value = p$entry_buffer)
+  updateNumericInput(session, "wip_limit", value = p$wip_limit)
+  walk(stations$name[stations$name != "body_shop"], function(n) {
+    buf <- stations$buffer_before[stations$name == n]
+    updateNumericInput(session, paste0("buffer_", n), value = if (is.finite(buf)) buf else 3)
+  })
+  updateNumericInput(session, "sim_length", value = p$shift_length_min)
+  updateNumericInput(session, "warmup", value = p$warmup_min)
+  updateNumericInput(session, "n_reps", value = as.integer(p$n_replications))
+  updateNumericInput(session, "seed", value = as.integer(p$base_seed))
+  cap_ids <- c(
+    body_shop = "body_cap", paint = "paint_cap",
+    final_assembly = "fa_cap", inspection = "insp_cap"
+  )
+  mean_ids <- c(
+    body_shop = "body_mean", paint = "paint_mean",
+    final_assembly = "fa_mean", inspection = "insp_mean"
+  )
+  for (n in names(cap_ids)) {
+    row <- stations[stations$name == n, , drop = FALSE]
+    if (!nrow(row)) next
+    updateNumericInput(session, cap_ids[[n]], value = as.integer(row$capacity[[1]]))
+    auto <- activity_timing(row, "auto")
+    mean_val <- if (identical(auto$method, "empirical")) mean(auto$observations) else auto$mean_min
+    updateNumericInput(session, mean_ids[[n]], value = mean_val)
   }
+  pools <- p$operators$pool
+  counts <- p$operators$count
+  pool_count <- function(name, default = 1) {
+    if (name %in% pools) counts[[match(name, pools)]] else default
+  }
+  if (setequal(pools, c("upstream", "downstream"))) {
+    updateSelectInput(session, "staffing", selected = "zones")
+    updateNumericInput(session, "op_a", value = pool_count("upstream", 2))
+    updateNumericInput(session, "op_b", value = pool_count("downstream", 2))
+  } else if (length(pools) == 1L && identical(pools[[1]], "shared")) {
+    updateSelectInput(session, "staffing", selected = "shared")
+    updateNumericInput(session, "op_all", value = pool_count("shared", 4))
+  } else {
+    updateSelectInput(session, "staffing", selected = "dedicated")
+    for (nm in names(station_labels)) {
+      updateNumericInput(session, paste0("op_", nm), value = pool_count(nm, 1))
+    }
+  }
+  reliability <- any(is.finite(stations$mtbf_min) & stations$mttr_min > 0)
+  noncyclic <- any(vapply(seq_len(nrow(stations)), function(i) {
+    timing_mean(activity_timing(stations[i, ], "task")) > 0 &&
+      (stations$task_every_n[[i]] > 0 || is.finite(stations$task_interval_min[[i]]))
+  }, logical(1)))
+  updateCheckboxInput(session, "reliability", value = reliability)
+  updateCheckboxInput(session, "noncyclic", value = noncyclic)
+  updateNumericInput(session, "repair_staff", value = as.integer(p$repair_technicians %||% 1L))
   for (i in seq_len(nrow(stations))) {
     st <- stations[i, ]
     n <- st$name
@@ -244,16 +273,38 @@ restore_default_inputs <- function(session) {
     updateNumericInput(session, paste0("unload_", n), value = st$unload_min)
     updateNumericInput(session, paste0("mtbf_", n), value = if (is.finite(st$mtbf_min)) st$mtbf_min else 10000)
     updateNumericInput(session, paste0("mttr_", n), value = st$mttr_min)
-    updateNumericInput(session, paste0("interval_", n), value = st$task_interval_min)
-    updateNumericInput(session, paste0("every_", n), value = 0)
-    updateNumericInput(session, paste0("task_", n), value = st$task_duration_min)
+    updateNumericInput(
+      session, paste0("interval_", n),
+      value = if (is.finite(st$task_interval_min)) st$task_interval_min else 60
+    )
+    updateNumericInput(session, paste0("every_", n), value = as.integer(st$task_every_n %||% 0L))
+    task <- activity_timing(st, "task")
+    task_mean <- if (identical(task$method, "empirical")) mean(task$observations) else task$mean_min
+    updateNumericInput(session, paste0("task_", n), value = task_mean)
     for (activity in c("load", "auto", "unload", "task")) {
       id <- paste0(activity, "_", n)
-      auto <- identical(activity, "auto")
-      updateSelectInput(session, paste0(id, "_method"), selected = if (auto) "distribution" else "fixed")
-      updateSelectInput(session, paste0(id, "_distribution"), selected = if (auto) st$dist else "normal")
-      updateNumericInput(session, paste0(id, "_sd"), value = if (auto && is.finite(st$sd_min)) st$sd_min else 0.25)
-      updateTextAreaInput(session, paste0(id, "_observations"), value = "")
+      spec <- activity_timing(st, activity)
+      updateSelectInput(session, paste0(id, "_method"), selected = spec$method)
+      updateSelectInput(
+        session, paste0(id, "_distribution"),
+        selected = if (identical(spec$method, "distribution")) spec$distribution else "normal"
+      )
+      updateNumericInput(
+        session, paste0(id, "_sd"),
+        value = if (is.finite(spec$sd_min)) spec$sd_min else 0.25
+      )
+      obs <- if (identical(spec$method, "empirical")) {
+        paste(format(spec$observations, digits = 17), collapse = ", ")
+      } else {
+        ""
+      }
+      updateTextAreaInput(session, paste0(id, "_observations"), value = obs)
     }
   }
+  invisible(TRUE)
+}
+
+# Push every sidebar control back to the value it shows on first load.
+restore_default_inputs <- function(session) {
+  apply_params_to_inputs(session, default_params())
 }

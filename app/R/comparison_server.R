@@ -359,7 +359,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         p(class = "mb-1", intro),
         p(
           class = "mb-1",
-          "Rug ticks are every replication, and a vertical line means no spread. Dashed lines are normal curves, and the x-axis shows the central 95% of values."
+          "A vertical line means no spread. Dashed lines are normal curves, and the x-axis shows the central 95% of values."
         ),
         p(
           class = "mb-2",
@@ -488,7 +488,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         df %>% mutate(value = .data[[metric]]),
         "set", "value", labels[[metric]],
         paste0(
-          "Overlaid densities of every replication. Rug ticks are each run. A vertical line means that set did not vary.",
+          "Overlaid histograms of every replication. A vertical line means that set did not vary.",
           caption_extra
         ),
         percent = FALSE, palette = palette(), bounds = c(0, Inf)
@@ -500,7 +500,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_densities(
         df, "label", "avg_util",
         x_label = "Bay occupancy",
-        subtitle = "One panel per station. Rug ticks are every replication. A vertical line means that set did not vary.",
+        subtitle = "One panel per station. A vertical line means that set did not vary.",
         percent = TRUE,
         palette = palette()
       )
@@ -520,7 +520,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_densities(
         df, "label", "avg_util",
         x_label = "Operator utilization",
-        subtitle = "One panel per pool. Rug ticks are every replication. A vertical line means that set did not vary.",
+        subtitle = "One panel per pool. A vertical line means that set did not vary.",
         percent = TRUE,
         palette = palette()
       )
@@ -531,13 +531,13 @@ comparison_page_server <- function(id, main_params, active_page) {
       comparison_densities(
         df, "label", "downtime_fraction",
         x_label = "Active repair fraction",
-        subtitle = "One panel per station. Rug ticks are every replication. A vertical line means that set did not vary.",
+        subtitle = "One panel per station. A vertical line means that set did not vary.",
         percent = TRUE,
         palette = palette()
       )
     })
     # Pooled lead times use the same overlaid-histogram style as the
-    # "What changed most" charts: set colors, dashed normal curve, rug ticks.
+    # "What changed most" charts: set colors, dashed normal curve.
     output$cycles <- renderPlot({
       df <- table_for("cycle_times") %>%
         filter(is.finite(cycle_time)) %>%

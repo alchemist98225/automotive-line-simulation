@@ -323,6 +323,17 @@ labeled_continuous_scale <- function(aesthetic = "x", percent = FALSE, n = 3L,
   }
 }
 # Back-compat alias used by existing call sites.
+# Major ticks for hours-since-settling axes. Prefer 1h or 2h steps so an
+# 8-hour default shift stays readable; step grows with longer horizons.
+observation_hour_breaks <- function(max_hours) {
+  max_hours <- suppressWarnings(as.numeric(max_hours))
+  if (!length(max_hours) || !is.finite(max_hours[[1]]) || max_hours[[1]] <= 0) {
+    return(0)
+  }
+  max_hours <- max_hours[[1]]
+  step <- if (max_hours <= 10) 1 else if (max_hours <= 24) 2 else if (max_hours <= 48) 4 else 8
+  seq(0, ceiling(max_hours / step) * step, by = step)
+}
 sparse_x_continuous <- function(percent = FALSE, n = 3L, expand = expansion(mult = 0.08), limits = NULL) {
   labeled_continuous_scale("x", percent = percent, n = n, expand = expand, limits = limits)
 }
@@ -337,7 +348,7 @@ theme_minor_ticks <- function() {
   )
 }
 # Central fraction of the data for coord_cartesian xlim. Densities stay
-# computed on the full sample; rugs outside the window may clip. Bounded
+# computed on the full sample; values outside the window may clip. Bounded
 # metrics (utilization, occupancy) stay inside the supplied bounds.
 density_xlim <- function(x, level = 0.95, bounds = NULL, pad = 0.05) {
   x <- x[is.finite(x)]

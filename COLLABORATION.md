@@ -20,7 +20,7 @@ overlaid densities. No engine changes and no production deployment. `app/R/model
 imports use revision-specific input IDs so a reset cannot read stale controls.
 Bay occupancy, operator utilization, active repair, and the replication summaries
 on the comparison page are overlaid densities (a vertical line when a set has no
-spread, and a rug tick for every replication). Tom: review the new page on desktop and mobile.
+spread, ). Tom: review the new page on desktop and mobile.
 
 Production plan/release work: codex/production-plan-release starts at merged PR #10.
 Adds consecutive measured shifts after separate settling, planned-order spacing,
