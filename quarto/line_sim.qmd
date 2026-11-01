@@ -276,6 +276,56 @@ theme_plot_width_text <- function(...) {
   )
 }
 
+# Labeled major breaks plus visible minor ticks between them.
+# At least `n` labeled majors (default 3). Minor ticks: about 3 between each pair.
+labeled_continuous_scale <- function(aesthetic = "x", percent = FALSE, n = 3L,
+                                      expand = expansion(mult = 0.08), limits = NULL, ...) {
+  n <- max(3L, as.integer(n))
+  major_fn <- function(lim) {
+    br <- scales::breaks_pretty(n = n)(lim)
+    if (length(br) < n) br <- scales::breaks_pretty(n = n + 1L)(lim)
+    # Prefer at least 3 labeled majors; drop out-of-limit breaks when clamped.
+    if (!is.null(limits)) {
+      br <- br[is.finite(br) & br >= limits[[1]] - 1e-9 & br <= limits[[2]] + 1e-9]
+    }
+    br
+  }
+  # Exactly three minor ticks between each pair of labeled majors.
+  minor_fn <- function(lim, breaks) {
+    br <- breaks[is.finite(breaks)]
+    if (length(br) < 2L) return(numeric())
+    unlist(lapply(seq_len(length(br) - 1L), function(i) {
+      seq(br[[i]], br[[i + 1L]], length.out = 5L)[2:4]
+    }), use.names = FALSE)
+  }
+  labs <- if (isTRUE(percent)) scales::percent_format(accuracy = 1) else waiver()
+  guide <- ggplot2::guide_axis(minor.ticks = TRUE, check.overlap = TRUE)
+  if (identical(aesthetic, "y")) {
+    scale_y_continuous(
+      labels = labs, breaks = major_fn, minor_breaks = minor_fn,
+      expand = expand, guide = guide, limits = limits, ...
+    )
+  } else {
+    scale_x_continuous(
+      labels = labs, breaks = major_fn, minor_breaks = minor_fn,
+      expand = expand, guide = guide, limits = limits, ...
+    )
+  }
+}
+# Back-compat alias used by existing call sites.
+sparse_x_continuous <- function(percent = FALSE, n = 3L, expand = expansion(mult = 0.08), limits = NULL) {
+  labeled_continuous_scale("x", percent = percent, n = n, expand = expand, limits = limits)
+}
+# Theme rules that make minor ticks visible (ggplot2 3.5+ / 4.x).
+theme_minor_ticks <- function() {
+  theme(
+    axis.ticks = element_line(colour = "#1a1a1a", linewidth = 0.55),
+    axis.minor.ticks.x.bottom = element_line(colour = "#1a1a1a", linewidth = 0.45),
+    axis.minor.ticks.y.left = element_line(colour = "#1a1a1a", linewidth = 0.45),
+    axis.ticks.length = grid::unit(6, "pt"),
+    axis.minor.ticks.length = grid::unit(3.5, "pt")
+  )
+}
 # Central fraction of the data for coord_cartesian xlim. Densities stay
 # computed on the full sample; rugs outside the window may clip. Bounded
 # metrics (utilization, occupancy) stay inside the supplied bounds.
@@ -324,10 +374,10 @@ density_bounds <- function(x, bounds) {
   if (!is.finite(hi) || hi <= lo) hi <- lo + bw
   c(lo, hi)
 }
-# Overlaid densities, one curve per series, plus one rug tick per row.
-# Each curve is scaled to its own peak so a tight set cannot flatten the other.
-# A series with no spread is a labeled vertical line: the kernel has no bandwidth.
-# The line is opaque; the fill uses the same color at alpha 0.30.
+# Overlaid histograms per series, with a dashed normal-curve overlay and rug ticks.
+# Bin width uses Freedman-Diaconis, with a sqrt(n) fallback when IQR is 0.
+# A series with no spread is a labeled vertical line.
+# Histogram fill uses the series color at alpha 0.30.
 overlay_densities <- function(df, value, series, colors, x_label, subtitle,
                               percent = FALSE, bounds = NULL, facet = NULL,
                               subtitle_width = 32L) {
@@ -356,29 +406,49 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
   constant <- spread %>% dplyr::filter(constant)
   if (is.null(bounds)) bounds <- if (isTRUE(percent)) c(0, 1) else c(0, Inf)
   bnds <- density_bounds(if (nrow(varying)) varying$.value else df$.value, bounds)
-  p <- ggplot(df, aes(x = .value, colour = series, fill = series, group = series))
+  p <- ggplot(df, aes(x = .value, colour = series,
+                      fill = series, group = series))
   if (nrow(varying)) {
+    bw_of <- function(x) {
+      w <- 2 * IQR(x) / length(x)^(1/3)
+      # IQR is 0 when most reps tie; fall back to about sqrt(n) bins.
+      if (!is.finite(w) || w <= 0) w <- diff(range(x)) / ceiling(sqrt(length(x)))
+      if (all(x == round(x))) max(1, round(w)) else w
+    }
     p <- p +
-      geom_density(
+      geom_histogram(
         data = varying,
-        mapping = aes(x = .value, y = after_stat(scaled), fill = series, group = series),
+        mapping = aes(
+          x = .value, y = after_stat(count),
+          fill = series, colour = series,
+          group = series
+        ),
         inherit.aes = FALSE,
-        colour = NA,
+        position = "identity",
+        binwidth = bw_of,
+        boundary = 0,
         alpha = 0.30,
-        linewidth = 0,
-        bounds = bnds,
-        na.rm = TRUE,
-        show.legend = FALSE
-      ) +
-      geom_density(
-        data = varying,
-        mapping = aes(x = .value, y = after_stat(scaled), colour = series, group = series),
-        inherit.aes = FALSE,
-        fill = NA,
-        alpha = 1,
-        linewidth = 1,
-        bounds = bnds,
+        linewidth = 0.6,
         na.rm = TRUE
+      )
+    norm_df <- varying %>%
+      dplyr::group_by(dplyr::across(
+        dplyr::all_of(group_cols)
+      )) %>%
+      dplyr::reframe(
+        x = seq(min(.value), max(.value),
+                length.out = 200),
+        y = dnorm(x, mean(.value), sd(.value)) *
+          dplyr::n() * bw_of(.value)
+      )
+    p <- p +
+      geom_line(
+        data = norm_df,
+        aes(x = x, y = y, colour = series,
+            group = series),
+        inherit.aes = FALSE,
+        linetype = "dashed",
+        linewidth = 0.5
       )
   }
   if (nrow(constant)) {
@@ -437,7 +507,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     ) +
     labs(
       x = x_label,
-      y = "Scaled density",
+      y = "Replications",
       colour = NULL,
       fill = NULL,
       subtitle = subtitle
@@ -483,7 +553,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
         axis.text.y = element_text(size = 16, colour = "#1a1a1a"),
         axis.title.x = element_text(size = 16, colour = "#1a1a1a")
       )
-    p + coord_cartesian(ylim = c(0, 1.32), expand = FALSE, clip = "off")
+    p + coord_cartesian(expand = FALSE, clip = "off")
   } else {
     p <- p +
       sparse_x_continuous(
@@ -498,10 +568,10 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
         axis.text.y = element_text(size = 16, colour = "#1a1a1a"),
         axis.title.x = element_text(size = 16, colour = "#1a1a1a")
       )
-    p + coord_cartesian(xlim = xlim, ylim = c(0, 1.32), expand = FALSE, clip = "off")
+    p + coord_cartesian(xlim = xlim, expand = FALSE, clip = "off")
   }
 }
-# One overlaid density per category. A category with no spread is a vertical line.
+# One overlaid histogram per category. A category with no spread is a vertical line.
 replication_densities <- function(df, y, x, x_label, subtitle, percent = TRUE, fill_values = NULL) {
   y_sym <- rlang::sym(y)
   x_sym <- rlang::sym(x)
@@ -844,7 +914,7 @@ timing_controls <- function(st, activity, label) {
     conditionalPanel(sprintf("input['%s_method'] === 'empirical'", id),
       textAreaInput(paste0(id, "_observations"), "Observed durations (min)",
                     placeholder = "e.g. 1.1, 0.9, 1.4", rows = 3),
-      helpText("Sampled with replacement. Mean and SD inputs are ignored. Placeholder until you paste measurements."))
+      helpText("Sampled with replacement. Mean and SD inputs are ignored."))
   )
 }
 
@@ -952,6 +1022,12 @@ sim_status_bar_ui <- function() {
         opacity: 0.7; margin-top: 0.15rem;
       }
       .kpi-nav-card:hover .kpi-view-hint { opacity: 1; text-decoration: underline; }
+      /* Headline cards: every card fills its grid cell, so all four match. */
+      #headline_kpis .bslib-grid { align-items: stretch; grid-auto-rows: 1fr; }
+      #headline_kpis .kpi-nav-card { height: 100%; display: flex; }
+      #headline_kpis .kpi-nav-card > .bslib-value-box {
+        flex: 1 1 auto; height: 100%; min-height: 170px; margin-bottom: 0;
+      }
       #line_controls .accordion-item:first-child > .accordion-header .accordion-button {
         background: #198754; color: #fff; font-weight: 700;
       }
@@ -1065,17 +1141,23 @@ sim_status_bar_ui <- function() {
         if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
         window.__simRunButtons = true;
         Shiny.addCustomMessageHandler('simRunButtons', function(message) {
-          paintAllSimRunBtns((message && message.state) || 'idle');
+          var state = (message && message.state) || 'idle';
+          // The startup run is automatic: keep the buttons idle until the
+          // user clicks Run or Try it, so the page never opens on Done.
+          if (!window.__simUserRan && state !== 'idle') state = 'idle';
+          paintAllSimRunBtns(state);
         });
       }
       document.addEventListener('shiny:connected', registerSimRunButtons);
       if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', registerSimRunButtons);
       else registerSimRunButtons();
       $(document).on('click', '#run', function() {
+        window.__simUserRan = true;
         paintSimRunBtn(this, 'running');
         showSimProgressLocal('Working…');
       });
       $(document).on('click', '#guide_try', function() {
+        window.__simUserRan = true;
         paintSimRunBtn(this, 'running');
         paintSimRunBtn(document.getElementById('run'), 'running');
         showSimProgressLocal('Working…');
@@ -1129,8 +1211,19 @@ sim_status_bar_ui <- function() {
   )
 }
 
-kpi_nav_box <- function(tab_value, title, value, showcase, theme, ...) {
+kpi_nav_box <- function(tab_value, title, value, showcase, theme, ...,
+                        box_key = NULL) {
+  box_id <- paste0(
+    "kpi_nav_",
+    if (!is.null(box_key)) box_key else switch(tab_value,
+      lead = "lead",
+      flow = "wip",
+      capacity = "bottleneck",
+      tab_value
+    )
+  )
   div(
+    id = box_id,
     class = "kpi-nav-card",
     role = "link",
     tabindex = "0",
@@ -1195,9 +1288,9 @@ guided_example_ui <- function() {
             actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
           ),
           p(class = "mb-2",
-            "Under these placeholder inputs, throughput rises, WIP and mean lead time fall, and the bottleneck candidate moves to final assembly."),
-          p(class = "text-muted small mb-0",
-            "All data is illustrative placeholder data, not a prediction for any real plant or company.")
+            "Under these inputs, throughput rises, WIP and mean lead time fall, and the bottleneck candidate moves to final assembly."),
+          p(class = "small mb-0", style = "color: #1a1a1a;",
+            "Results are illustrative only, based on example inputs.")
         )
       )
     )
@@ -1267,15 +1360,12 @@ operator unloads. Shared teams, dedicated crews, support work, and equipment
 failures (MTBF/MTTR with shared repair technicians) are all inputs.
 
 Charts use **every replication**. Bay occupancy is a boxplot with one point per
-replication. Operator utilization and downtime are overlaid densities, with a
-rug tick for every replication and a vertical line when every replication is
-identical. Queue and WIP series are faint lines plus a loess ribbon, resampled
+replication. Operator utilization and downtime are overlaid histograms with
+dashed normal curves, a rug tick for every replication, and a vertical line
+when every replication is identical. Queue and WIP series are faint lines plus a loess ribbon, resampled
 onto a 2-minute grid. WIP counts each vehicle once. Downtime is machine-time in
 repair during the post-warmup window. The opening defaults are 5 replications
 and 300 minutes of settling before the measured window.
-
-**Placeholder example values.** Capacities, crew sizes, cycle times, MTBF/MTTR,
-and support-task times are examples, not real plant data.
 
 ## Parameters
 
@@ -1297,7 +1387,6 @@ accordion(
     actionButton("compare_timing", "Compare timing variability", class = "w-100"),
     actionButton("compare", "Compare staffing scenarios", class = "w-100"),
     helpText("Staffing comparison opens under Bottleneck & capacity. Timing comparison and CSV downloads open under Lead time & data."),
-    helpText("Defaults are placeholder example values — not real plant data.")
   ),
   accordion_panel(
     "Capacity",
@@ -1312,7 +1401,7 @@ accordion(
   ),
   accordion_panel(
     "Cycle times",
-    helpText("Automatic duration / mean. Placeholder minutes, not a measured cycle."),
+    helpText("Automatic duration / mean (minutes)."),
     station_group("Body shop",
       numericInput("body_mean", "Automatic duration / mean (min)", value = 6, min = 0.5, max = 60, step = 0.5),
       uiOutput("cycle_body_shop")),
@@ -1328,7 +1417,6 @@ accordion(
   ),
   accordion_panel(
     "Operators & reliability",
-    helpText("Placeholder crew sizes, MTBF/MTTR, and task times — not measured plant data."),
     selectInput("staffing", "Operator assignment",
                 c("Two shared zones" = "zones", "One shared team" = "shared", "Dedicated by station" = "dedicated")),
     helpText("Zone A serves body and paint; Zone B serves assembly and inspection."),
@@ -1336,7 +1424,7 @@ accordion(
     checkboxInput("reliability", "Enable equipment failures", TRUE),
     numericInput("repair_staff", "Repair technicians", 1, min = 1, step = 1),
     checkboxInput("noncyclic", "Enable random support tasks", TRUE),
-    helpText("Mean up-time (MTBF) is calendar up-time in minutes. Mean active repair (MTTR) of 0 disables failures at that station. Support every N units uses 0 for a random exponential interval. These defaults are placeholders."),
+    helpText("Mean up-time (MTBF) is calendar up-time in minutes. Mean active repair (MTTR) of 0 disables failures at that station. Support every N units uses 0 for a random exponential interval."),
     station_group("Body shop", uiOutput("reliability_body_shop")),
     station_group("Paint", uiOutput("reliability_paint")),
     station_group("Final assembly", uiOutput("reliability_final_assembly")),
@@ -1355,12 +1443,15 @@ tagList(
   div(
     id = "headline_kpis",
     layout_columns(
+      fill = FALSE,
+      col_widths = breakpoints(sm = 12, md = 6, xl = 3),
       kpi_nav_box(
         "lead",
         title = "Throughput",
         value = textOutput("kpi_throughput", inline = TRUE),
         showcase = bs_icon("speedometer2"), theme = "primary",
-        p("departures / hour — see Station metrics")
+        p("departures / hour — see Station metrics"),
+        box_key = "throughput"
       ),
       kpi_nav_box(
         "lead",
@@ -1370,11 +1461,12 @@ tagList(
         p("minutes")
       ),
       kpi_nav_box(
-        "flow",
-        title = "Avg WIP",
-        value = textOutput("kpi_wip", inline = TRUE),
-        showcase = bs_icon("boxes"), theme = "warning",
-        p("vehicles in system, counted once")
+        "capacity",
+        title = "HPU",
+        value = textOutput("kpi_hpu", inline = TRUE),
+        showcase = bs_icon("person-gear"), theme = "warning",
+        p("labor hours per unit (lower is better)"),
+        box_key = "hpu"
       ),
       kpi_nav_box(
         "capacity",
@@ -1941,9 +2033,13 @@ output$kpi_cycle <- renderText({
   sprintf("%.0f", res$headline$cycle_time_mean_mean)
 })
 
-output$kpi_wip <- renderText({
+# HPU = operators x observed hours / units completed. Reps with no
+# completions have infinite HPU, so the mean uses finite reps only.
+output$kpi_hpu <- renderText({
   res <- sim_result()
-  sprintf("%.1f", res$headline$avg_wip_mean)
+  hpu <- res$summaries$hpu
+  hpu <- hpu[is.finite(hpu)]
+  if (!length(hpu)) "n/a" else sprintf("%.2f", mean(hpu))
 })
 
 output$kpi_bottleneck <- renderText({
@@ -1973,7 +2069,7 @@ output$plot_labor <- renderPlot({
   replication_densities(
     df, "label", "avg_util",
     x_label = "Operator utilization",
-    subtitle = "Overlaid densities. Rug ticks are every replication. A vertical line means no spread.",
+    subtitle = "Overlaid histograms with dashed normal curves. Rug ticks are every replication. A vertical line means no spread.",
     percent = TRUE
   )
 })
@@ -2023,7 +2119,7 @@ output$plot_down <- renderPlot({
   replication_densities(
     per_rep, "label", "downtime_fraction",
     x_label = "Downtime fraction",
-    subtitle = "Overlaid densities. Rug ticks are every replication. A vertical line means no spread.",
+    subtitle = "Overlaid histograms with dashed normal curves. Rug ticks are every replication. A vertical line means no spread.",
     percent = TRUE,
     fill_values = station_colors
   )
