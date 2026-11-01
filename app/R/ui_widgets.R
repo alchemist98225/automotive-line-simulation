@@ -174,10 +174,11 @@ register_station_panels <- function(output) {
   })
   invisible(output)
 }
-kpi_nav_box <- function(page_value, title, value, showcase, theme, ...) {
+kpi_nav_box <- function(page_value, title, value, showcase, theme, ...,
+                        box_key = NULL) {
   box_id <- paste0(
     "kpi_nav_",
-    switch(page_value,
+    if (!is.null(box_key)) box_key else switch(page_value,
       production_schedule = "throughput",
       results_lead = "lead",
       results_flow = "wip",

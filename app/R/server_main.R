@@ -398,9 +398,13 @@ server <- function(input, output, session) {
     sprintf("%.0f", res$headline$cycle_time_mean_mean)
   })
 
-  output$kpi_wip <- renderText({
+  # HPU = operators x observed hours / units completed. Reps with no
+  # completions have infinite HPU, so the mean uses finite reps only.
+  output$kpi_hpu <- renderText({
     res <- sim_result()
-    sprintf("%.1f", res$headline$avg_wip_mean)
+    hpu <- res$summaries$hpu
+    hpu <- hpu[is.finite(hpu)]
+    if (!length(hpu)) "n/a" else sprintf("%.2f", mean(hpu))
   })
 
   output$kpi_bottleneck <- renderText({

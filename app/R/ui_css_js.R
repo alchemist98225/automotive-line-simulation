@@ -63,6 +63,12 @@ app_header_tags <- function() {
       font-weight: 500;
     }
     .run-settings summary { cursor: pointer; font-weight: 600; }
+    /* Headline cards: every card fills its grid cell, so all four match. */
+    #headline_kpis .bslib-grid { align-items: stretch; grid-auto-rows: 1fr; }
+    #headline_kpis .kpi-nav-card { height: 100%; display: flex; }
+    #headline_kpis .kpi-nav-card > .bslib-value-box {
+      flex: 1 1 auto; height: 100%; min-height: 170px; margin-bottom: 0;
+    }
     .text-muted,
     .text-body-secondary,
     .form-text,
@@ -225,7 +231,11 @@ app_header_tags <- function() {
         if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
         window.__simRunButtons = true;
         Shiny.addCustomMessageHandler('simRunButtons', function(message) {
-          paintAllSimRunBtns((message && message.state) || 'idle');
+          var state = (message && message.state) || 'idle';
+          // The startup run is automatic: keep the buttons idle until the
+          // user clicks Run or Try it, so the page never opens on Done.
+          if (!window.__simUserRan && state !== 'idle') state = 'idle';
+          paintAllSimRunBtns(state);
         });
       }
       document.addEventListener('shiny:connected', registerSimRunButtons);
@@ -238,10 +248,12 @@ app_header_tags <- function() {
       }, 100);
       // Open the panel immediately on click so it is visible while Shiny blocks.
       $(document).on('click', '#run', function() {
+        window.__simUserRan = true;
         paintSimRunBtn(this, 'running');
         showSimProgressLocal(repsLabel());
       });
       $(document).on('click', '#guide_try', function() {
+        window.__simUserRan = true;
         paintSimRunBtn(this, 'running');
         // Mirror on the main Run button so both signal the active sim.
         paintSimRunBtn(document.getElementById('run'), 'running');

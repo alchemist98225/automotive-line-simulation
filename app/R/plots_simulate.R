@@ -35,29 +35,49 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
   constant <- spread %>% dplyr::filter(constant)
   if (is.null(bounds)) bounds <- if (isTRUE(percent)) c(0, 1) else c(0, Inf)
   bnds <- density_bounds(if (nrow(varying)) varying$.value else df$.value, bounds)
-  p <- ggplot(df, aes(x = .value, colour = series, fill = series, group = series))
+  p <- ggplot(df, aes(x = .value, colour = series,
+                      fill = series, group = series))
   if (nrow(varying)) {
+    bw_of <- function(x) {
+      w <- 2 * IQR(x) / length(x)^(1/3)
+      # IQR is 0 when most reps tie; fall back to about sqrt(n) bins.
+      if (!is.finite(w) || w <= 0) w <- diff(range(x)) / ceiling(sqrt(length(x)))
+      if (all(x == round(x))) max(1, round(w)) else w
+    }
     p <- p +
-      geom_density(
+      geom_histogram(
         data = varying,
-        mapping = aes(x = .value, y = after_stat(scaled), fill = series, group = series),
+        mapping = aes(
+          x = .value, y = after_stat(count),
+          fill = series, colour = series,
+          group = series
+        ),
         inherit.aes = FALSE,
-        colour = NA,
+        position = "identity",
+        binwidth = bw_of,
+        boundary = 0,
         alpha = 0.30,
-        linewidth = 0,
-        bounds = bnds,
-        na.rm = TRUE,
-        show.legend = FALSE
-      ) +
-      geom_density(
-        data = varying,
-        mapping = aes(x = .value, y = after_stat(scaled), colour = series, group = series),
-        inherit.aes = FALSE,
-        fill = NA,
-        alpha = 1,
-        linewidth = 1,
-        bounds = bnds,
+        linewidth = 0.6,
         na.rm = TRUE
+      )
+    norm_df <- varying %>%
+      dplyr::group_by(dplyr::across(
+        dplyr::all_of(group_cols)
+      )) %>%
+      dplyr::reframe(
+        x = seq(min(.value), max(.value),
+                length.out = 200),
+        y = dnorm(x, mean(.value), sd(.value)) *
+          dplyr::n() * bw_of(.value)
+      )
+    p <- p +
+      geom_line(
+        data = norm_df,
+        aes(x = x, y = y, colour = series,
+            group = series),
+        inherit.aes = FALSE,
+        linetype = "dashed",
+        linewidth = 0.5
       )
   }
   if (nrow(constant)) {
@@ -116,7 +136,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
     ) +
     labs(
       x = x_label,
-      y = "Scaled density",
+      y = "Replications",
       colour = NULL,
       fill = NULL,
       subtitle = subtitle
@@ -162,7 +182,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
         axis.text.y = element_text(size = 16, colour = "#1a1a1a"),
         axis.title.x = element_text(size = 16, colour = "#1a1a1a")
       )
-    p + coord_cartesian(ylim = c(0, 1.32), expand = FALSE, clip = "off")
+    p + coord_cartesian(expand = FALSE, clip = "off")
   } else {
     p <- p +
       sparse_x_continuous(
@@ -177,7 +197,7 @@ overlay_densities <- function(df, value, series, colors, x_label, subtitle,
         axis.text.y = element_text(size = 16, colour = "#1a1a1a"),
         axis.title.x = element_text(size = 16, colour = "#1a1a1a")
       )
-    p + coord_cartesian(xlim = xlim, ylim = c(0, 1.32), expand = FALSE, clip = "off")
+    p + coord_cartesian(xlim = xlim, expand = FALSE, clip = "off")
   }
 }
 # One overlaid density per category. A category with no spread is a vertical line.

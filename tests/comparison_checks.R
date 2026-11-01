@@ -194,8 +194,11 @@ built <- ggplot2::ggplot_build(e$comparison_densities(
 ))
 stopifnot(length(built$data) >= 1L)
 rain_geoms <- vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-stopifnot(any(rain_geoms == "GeomDensity"), any(rain_geoms == "GeomVline"), any(rain_geoms == "GeomRug"))
-# A tight set must stay visible beside a wide set. Each density is its own curve.
+stopifnot(any(rain_geoms == "GeomBar"), any(rain_geoms == "GeomLine"), any(rain_geoms == "GeomVline"), any(rain_geoms == "GeomRug"))
+# The normal-curve overlay is a thin dashed line.
+rain_line <- built$plot$layers[[which(rain_geoms == "GeomLine")[1]]]
+stopifnot(identical(rain_line$aes_params$linetype, "dashed"), rain_line$aes_params$linewidth <= 0.6)
+# A tight set must stay visible beside a wide set. Each set gets its own histogram and normal curve.
 set.seed(1)
 peaked <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 50),
@@ -207,14 +210,15 @@ peaked_built <- ggplot2::ggplot_build(e$comparison_densities(
 ))
 peaked_geoms <- vapply(peaked_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
 peaked_line <- which(vapply(seq_along(peaked_built$plot$layers), function(i) {
-  peaked_geoms[[i]] == "GeomDensity" && is.null(peaked_built$plot$layers[[i]]$aes_params$colour)
+  peaked_geoms[[i]] == "GeomLine" && is.null(peaked_built$plot$layers[[i]]$aes_params$colour)
 }, logical(1)))
 stopifnot(length(peaked_line) == 1L)
 peaked_cols <- unique(peaked_built$data[[peaked_line]]$colour)
 stopifnot(length(peaked_cols) == 2L)
 peaked_height <- tapply(peaked_built$data[[peaked_line]]$y, peaked_built$data[[peaked_line]]$group, max, na.rm = TRUE)
-stopifnot(length(peaked_height) >= 2L, all(peaked_height > 0.8))
-stopifnot(max(peaked_height) / min(peaked_height) < 1.25)
+stopifnot(length(peaked_height) >= 2L, all(peaked_height > 0))
+peaked_bars <- peaked_built$data[[which(peaked_geoms == "GeomBar")[1]]]
+stopifnot(all(tapply(peaked_bars$count, peaked_bars$group, sum) == 50))
 flat <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 4),
   station = "Inspection",
@@ -234,7 +238,7 @@ built <- ggplot2::ggplot_build(e$comparison_densities(
   flat, "station", "downtime_fraction", "Active repair fraction", "check", percent = TRUE
 ))
 stopifnot(length(built$data) >= 1L)
-stopifnot(!any(layer_geoms(built) == "GeomDensity"))
+stopifnot(!any(layer_geoms(built) == "GeomLine"))
 stopifnot(any(layer_geoms(built) == "GeomVline"))
 flat_text <- dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomText")])
 stopifnot(nrow(flat_text) >= 1L, all(flat_text$label == "No spread"))
@@ -250,11 +254,11 @@ built <- ggplot2::ggplot_build(e$comparison_densities(
   mixed, "station", "downtime_fraction", "Active repair fraction", "check", percent = TRUE
 ))
 stopifnot(length(built$data) >= 1L)
-stopifnot(any(layer_geoms(built) == "GeomDensity"), any(layer_geoms(built) == "GeomVline"))
+stopifnot(any(layer_geoms(built) == "GeomLine"), any(layer_geoms(built) == "GeomVline"))
 mixed_rug <- rug_colours(built)
 stopifnot(nrow(mixed_rug) == nrow(mixed))
 stopifnot(all(c("#2474A5", "#D46B25") %in% unique(mixed_rug$colour)))
-mixed_dens <- dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomDensity")])
+mixed_dens <- dplyr::bind_rows(built$data[which(layer_geoms(built) == "GeomLine")])
 stopifnot(min(mixed_dens$x, na.rm = TRUE) >= -1e-8, max(mixed_dens$x, na.rm = TRUE) <= 1 + 1e-6)
 # Set colors stay on the set levels. A station-name palette must not be required.
 cmp_warns <- character()
@@ -272,7 +276,7 @@ cmp_built <- withCallingHandlers(
 )
 cmp_geoms <- layer_geoms(cmp_built)
 cmp_line <- which(vapply(seq_along(cmp_built$plot$layers), function(i) {
-  cmp_geoms[[i]] == "GeomDensity" && is.null(cmp_built$plot$layers[[i]]$aes_params$colour)
+  cmp_geoms[[i]] == "GeomLine" && is.null(cmp_built$plot$layers[[i]]$aes_params$colour)
 }, logical(1)))
 cmp_cols <- unique(cmp_built$data[[cmp_line]]$colour)
 stopifnot(setequal(cmp_cols[!is.na(cmp_cols)], unname(e$comparison_colors)))
@@ -423,7 +427,7 @@ built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
   pal, percent = FALSE
 ))
 geoms <- vapply(built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-stopifnot(any(geoms == "GeomDensity"))
+stopifnot(any(geoms == "GeomLine"))
 stopifnot(!any(geoms == "GeomPoint"))
 stopifnot(identical(built$plot$theme$text$size, 16))
 rug <- built$data[[which(geoms == "GeomRug")]]
@@ -447,7 +451,7 @@ near_built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
   near0, "Mean queue (vehicles)", sub, e$comparison_colors, percent = FALSE
 ))
 near_geoms <- vapply(near_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-near_dens <- dplyr::bind_rows(near_built$data[which(near_geoms == "GeomDensity")])
+near_dens <- dplyr::bind_rows(near_built$data[which(near_geoms == "GeomLine")])
 stopifnot(min(near_dens$x, na.rm = TRUE) >= -1e-8)
 occ <- tibble::tibble(
   set = rep(c("Set 1", "Set 2"), each = 16),
@@ -458,7 +462,7 @@ occ_built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
   occ, "Bay occupancy", "check", e$comparison_colors, percent = TRUE
 ))
 occ_geoms <- vapply(occ_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
-occ_dens <- dplyr::bind_rows(occ_built$data[which(occ_geoms == "GeomDensity")])
+occ_dens <- dplyr::bind_rows(occ_built$data[which(occ_geoms == "GeomLine")])
 stopifnot(min(occ_dens$x, na.rm = TRUE) >= -1e-8, max(occ_dens$x, na.rm = TRUE) <= 1 + 1e-6)
 flat0 <- tibble::tibble(set = rep(c("Set 1", "Set 2"), each = 6), value = 0)
 flat_built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
@@ -466,7 +470,7 @@ flat_built <- ggplot2::ggplot_build(e$comparison_highlight_plot(
 ))
 flat_geoms <- vapply(flat_built$plot$layers, function(layer) class(layer$geom)[1], character(1))
 stopifnot(any(flat_geoms == "GeomVline"))
-stopifnot(!any(flat_geoms == "GeomDensity"))
+stopifnot(!any(flat_geoms == "GeomLine"))
 stopifnot(identical(flat_built$plot$theme$text$size, 16))
 cat("Comparison density checks passed\n")
 cat("Two-set comparison checks passed\n")

@@ -4,9 +4,9 @@
 # Chart: Why occupied bays wait (Results → Bottleneck & capacity).
 wait_reason_bars_interactive <- function(waits) {
   type_lab <- c(
-    blocked = "Blocked after processing",
-    waiting_for_operator = "Waiting for operator",
-    waiting_for_automatic_capacity = "Awaiting automatic capacity"
+    blocked = "Blocked",
+    waiting_for_operator = "Waiting",
+    waiting_for_automatic_capacity = "Starved"
   )
   df <- waits %>%
     dplyr::mutate(
@@ -37,9 +37,9 @@ wait_reason_bars_interactive <- function(waits) {
       data_id = paste(station, type, sep = "::")
     )
   fill_cols <- c(
-    "Blocked after processing" = "#d95f0e",
-    "Waiting for operator" = "#2c7fb8",
-    "Awaiting automatic capacity" = "#31a354"
+    "Blocked" = "#d95f0e",
+    "Waiting" = "#2c7fb8",
+    "Starved" = "#31a354"
   )
   p <- ggplot(summary_df, aes(x = station, y = mean, fill = type)) +
     ggiraph::geom_col_interactive(
@@ -62,7 +62,7 @@ wait_reason_bars_interactive <- function(waits) {
     theme_plot_width_text() +
     theme_minor_ticks() +
     theme(axis.text.x = element_text(size = 13, colour = "#1a1a1a", angle = 28, hjust = 1, vjust = 1)) +
-    guides(fill = guide_legend(ncol = 1, byrow = TRUE)) +
+    guides(fill = guide_legend(nrow = 1, byrow = TRUE)) +
     coord_cartesian(clip = "off")
   ggiraph::girafe(
     ggobj = p,
