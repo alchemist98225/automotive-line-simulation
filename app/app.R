@@ -1136,7 +1136,7 @@ guided_example_ui <- function() {
           p(class = "mb-2", "Raise Paint from 1 bay to 2."),
           div(
             class = "d-flex flex-wrap gap-2 mb-2",
-            actionButton("guide_try", "Try it", class = "btn-primary btn-sm", icon = icon("play")),
+            actionButton("guide_try", tagList(icon("play"), span(class = "sim-run-label", "Try it")), class = "btn-primary btn-sm sim-run-btn"),
             actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
           ),
           p(class = "mb-2",
@@ -1234,6 +1234,35 @@ sim_status_bar_ui <- function() {
         margin-top: 0.15rem;
       }
       .kpi-nav-card:hover .kpi-view-hint { opacity: 1; text-decoration: underline; }
+
+      /* Run / Try it button states (same pattern as Compare). */
+      #run.sim-run-btn.btn-warning,
+      #run.sim-run-btn.btn-warning:disabled,
+      #guide_try.sim-run-btn.btn-warning,
+      #guide_try.sim-run-btn.btn-warning:disabled {
+        background-color: #e67e00 !important;
+        border-color: #c96e00 !important;
+        color: #ffffff !important;
+        font-weight: 700;
+        opacity: 1 !important;
+      }
+      #run.sim-run-btn.btn-success,
+      #guide_try.sim-run-btn.btn-success {
+        background-color: #198754 !important;
+        border-color: #146c43 !important;
+        color: #ffffff !important;
+        font-weight: 700;
+        opacity: 1 !important;
+      }
+      #run.sim-run-btn,
+      #guide_try.sim-run-btn,
+      #run.sim-run-btn.recalculating,
+      #guide_try.sim-run-btn.recalculating,
+      .shiny-busy #run.sim-run-btn,
+      .shiny-busy #guide_try.sim-run-btn {
+        opacity: 1 !important;
+        filter: none !important;
+      }
       /* Run simulation accordion header stands out from jump links. */
       #line_controls .accordion-item:first-child > .accordion-header .accordion-button {
         background: #198754;
@@ -1531,11 +1560,91 @@ ui <- page_navbar(
         var base = reps + ' replications';
         return extra ? (base + ' · ' + extra) : base;
       }
+      // Paint Run / Try it like Compare: amber Running… instantly, no fade.
+      function paintSimRunBtn(btn, state) {
+        if (!btn) return;
+        var isTry = (btn.id === 'guide_try');
+        btn.classList.remove('btn-primary', 'btn-warning', 'btn-success');
+        btn.classList.add('sim-run-btn');
+        btn.style.setProperty('opacity', '1', 'important');
+        btn.style.setProperty('filter', 'none', 'important');
+        btn.querySelectorAll('i, .fa, .fas, svg').forEach(function(n) { n.remove(); });
+        var label = btn.querySelector('.sim-run-label');
+        if (!label) {
+          label = document.createElement('span');
+          label.className = 'sim-run-label';
+          btn.appendChild(label);
+        }
+        if (state === 'running') {
+          btn.classList.add('btn-warning');
+          btn.disabled = true;
+          btn.style.setProperty('background-color', '#e67e00', 'important');
+          btn.style.setProperty('border-color', '#c96e00', 'important');
+          btn.style.setProperty('color', '#ffffff', 'important');
+          btn.style.setProperty('font-weight', '700', 'important');
+          var spin = document.createElement('i');
+          spin.className = 'fa fa-spinner fa-spin';
+          spin.setAttribute('aria-hidden', 'true');
+          spin.style.marginRight = '0.35rem';
+          btn.insertBefore(spin, btn.firstChild);
+          label.textContent = 'Running…';
+        } else if (state === 'done') {
+          btn.classList.add('btn-success');
+          btn.disabled = false;
+          btn.style.setProperty('background-color', '#198754', 'important');
+          btn.style.setProperty('border-color', '#146c43', 'important');
+          btn.style.setProperty('color', '#ffffff', 'important');
+          btn.style.setProperty('font-weight', '700', 'important');
+          var check = document.createElement('i');
+          check.className = 'fa fa-check';
+          check.setAttribute('aria-hidden', 'true');
+          check.style.marginRight = '0.35rem';
+          btn.insertBefore(check, btn.firstChild);
+          label.textContent = isTry ? 'Done – try again' : 'Done – run again';
+        } else {
+          btn.classList.add('btn-primary');
+          btn.disabled = false;
+          btn.style.removeProperty('background-color');
+          btn.style.removeProperty('border-color');
+          btn.style.removeProperty('color');
+          btn.style.removeProperty('font-weight');
+          var play = document.createElement('i');
+          play.className = 'fa fa-play';
+          play.setAttribute('aria-hidden', 'true');
+          play.style.marginRight = '0.35rem';
+          btn.insertBefore(play, btn.firstChild);
+          label.textContent = isTry ? 'Try it' : 'Run simulation';
+        }
+      }
+      function paintAllSimRunBtns(state) {
+        paintSimRunBtn(document.getElementById('run'), state);
+        paintSimRunBtn(document.getElementById('guide_try'), state);
+      }
+      function registerSimRunButtons() {
+        if (window.__simRunButtons) return;
+        if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
+        window.__simRunButtons = true;
+        Shiny.addCustomMessageHandler('simRunButtons', function(message) {
+          paintAllSimRunBtns((message && message.state) || 'idle');
+        });
+      }
+      document.addEventListener('shiny:connected', registerSimRunButtons);
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', registerSimRunButtons);
+      else registerSimRunButtons();
+      var _srb = 0;
+      var _srbTimer = window.setInterval(function() {
+        registerSimRunButtons();
+        if (window.__simRunButtons || ++_srb > 50) window.clearInterval(_srbTimer);
+      }, 100);
       // Open the panel immediately on click so it is visible while Shiny blocks.
       $(document).on('click', '#run', function() {
+        paintSimRunBtn(this, 'running');
         showSimProgressLocal(repsLabel());
       });
       $(document).on('click', '#guide_try', function() {
+        paintSimRunBtn(this, 'running');
+        // Mirror on the main Run button so both signal the active sim.
+        paintSimRunBtn(document.getElementById('run'), 'running');
         showSimProgressLocal(repsLabel('guided example'));
       });
       $(document).on('click', '#compare', function() {
@@ -1646,7 +1755,7 @@ ui <- page_navbar(
           accordion_panel(
             title = tagList(bs_icon("play-fill"), " Run simulation"),
             value = "run_simulation",
-            actionButton("run", "Run simulation", class = "btn-primary w-100 mb-3", icon = icon("play")),
+            actionButton("run", tagList(icon("play"), span(class = "sim-run-label", "Run simulation")), class = "btn-primary w-100 mb-3 sim-run-btn"),
             numericInput("n_reps", "Number of replications",
                          value = 5, min = 1, max = 100, step = 1),
             numericInput("sim_length", "Shift duration (production minutes)",
@@ -2179,14 +2288,22 @@ this page with the 1-bay baseline and the 2-bay experiment.
 )
 
 server <- function(input, output, session) {
+  # idle | running | done — drives Run simulation / Try it button colors.
+  sim_btn_state <- reactiveVal("idle")
+  set_sim_btn_state <- function(state) {
+    sim_btn_state(state)
+    session$sendCustomMessage("simRunButtons", list(state = state))
+  }
   show_sim_progress <- function(detail = "", value = NULL) {
+    set_sim_btn_state("running")
     session$sendCustomMessage(
       "simProgress",
       list(show = TRUE, detail = detail, value = value)
     )
   }
-  hide_sim_progress <- function() {
+  hide_sim_progress <- function(done = TRUE) {
     session$sendCustomMessage("simProgress", list(show = FALSE))
+    if (isTRUE(done)) set_sim_btn_state("done")
   }
   jump_to_params <- function(section_id) {
     nav_select("main_page", "parameters", session = session)
@@ -2477,6 +2594,11 @@ server <- function(input, output, session) {
   production_page_server("production_results",sim_result,current_fingerprint)
   main_settings_stale <- reactive({
     !identical(sim_result()$provenance$fingerprint, current_fingerprint())
+  })
+  observe({
+    if (isTRUE(main_settings_stale()) && identical(isolate(sim_btn_state()), "done")) {
+      set_sim_btn_state("idle")
+    }
   })
   snapshot_is_stale <- function(comp) {
     fp <- attr(comp, "fingerprint")
