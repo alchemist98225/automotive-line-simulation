@@ -82,3 +82,17 @@ Batch design-of-experiments runner (no Shiny). Sources `app/R/model.R` only.
 | `scripts/doe_run.R` | Run design with checkpoint / parallel | CLI |
 | `scripts/doe_plot.R` | HPU / throughput / heatmap plots | "HPU across the design (all replications)"; "Throughput across the design (all replications)"; "Mean HPU heatmap" |
 | `docs/DOE.md` | How to run the DOE CLI | — |
+
+## Optimize CLI (`scripts/`)
+
+Integer GA over queues, zone operators, and paint capacity. Minimizes mean HPU with a throughput floor at baseline. Sources DOE helpers + `app/R/model.R`.
+
+| File | Purpose | Key functions / charts |
+|------|---------|------------------------|
+| `scripts/opt_lib.R` | Entry: source DOE + optimizer modules | — |
+| `scripts/opt_space.R` | Knobs, cost rates, guided-Experiment baseline | `opt_knob_defs`, `opt_guided_experiment_params`, `opt_cost_hpu` |
+| `scripts/opt_fitness.R` | HPU + cost_hpu + thr-shortfall penalty | `opt_evaluate_genome`, `opt_evaluate_baseline` |
+| `scripts/opt_ga.R` | tidyverse/purrr integer GA + elite re-eval | `opt_run_ga` |
+| `scripts/opt_run.R` | CLI runner | CLI |
+| `scripts/opt_plot.R` | Convergence + param-diff plots | "Optimizer convergence (best and mean fitness by generation)"; "Best vs baseline decision variables" |
+| `docs/OPTIMIZE.md` | How to run the optimizer | — |
