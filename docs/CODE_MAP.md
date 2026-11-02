@@ -156,9 +156,9 @@ Parallel replications via `furrr` / `future` (multisession). Sources DOE helpers
 
 Break-point rule: ascending offered demand, first grid point where mean throughput/hr < 95% of offered demand.
 
-## Write-up drafts (`docs/`)
+## Write-up
 
 | File | Purpose |
 |------|---------|
-| `docs/README_REWRITE.md` | Draft README rewrite (problem → model → findings → how to run) |
+| `README.md` | Portfolio write-up (problem → model → findings → how to run) |
 | `docs/COMPANION_VIDEO_STORYBOARD.md` | 3–4 min companion video storyboard + narration |
