@@ -81,6 +81,6 @@ Rscript scripts/opt_run.R --pop 10 --gen 6 --reps 2
 
 Tests: `Rscript tests/validation_checks.R`, `tests/warmup_checks.R`, `tests/tornado_checks.R`, plus the existing model/opt/shiny checks.
 
-## What this is not
+## Where it fits
 
-Not a replacement for a plant-calibrated digital twin or a full commercial DES suite. It is a transparent R model you can read, wrap, and optimize — useful for teaching, portfolio demos, and method development alongside tools that already do 3D animation and enterprise integration well.
+This model isn't calibrated to a specific plant, and it doesn't try to match commercial DES suites on 3D animation or enterprise integration. Where it's strong is the analysis. The whole line is an R function, so the optimizer and the break-point sweep can run thousands of replications in parallel and answer real staffing, capacity and queue-sizing questions with confidence intervals attached. Swap in a real line's stations, cycle times and failure data, and the same scripts give real answers. Because it's plain code, it extends as far as you need: new stations, rework loops, other objectives or a different search method all fit, and you can script and parallelize any of it.
