@@ -1,6 +1,20 @@
 # optimize_ui.R
 # Optimize nav page: GA search over queues, zone ops, and paint capacity.
-# Sidebar mirrors Simulate: run controls on top, then bslib accordion panels.
+# Page chrome mirrors Simulate: status bar above the sidebar, then a green
+# "Run optimize" accordion that holds the run button and Search size inputs.
+
+optimize_status_bar_ui <- function(ns) {
+  # Reuse Simulate's .sim-status-bar / .sim-progress-card classes (defined in
+  # ui_simulate.R) so fonts, border, and spacing match exactly.
+  div(
+    class = "px-3 pt-3",
+    div(
+      id = ns("opt_progress_slot"),
+      class = "sim-status-bar",
+      uiOutput(ns("progress_ui"))
+    )
+  )
+}
 
 optimize_page_ui <- function(id = "optimize_page") {
   ns <- NS(id)
@@ -8,14 +22,15 @@ optimize_page_ui <- function(id = "optimize_page") {
     title = "Optimize",
     value = "optimize",
     icon = bs_icon("sliders"),
+    optimize_status_bar_ui(ns),
     layout_sidebar(
       fillable = FALSE,
       sidebar = sidebar(
         id = ns("optimize_sidebar"),
-        title = "Search setup",
+        title = "Optimizer settings",
         width = 320,
         open = "desktop",
-        # Match Simulate's green first-accordion / run-button styling.
+        # Green first accordion + run-button states (same pattern as #line_controls / #run).
         tags$style(HTML(sprintf("
           #%1$s .accordion-item:first-child > .accordion-header .accordion-button {
             background: #198754;
@@ -51,47 +66,20 @@ optimize_page_ui <- function(id = "optimize_page") {
             opacity: 1 !important;
             filter: none !important;
           }
-          .opt-progress-card {
-            background: #fff;
-            border: 2px solid #2c7fb8;
-            border-radius: 0.5rem;
-            box-shadow: 0 4px 12px rgba(0,0,0,.10);
-            padding: 0.45rem 0.75rem;
-            margin-top: 0.5rem;
-          }
-          .opt-progress-card.opt-progress-idle {
-            border-color: #adb5bd;
-            box-shadow: none;
-            background: #f8f9fa;
-          }
-          .opt-progress-title {
-            font-size: 1.05rem;
-            font-weight: 700;
-            color: #1b4f72;
-            margin: 0 0 0.25rem 0;
-          }
-          .opt-progress-idle .opt-progress-title { color: #495057; }
-          .opt-progress-card .progress {
-            height: 1.15rem;
-            margin: 0.35rem 0 0.15rem 0;
-          }
         ", ns("optimize_controls"), ns("run")))),
-        # Run + Cancel at top (Simulate puts Run inside the first accordion;
-        # Optimize keeps Cancel+progress visible while Search size stays open).
-        actionButton(
-          ns("run"),
-          tagList(icon("play"), span(class = "sim-run-label", "Run optimize")),
-          class = "btn-primary w-100 mb-2 sim-run-btn"
-        ),
-        actionButton(ns("cancel"), "Cancel", class = "btn-outline-danger w-100 mb-2"),
-        uiOutput(ns("progress_ui")),
         accordion(
           id = ns("optimize_controls"),
-          open = "search_size",
+          open = "run_optimize",
           multiple = TRUE,
           accordion_panel(
-            title = tagList(bs_icon("sliders"), " Search size"),
-            value = "search_size",
+            title = tagList(bs_icon("play-fill"), " Run optimize"),
+            value = "run_optimize",
+            actionButton(
+              ns("run"),
+              tagList(icon("play"), span(class = "sim-run-label", "Run optimize")),
+              class = "btn-primary w-100 mb-3 sim-run-btn"
+            ),
+            actionButton(ns("cancel"), "Cancel", class = "btn-outline-danger w-100 mb-3"),
             p(class = "small text-muted mb-2",
               "Population × generations × replications. Sequential on one core."),
             div(
@@ -140,7 +128,6 @@ optimize_page_ui <- function(id = "optimize_page") {
           )
         )
       ),
-      # Main
       div(
         class = "optimize-main",
         card(
