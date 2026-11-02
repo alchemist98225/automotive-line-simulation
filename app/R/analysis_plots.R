@@ -151,16 +151,36 @@ tor_theme <- function(...) {
 
 plot_tornado <- function(effects, metric = c("hpu", "thr")) {
   metric <- match.arg(metric)
+  # Compact single-line y labels so phone widths (~390px) keep a usable plot.
+  short_factor <- function(x) {
+    x <- as.character(x)
+    x <- sub("^Paint capacity$", "Paint cap.", x)
+    x <- sub("^Upstream operators$", "Upstr. ops", x)
+    x <- sub("^Downstream operators$", "Downstr. ops", x)
+    x <- sub("^Assembly cycle time$", "Asm. cycle", x)
+    x <- sub("^Body shop cycle time$", "Body cycle", x)
+    x <- sub("^Inspection cycle time$", "Insp. cycle", x)
+    x <- sub("^Queue before paint$", "Paint queue", x)
+    x <- sub("^Queue before assembly$", "Asm. queue", x)
+    x <- sub("^Demand rate$", "Demand", x)
+    x <- sub("^MTBF scale$", "MTBF", x)
+    x <- sub("^MTTR scale$", "MTTR", x)
+    x
+  }
   if (metric == "hpu") {
     d <- effects %>%
-      mutate(label = forcats::fct_reorder(label, hpu_abs_span),
-             low = hpu_low, high = hpu_high, base = hpu_base)
+      mutate(
+        label = forcats::fct_reorder(short_factor(label), hpu_abs_span),
+        low = hpu_low, high = hpu_high, base = hpu_base
+      )
     title <- "Tornado: HPU"
     xlab <- "HPU (labor-hr / unit)"
   } else {
     d <- effects %>%
-      mutate(label = forcats::fct_reorder(label, thr_abs_span),
-             low = thr_low, high = thr_high, base = thr_base)
+      mutate(
+        label = forcats::fct_reorder(short_factor(label), thr_abs_span),
+        low = thr_low, high = thr_high, base = thr_base
+      )
     title <- "Tornado: throughput"
     xlab <- "Throughput (veh/hr)"
   }
@@ -172,8 +192,12 @@ plot_tornado <- function(effects, metric = c("hpu", "thr")) {
     scale_color_manual(values = c(Low = "#0072B2", High = "#D55E00")) +
     labs(title = title, x = xlab, y = NULL, color = NULL,
          caption = "2-bay balanced baseline at 10 veh/hr demand. OAT low/high; dashed = baseline. CRN. Illustrative.") +
-    tor_theme()
+    tor_theme(
+      axis.text.y = element_text(size = 13, lineheight = 0.92),
+      plot.margin = margin(6, 10, 8, 4)
+    )
 }
+
 
 plot_tornado_pair <- function(effects) {
   plot_tornado(effects, "hpu") / plot_tornado(effects, "thr") +
@@ -277,7 +301,9 @@ wu_theme <- function(...) {
       legend.position = "bottom", legend.direction = "horizontal",
       legend.title = element_blank(),
       panel.grid.minor = element_blank(),
-      plot.margin = margin(8, 14, 10, 14),
+      # Extra left margin so "WIP (vehicles)" clears the tick labels.
+      axis.title.y = element_text(margin = margin(r = 14)),
+      plot.margin = margin(8, 16, 10, 40),
       ...
     )
 }

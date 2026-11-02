@@ -26,6 +26,19 @@ app_header_tags <- function() {
       height: clamp(520px, 60vh, 720px) !important;
       min-height: 520px !important;
     }
+    /* Analysis charts: opt out of the Results clamp so plotOutput heights win.
+       Phone sizes are set in the max-width 767.98px block below. */
+    [id^='analysis_page-'].shiny-plot-output,
+    [id*='analysis_page-'].shiny-plot-output {
+      height: var(--analysis-plot-height, 560px) !important;
+      min-height: 0 !important;
+      max-height: none !important;
+    }
+    #analysis_page-break_plot { --analysis-plot-height: 640px; }
+    #analysis_page-tornado_plot { --analysis-plot-height: 720px; }
+    #analysis_page-mmc_plot,
+    #analysis_page-littles_plot { --analysis-plot-height: 520px; }
+    #analysis_page-warmup_plot { --analysis-plot-height: 480px; }
     /* Bottleneck downtime card sits beside the 420px waits girafe; keep it short. */
     #plot_down.shiny-plot-output {
       height: 420px !important;
@@ -95,7 +108,22 @@ app_header_tags <- function() {
     /* Compare page reuses the same equal-size value boxes (no nav chrome). */
     .compare-headline-kpis .bslib-grid { align-items: stretch; grid-auto-rows: 1fr; }
     .compare-headline-kpis .bslib-value-box {
-      height: 100%; min-height: 170px; margin-bottom: 0;
+      height: 100%; min-height: 210px; margin-bottom: 0;
+    }
+    /* Long set titles (Dedicated operators, 1 paint bay) must wrap, not ellipsize. */
+    .compare-headline-kpis .bslib-value-box .value-box-area,
+    .compare-headline-kpis .bslib-value-box .value-box-title,
+    .compare-headline-kpis .bslib-value-box .value-box-value,
+    .compare-headline-kpis .bslib-value-box .value-box-value div {
+      white-space: normal !important;
+      overflow: visible !important;
+      text-overflow: clip !important;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .compare-headline-kpis .bslib-value-box .value-box-value {
+      font-size: 1.0rem !important;
+      line-height: 1.25;
     }
     .text-muted,
     .text-body-secondary,
@@ -260,6 +288,57 @@ app_header_tags <- function() {
         font-size: 0.8rem;
         line-height: 1.25;
       }
+    }
+    /* Phone / narrow: keep bslib sidebar mechanics; only ensure main is full
+       width when the drawer is closed, and size Analysis charts for ~390px. */
+    @media (max-width: 767.98px) {
+      .bslib-sidebar-layout > .main {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+      /* When open as an overlay, do not cover the KPI column permanently —
+         leave room by pushing content below the drawer when possible. */
+      .bslib-sidebar-layout[data-bslib-sidebar-open='always'] > .sidebar,
+      .bslib-sidebar-layout[data-open='open'] > .sidebar {
+        max-height: 55vh;
+        overflow-y: auto !important;
+      }
+      [id^='analysis_page-'].shiny-plot-output,
+      [id*='analysis_page-'].shiny-plot-output {
+        height: 480px !important;
+        min-height: 400px !important;
+        max-width: 100% !important;
+      }
+      #analysis_page-tornado_plot.shiny-plot-output,
+      [id$='-tornado_plot'].shiny-plot-output {
+        height: 720px !important;
+      }
+      #analysis_page-break_plot.shiny-plot-output,
+      [id$='-break_plot'].shiny-plot-output {
+        height: 560px !important;
+      }
+      .analysis-page-charts .card-body {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+    }
+    /* Precomputed Analysis: never cover with Updating… and never fade.
+       These charts are static RDS; a lingering .recalculating class is cosmetic. */
+    [id*='analysis_page-'].shiny-plot-output.recalculating::after,
+    [id^='analysis_page-'].shiny-plot-output.recalculating::after,
+    .analysis-page-charts .shiny-plot-output.recalculating::after {
+      content: none !important;
+      display: none !important;
+      background: transparent !important;
+    }
+    [id*='analysis_page-'].shiny-plot-output.recalculating,
+    [id^='analysis_page-'].shiny-plot-output.recalculating,
+    [id*='analysis_page-'].shiny-plot-output,
+    [id^='analysis_page-'].shiny-plot-output,
+    .analysis-page-charts .shiny-plot-output.recalculating,
+    .analysis-page-charts .recalculating {
+      opacity: 1 !important;
+      filter: none !important;
     }
     .term-tip {
       text-decoration: underline dotted;
@@ -564,6 +643,62 @@ app_header_tags <- function() {
           setTimeout(closeResultsNavChrome, 100);
         }
       });
+      // Analysis: once a plot has its <img>, drop sticky .recalculating / Updating…
+      // (CSS :has() covers modern browsers; this is the fallback).
+      function clearAnalysisUpdating() {
+        document.querySelectorAll('.shiny-plot-output').forEach(function(el) {
+          var id = el.id || '';
+          var inAnalysis = id.indexOf('analysis_page-') !== -1 ||
+            !!(el.closest && el.closest('.analysis-page-charts'));
+          if (!inAnalysis) return;
+          el.classList.remove('recalculating');
+          el.style.setProperty('opacity', '1', 'important');
+          var kids = el.querySelectorAll('.recalculating');
+          for (var i = 0; i < kids.length; i++) kids[i].classList.remove('recalculating');
+        });
+      }
+      $(document).on('shiny:value shiny:idle', clearAnalysisUpdating);
+      window.setInterval(clearAnalysisUpdating, 750);
+      // Phone: if the Simulate sidebar somehow opens over the KPIs, collapse it
+      // on first paint under 768px. Stacking CSS keeps KPIs reachable if reopened.
+      function collapseSidebarOnPhone() {
+        if (window.matchMedia && !window.matchMedia('(max-width: 767.98px)').matches) return;
+        document.querySelectorAll('.bslib-sidebar-layout').forEach(function(layout) {
+          var state = (layout.getAttribute('data-bslib-sidebar-state') ||
+                       layout.getAttribute('data-collapsed') || '').toLowerCase();
+          if (state === 'closed' || state === 'true' || layout.classList.contains('sidebar-collapsed')) return;
+          // Prefer bslib's own collapse control; do not force CSS classes that
+          // fight the layout (that blanked the main column on phone).
+          var btn = layout.querySelector('button.collapse-toggle, .bslib-sidebar-toggle, .collapse-toggle, [class*=collapse-toggle]');
+          if (btn) {
+            try { btn.click(); } catch (e) {}
+          }
+        });
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+          setTimeout(collapseSidebarOnPhone, 50);
+          setTimeout(collapseSidebarOnPhone, 400);
+        });
+      } else {
+        setTimeout(collapseSidebarOnPhone, 50);
+        setTimeout(collapseSidebarOnPhone, 400);
+      }
+      document.addEventListener('shiny:connected', function() {
+        setTimeout(collapseSidebarOnPhone, 50);
+        setTimeout(collapseSidebarOnPhone, 400);
+      });
+      // Also collapse when the viewport crosses into phone width (rotate / DevTools).
+      var __sidebarPhoneWide = window.matchMedia('(max-width: 767.98px)');
+      if (__sidebarPhoneWide && __sidebarPhoneWide.addEventListener) {
+        __sidebarPhoneWide.addEventListener('change', function(e) {
+          if (e.matches) setTimeout(collapseSidebarOnPhone, 50);
+        });
+      } else if (__sidebarPhoneWide && __sidebarPhoneWide.addListener) {
+        __sidebarPhoneWide.addListener(function(e) {
+          if (e.matches) setTimeout(collapseSidebarOnPhone, 50);
+        });
+      }
     "))
 
   )

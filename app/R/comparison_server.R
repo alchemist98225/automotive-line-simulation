@@ -442,11 +442,12 @@ comparison_page_server <- function(id, main_params, active_page) {
         value_box(
           title = title,
           value = tags$div(
-            style = "font-size:1.1rem",
+            class = "compare-kpi-lines",
+            style = "font-size:1.0rem;line-height:1.35;white-space:normal;overflow-wrap:anywhere;",
             tags$div(style = "color:#2474A5", paste0(labs[[1]], ": ", show_num(values[[1]], digits))),
             tags$div(style = "color:#D46B25", paste0(labs[[2]], ": ", show_num(values[[2]], digits)))
           ),
-          p(paste0(labs[[2]], " − ", labs[[1]], ": ", show_num(delta, digits))),
+          p(style = "white-space:normal;overflow-wrap:anywhere;", paste0(labs[[2]], " − ", labs[[1]], ": ", show_num(delta, digits))),
           p(pct)
         )
       }
@@ -492,7 +493,7 @@ comparison_page_server <- function(id, main_params, active_page) {
           value_box(
             title = "Bottleneck candidate",
             value = tags$div(
-              style = "font-size:1.1rem",
+              style = "font-size:1.05rem;line-height:1.3;white-space:normal;",
               tags$div(style = "color:#2474A5", paste0(labs[[1]], ": ", b_lines[[1]])),
               tags$div(style = "color:#D46B25", paste0(labs[[2]], ": ", b_lines[[2]]))
             ),
