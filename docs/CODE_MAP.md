@@ -44,8 +44,8 @@ Search the app UI (or this table) for the chart title, then open the function.
 | Chart: Queues (Results → Flow over time). | `queue_timeseries_plot` | `app/R/plots_flow.R` |
 | Chart: "WIP" (Results → Flow over time → WIP) | `wip_timeseries_plot` | `app/R/plots_flow.R` |
 | Chart: WIP (Results → Flow over time). | `wip_timeseries_plot` | `app/R/plots_flow.R` |
-| Chart: "Cycle time" (Results → Lead time & data → Cycle time) | `cycle_time_plot` | `app/R/plots_flow.R` |
-| Chart: Cycle time (Results → Lead time & data). | `cycle_time_plot` | `app/R/plots_flow.R` |
+| Chart: "Cycle time" (Results → Cycle time & data → Cycle time) | `cycle_time_plot` | `app/R/plots_flow.R` |
+| Chart: Cycle time (Results → Cycle time & data). | `cycle_time_plot` | `app/R/plots_flow.R` |
 | Chart helper: overlaid histograms (Compare Output distributions and faceted station densities). | `overlay_densities` | `app/R/plots_simulate.R` |
 | Chart helper: one histogram per category (station/pool). | `replication_densities` | `app/R/plots_simulate.R` |
 | Chart: Vehicles completed per shift (Results → Production schedule). | `shift_output_plot` | `app/R/production_plots.R` |
@@ -173,7 +173,7 @@ Precomputed credibility charts plus the startup dedicated-vs-shared scenario pai
 
 Charts: "Where the line breaks"; "Tornado: HPU" / "Tornado: throughput"; "M/M/c check vs Erlang-C"; "Little's Law check on the full line"; "Welch warm-up: ensemble WIP".
 
-Phone / polish: Analysis plot heights are owned by `analysis_ui.R` + scoped CSS in `ui_css_js.R` (not the Results clamp). Tornado and break-sweep charts use base_size ~12.5 when their plot width is under 576px (desktop stays 16). Compare headline value boxes wrap long set titles. Guided Try-it labels are `"1 paint bay"` / `"2 paint bays"` so the import dropdown does not double the Baseline/Experiment prefix.
+Phone / polish: Analysis plot heights are owned by `analysis_ui.R` + scoped CSS in `ui_css_js.R` (not the Results clamp). Tornado and break-sweep charts use base_size ~12.5 when their plot width is under 576px (desktop stays 16). Compare headline value boxes wrap long set titles. Guided Try-it labels are `"1 paint bay"` / `"2 paint bays"` so the import dropdown does not double the Baseline/Experiment prefix. Startup Simulate/Results use Scenario 1 (dedicated, 1 paint, ~6 veh/hr, 20 reps); Compare keeps S1 vs S2; Run returns a matching preload instantly; Try it re-runs Scenario 1 at 5 reps; Preloads and Try it use 10 veh/hr demand; Optimize starts from Scenario 2 at 12 veh/hr with throughput at least the baseline. Simulate KPIs are Throughput, Cycle time, HPU, Bottleneck (no WIP tile). Production/Compare show demand vs cumulative output instead of admission-vs-WIP.
 
 ## Write-up
 

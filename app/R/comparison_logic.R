@@ -197,7 +197,7 @@ comparison_metric_frame <- function(runs) {
   line <- tibble::tribble(
     ~metric_id, ~label, ~x_label, ~percent, ~priority, ~column,
     "throughput_per_hr", "Throughput", "Throughput (vehicles/hour)", FALSE, 1L, "throughput_per_hr",
-    "cycle_time_mean", "Mean lead time", "Mean lead time (min)", FALSE, 2L, "cycle_time_mean",
+    "cycle_time_mean", "Mean cycle time", "Mean cycle time (min)", FALSE, 2L, "cycle_time_mean",
     "avg_wip", "Average WIP", "Average WIP (vehicles)", FALSE, 3L, "avg_wip"
   )
   line_df <- purrr::map_dfr(seq_along(runs), function(i) {
@@ -327,7 +327,7 @@ comparison_change_caption <- function(runs, scores) {
   }
   line_word <- c(
     throughput_per_hr = "throughput",
-    cycle_time_mean = "mean lead time",
+    cycle_time_mean = "mean cycle time",
     avg_wip = "WIP"
   )
   bits <- character()
@@ -356,7 +356,7 @@ comparison_change_caption <- function(runs, scores) {
     }
   }
   if (!length(parts)) {
-    "Throughput, lead time, WIP, bay occupancy, and queues did not move."
+    "Throughput, cycle time, WIP, bay occupancy, and queues did not move."
   } else {
     paste(parts, collapse = " ")
   }

@@ -92,7 +92,7 @@ break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95, ba
     scale_y_continuous(breaks = lt_breaks, limits = c(0, NA)) +
     labs(
       x = "Offered demand (veh/hr)",
-      y = "Mean lead time (min)"
+      y = "Mean cycle time (min)"
     ) +
     break_theme(base_size = base_size)
 
@@ -287,7 +287,7 @@ plot_littles <- function(rep_tbl, summary_tbl) {
                        labels = c(default = "Default line", guided_2 = "2-bay balanced")) +
     labs(
       title = "Little's Law check on the full line",
-      subtitle = "Observed WIP vs λ × W (throughput/hr ÷ 60 × mean lead time)",
+      subtitle = "Observed WIP vs λ × W (throughput/hr ÷ 60 × mean cycle time)",
       x = "Predicted L = λ W",
       y = "Observed average WIP",
       caption = caption

@@ -259,6 +259,18 @@ app_header_tags <- function() {
       z-index: 5;
       pointer-events: none;
     }
+    .import-busy-btn.import-busy-running {
+      background-color: #e67e00 !important;
+      border-color: #c96e00 !important;
+      color: #ffffff !important;
+      opacity: 1 !important;
+    }
+    .import-busy-btn.import-busy-done {
+      background-color: #198754 !important;
+      border-color: #146c43 !important;
+      color: #ffffff !important;
+      opacity: 1 !important;
+    }
     /* Soften Shiny's default fade on other outputs without a full-page cover. */
     .recalculating { opacity: 0.72 !important; }
     #run.sim-run-btn.recalculating,
@@ -321,6 +333,21 @@ app_header_tags <- function() {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
       }
+    }
+    /* Once a plot has painted an <img>, drop the Updating… cover even if
+       Shiny left .recalculating stuck (preload / multi-tab Compare). */
+    .shiny-plot-output.recalculating:has(img)::after,
+    .ggiraph-container.recalculating:has(svg)::after,
+    .girafe.recalculating:has(svg)::after {
+      content: none !important;
+      display: none !important;
+      background: transparent !important;
+    }
+    .shiny-plot-output.recalculating:has(img),
+    .ggiraph-container.recalculating:has(svg),
+    .girafe.recalculating:has(svg) {
+      opacity: 1 !important;
+      filter: none !important;
     }
     /* Precomputed Analysis: never cover with Updating… and never fade.
        These charts are static RDS; a lingering .recalculating class is cosmetic. */
@@ -556,6 +583,44 @@ app_header_tags <- function() {
         paintSimRunBtn(document.getElementById('run'), 'running');
         showSimProgressLocal(repsLabel('guided example'));
       });
+      function paintImportBusyBtn(btn, state) {
+        if (!btn) return;
+        btn.classList.remove('import-busy-running', 'import-busy-done');
+        if (state === 'running') {
+          btn.classList.add('import-busy-running');
+          btn.disabled = true;
+          if (!btn.dataset.importLabel) btn.dataset.importLabel = (btn.textContent || '').trim();
+          btn.textContent = 'Importing…';
+        } else if (state === 'done') {
+          btn.classList.add('import-busy-done');
+          btn.disabled = false;
+          var doneLabel = btn.dataset.importLabel || 'Import';
+          btn.textContent = 'Imported';
+          window.setTimeout(function() {
+            btn.classList.remove('import-busy-done');
+            btn.textContent = doneLabel;
+          }, 1600);
+        } else {
+          btn.disabled = false;
+          if (btn.dataset.importLabel) btn.textContent = btn.dataset.importLabel;
+        }
+      }
+      function registerImportBusy() {
+        if (window.__importBusy) return;
+        if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
+        window.__importBusy = true;
+        Shiny.addCustomMessageHandler('importBusy', function(message) {
+          var id = message && message.id;
+          var state = (message && message.state) || 'idle';
+          paintImportBusyBtn(document.getElementById(id), state);
+        });
+        $(document).on('click', '.import-busy-btn', function() {
+          paintImportBusyBtn(this, 'running');
+        });
+      }
+      document.addEventListener('shiny:connected', registerImportBusy);
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', registerImportBusy);
+      else registerImportBusy();
       $(document).on('click', '#compare', function() {
         showSimProgressLocal(repsLabel('staffing comparison'));
       });
@@ -643,22 +708,20 @@ app_header_tags <- function() {
           setTimeout(closeResultsNavChrome, 100);
         }
       });
-      // Analysis: once a plot has its <img>, drop sticky .recalculating / Updating…
-      // (CSS :has() covers modern browsers; this is the fallback).
-      function clearAnalysisUpdating() {
-        document.querySelectorAll('.shiny-plot-output').forEach(function(el) {
-          var id = el.id || '';
-          var inAnalysis = id.indexOf('analysis_page-') !== -1 ||
-            !!(el.closest && el.closest('.analysis-page-charts'));
-          if (!inAnalysis) return;
+      // Once a plot has its <img>/<svg>, drop sticky .recalculating / Updating…
+      // (CSS :has() covers modern browsers; this is the fallback for all pages).
+      function clearStickyPlotUpdating() {
+        document.querySelectorAll('.shiny-plot-output, .ggiraph-container, .girafe').forEach(function(el) {
+          var painted = el.querySelector('img, svg, canvas');
+          if (!painted) return;
           el.classList.remove('recalculating');
           el.style.setProperty('opacity', '1', 'important');
           var kids = el.querySelectorAll('.recalculating');
           for (var i = 0; i < kids.length; i++) kids[i].classList.remove('recalculating');
         });
       }
-      $(document).on('shiny:value shiny:idle', clearAnalysisUpdating);
-      window.setInterval(clearAnalysisUpdating, 750);
+      $(document).on('shiny:value shiny:idle', clearStickyPlotUpdating);
+      window.setInterval(clearStickyPlotUpdating, 750);
       // Phone: if the Simulate sidebar somehow opens over the KPIs, collapse it
       // on first paint under 768px. Stacking CSS keeps KPIs reachable if reopened.
       function collapseSidebarOnPhone() {

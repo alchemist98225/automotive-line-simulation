@@ -197,8 +197,9 @@ shiny::testServer(e$comparison_page_server,args=list(main_params=shiny::reactive
   deliver_closes()
   expect_collapse_message(3L)
   guided_diff <- paste(as.character(output$draft_diff), collapse = "")
-  stopifnot(grepl("Baseline: 1 paint bay", guided_diff, fixed = TRUE))
-  stopifnot(grepl("Experiment: 2 paint bays", guided_diff, fixed = TRUE))
+  # Column headers are the guided labels themselves (no Baseline:/Experiment: prefix).
+  stopifnot(grepl("1 paint bay", guided_diff, fixed = TRUE))
+  stopifnot(grepl("2 paint bays", guided_diff, fixed = TRUE))
 })
 # Same empirical mean/count is insufficient for treating two sets as identical.
 a<-e$normalize_params(p);b<-a
@@ -343,8 +344,8 @@ stopifnot(grepl("Paint", one_diff$Parameter), grepl("Capacity", one_diff$Paramet
 stopifnot(identical(names(one_diff), c("Parameter", e$comparison_guided_labels)))
 stopifnot(one_diff[[2]] != one_diff[[3]])
 one_html <- paste(as.character(e$comparison_diff_table(base_params, one_params, e$comparison_guided_labels)), collapse = "")
-stopifnot(grepl("Baseline: 1 paint bay", one_html, fixed = TRUE))
-stopifnot(grepl("Experiment: 2 paint bays", one_html, fixed = TRUE))
+stopifnot(grepl("1 paint bay", one_html, fixed = TRUE))
+stopifnot(grepl("2 paint bays", one_html, fixed = TRUE))
 stopifnot(grepl("Capacity", one_html, fixed = TRUE))
 stopifnot(!grepl(e$comparison_identical_note, one_html, fixed = TRUE))
 multi_params <- one_params
@@ -415,7 +416,7 @@ stopifnot(nrow(ranked$frame %>% dplyr::filter(metric_id == "queue_paint")) == n 
 cap <- e$comparison_change_caption(list(run1, run2), ranked$scores)
 stopifnot(grepl("shifted from Paint to Final assembly", cap, fixed = TRUE))
 stopifnot(grepl("Throughput rose", cap, fixed = TRUE))
-stopifnot(grepl("mean lead time fell", cap, fixed = TRUE))
+stopifnot(grepl("mean cycle time fell", cap, fixed = TRUE))
 stopifnot(grepl("WIP fell", cap, fixed = TRUE))
 stopifnot(grepl("Paint queue", cap, fixed = TRUE))
 stopifnot(grepl("fell", cap, fixed = TRUE))

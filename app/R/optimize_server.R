@@ -83,7 +83,7 @@ optimize_page_server <- function(id = "optimize_page",
     resolve_baseline_params <- reactive({
       src <- input$baseline_source %||% "guided"
       if (identical(src, "guided")) {
-        return(list(params = opt_guided_experiment_params(), label = "Guided balanced set"))
+        return(list(params = opt_guided_experiment_params(), label = "Shared 2-paint @ 12/hr"))
       }
       if (identical(src, "current")) {
         p <- tryCatch(build_params(), error = function(e) NULL)
@@ -98,7 +98,7 @@ optimize_page_server <- function(id = "optimize_page",
         return(list(params = p, label = paste0("Compare: ", titles[[idx]])))
       }
       list(params = opt_guided_experiment_params(),
-           label = "Guided balanced set (Compare not ready)")
+           label = "Shared 2-paint @ 12/hr (Compare not ready)")
     })
 
     output$baseline_note <- renderUI({

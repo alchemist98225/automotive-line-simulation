@@ -12,7 +12,7 @@ comparison_download_catalog <- function(ns) {
     ),
     entry(
       "dl_summaries", "Replication summaries",
-      "Throughput, lead time, WIP, and HPU (labor-hours per unit) for every replication."
+      "Throughput, cycle time, WIP, and HPU (labor-hours per unit) for every replication."
     ),
     entry(
       "dl_cycle", "Cycle times",
@@ -48,7 +48,7 @@ comparison_download_catalog <- function(ns) {
     ),
     entry(
       "dl_highlights", "Largest changes",
-      "Every replication behind the ranked charts: throughput, lead time, WIP, bay occupancy, and queues."
+      "Every replication behind the ranked charts: throughput, cycle time, WIP, bay occupancy, and queues."
     ),
     div(
       class = "mt-3",
@@ -414,7 +414,7 @@ comparison_page_ui <- function(id) {
                   ns("metric"), "Metric",
                   c(
                     "Throughput (vehicles/hour)" = "throughput_per_hr",
-                    "Lead time (min)" = "cycle_time_mean",
+                    "Cycle time (min)" = "cycle_time_mean",
                     "Average WIP (vehicles)" = "avg_wip",
                     "HPU (labor-hours / unit)" = "hpu"
                   )
@@ -425,7 +425,7 @@ comparison_page_ui <- function(id) {
           ),
           nav_panel("Production schedule",p("Shifts retain WIP. An order backlog outside production is not included in shop-floor WIP."),
             plotOutput(ns("shift_output"),height=400),plotOutput(ns("backlog"),height=400)),
-          nav_panel("Lead-time curves", roomy_plot(ns("cycles"))),
+          nav_panel("Cycle-time curves", roomy_plot(ns("cycles"))),
           nav_panel(
             "Bay occupancy",
             p("One panel per station. Blue is the first set and orange is the second. A vertical line means that set did not vary."),

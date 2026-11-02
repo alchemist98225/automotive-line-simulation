@@ -23,11 +23,11 @@ shiny::testServer(e$server, {
   stopifnot(is.null(input$run), is.null(input$op_a), is.null(input$load_body_shop), is.null(input$mtbf_paint))
   res <- sim_result()
   d <- e$default_params()
-  # Startup loads the precomputed Shared operators / 2 paint bay scenario (20 reps).
+  # Startup loads the precomputed dedicated / 1 paint bay scenario (20 reps).
   stopifnot(nrow(res$summaries) == 20L)
-  stopifnot(identical(as.character(res$params$operators$pool), c("upstream", "downstream")))
-  stopifnot(identical(as.integer(res$params$operators$count), c(1L, 2L)))
-  stopifnot(identical(as.integer(res$params$stations$capacity[res$params$stations$name == "paint"]), 2L))
+  stopifnot(identical(as.character(res$params$operators$pool), c("body_shop", "paint", "final_assembly", "inspection")))
+  stopifnot(identical(as.integer(res$params$operators$count), c(1L, 1L, 1L, 1L)))
+  stopifnot(identical(as.integer(res$params$stations$capacity[res$params$stations$name == "paint"]), 1L))
   stopifnot(res$bottleneck %in% d$stations$name)
   stopifnot(res$params$stations$mttr_min[res$params$stations$name=="inspection"]==0)
   stopifnot(all(res$params$stations$mttr_min[res$params$stations$name!="inspection"]>0))
@@ -38,7 +38,8 @@ shiny::testServer(e$server, {
   stopifnot(all(c("station", "replication", "avg_util") %in% names(res$utilization_by_rep)))
   stopifnot(nrow(res$queue_timeseries)>0, nrow(res$wip_timeseries)>0, nrow(res$downtime_by_rep)>0)
   stopifnot(is.character(output$kpi_throughput), nzchar(output$kpi_throughput))
-  stopifnot(is.character(output$kpi_wip), nzchar(output$kpi_wip))
+  stopifnot(is.character(output$kpi_cycle), nzchar(output$kpi_cycle))
+  stopifnot(is.character(output$kpi_hpu), nzchar(output$kpi_hpu))
   # Preload is not a user run: buttons stay idle, KPIs are already filled,
   # and Compare is seeded without a stale banner.
   stopifnot(identical(sim_btn_state(), "idle"))
@@ -52,13 +53,13 @@ shiny::testServer(e$server, {
   settings <- paste(as.character(output$run_settings_body), collapse = " ")
   stopifnot(grepl("Run 1", settings, fixed = TRUE))
   stopifnot(grepl("Runs 20", settings, fixed = TRUE))
-  stopifnot(grepl("Paint 2", settings, fixed = TRUE))
+  stopifnot(grepl("Paint 1", settings, fixed = TRUE))
   stopifnot(grepl("cycle-time:", settings, fixed = TRUE))
   stopifnot(grepl("operators:", settings, fixed = TRUE))
   stopifnot(grepl("MTBF/MTTR", settings, fixed = TRUE))
   stopifnot(all(res$run_parameters$run_number == 1L))
   stopifnot(all(res$run_parameters$settings_summary == res$provenance$summary))
-  stopifnot(grepl("Paint 2", res$run_parameters$settings_summary[[1]], fixed = TRUE))
+  stopifnot(grepl("Paint 1", res$run_parameters$settings_summary[[1]], fixed = TRUE))
   stopifnot(grepl(res$provenance$summary, output$run_settings_text, fixed = TRUE))
   invisible(output$occupancy_summary_table)
   invisible(output$plot_queue)
@@ -76,7 +77,7 @@ page_has <- function(label) {
     grepl(gsub("&", "&amp;", label, fixed = TRUE), ui_html, fixed = TRUE)
 }
 for (label in c(
-  "Bottleneck & capacity", "Flow over time", "Lead time & data",
+  "Bottleneck & capacity", "Flow over time", "Cycle time & data",
   "Production schedule & flow", "Station occupancy", "Operators", "Downtime",
   "Staffing comparison", "WIP", "Queues", "Cycle time", "Station metrics",
   "Timing comparison", "Downloads", "640px", "clamp(520px, 60vh, 720px)",
@@ -90,7 +91,7 @@ for (label in c(
 stopifnot(grepl("results_context_bar", ui_html, fixed = TRUE) || grepl("import_results", app_tree_src(), fixed = TRUE))
 stopifnot(grepl("Hours since settling ended", app_tree_src(), fixed = TRUE))
 stopifnot(!grepl("geom_rug", app_tree_src(), fixed = TRUE))
-# Downloads stay on the Lead time & data page, not in the sidebar.
+# Downloads stay on the Cycle time & data page, not in the sidebar.
 stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
 # Simulate main body: slim status bar, then KPI boxes, then guided example.
 # Chart tabs live on their own Results pages (no inline results_tabs).
@@ -105,10 +106,10 @@ stopifnot(grepl('data-value="results_flow"', ui_html, fixed = TRUE) || grepl("re
 stopifnot(grepl('data-value="results_lead"', ui_html, fixed = TRUE) || grepl("results_lead", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi-nav-card", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_throughput", ui_html, fixed = TRUE))
-stopifnot(grepl("kpi_nav_lead", ui_html, fixed = TRUE))
+stopifnot(grepl("kpi_nav_cycle", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_hpu", ui_html, fixed = TRUE), grepl("kpi_hpu", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_bottleneck", ui_html, fixed = TRUE))
-# Run settings lives on the Lead time & data page and starts collapsed.
+# Run settings lives on the Cycle time & data page and starts collapsed.
 stopifnot(settings_at[[1]] > 0L)
 stopifnot(!grepl('class="run-settings[^"]*" open', ui_html))
 # Guided example starts open so it fills the Simulate page.
@@ -121,7 +122,8 @@ stopifnot(lengths(regmatches(ui_html, gregexpr("illustrative only", ui_html, ign
 stopifnot(page_has("Illustrative only — example inputs, not a calibrated plant."))
 stopifnot(grepl("app-title-note", ui_html, fixed = TRUE))
 stopifnot(grepl("app-boot-overlay", ui_html, fixed = TRUE))
-stopifnot(grepl("kpi_wip", ui_html, fixed = TRUE) || grepl("kpi_nav_wip", ui_html, fixed = TRUE))
+stopifnot(!grepl("kpi_nav_wip", ui_html, fixed = TRUE))
+stopifnot(grepl("Cycle time", ui_html, fixed = TRUE))
 stopifnot(!grepl("employer|company|DRI", ui_html))
 stopifnot(grepl("guided-example", ui_html, fixed = TRUE))
 stopifnot(grepl("lightbulb", ui_html) || grepl("Start here: guided example", ui_html, fixed = TRUE))
@@ -311,13 +313,14 @@ shiny::testServer(e$server, {
 })
 stopifnot(identical(e$parse_observations("1, 2; 3\n4"),c(1,2,3,4)))
 stopifnot(inherits(try(e$parse_observations("1, bad, 2"),silent=TRUE),"try-error"))
-# First paint uses the preloaded Shared/2-paint scenario. Re-applying those
+# First paint uses the preloaded dedicated/1-paint scenario. Re-applying those
 # sidebar values must keep the fingerprint; changing paint capacity must not.
 shiny::testServer(e$server, {
   fp0 <- e$params_fingerprint(build_params())
-  session$setInputs(staffing="zones", op_a=1, op_b=2, repair_staff=1, reliability=TRUE, noncyclic=TRUE,
-    sim_length=480, warmup=300, planned_rate=15, n_reps=20, seed=20261027,
-    body_cap=2, body_mean=6, paint_cap=2, paint_mean=8, fa_cap=2, fa_mean=7, insp_cap=1, insp_mean=3)
+  session$setInputs(staffing="dedicated", op_body_shop=1, op_paint=1, op_final_assembly=1, op_inspection=1,
+    repair_staff=1, reliability=TRUE, noncyclic=TRUE,
+    sim_length=480, warmup=300, planned_rate=10, n_reps=20, seed=20261027,
+    body_cap=2, body_mean=6, paint_cap=1, paint_mean=8, fa_cap=2, fa_mean=7, insp_cap=1, insp_mean=3)
   for (i in seq_len(nrow(e$default_params()$stations))) {
     st <- e$default_params()$stations[i,]
     vals <- list(
@@ -340,7 +343,7 @@ shiny::testServer(e$server, {
   # Shiny may return a whole-number SD as an integer. That is the same setting.
   session$setInputs(auto_final_assembly_sd=1L)
   stopifnot(identical(fp0, e$params_fingerprint(build_params())))
-  session$setInputs(paint_cap=1)
+  session$setInputs(paint_cap=2)
   stopifnot(!identical(fp0, e$params_fingerprint(build_params())))
 })
 cat("UI default signature matches first load\n")
@@ -592,50 +595,49 @@ stopifnot(sum(wide_hist$count) == nrow(wide_df))
 stopifnot(any(wide_hist$count[wide_hist$fill == "#2474A5"] > 0))
 stopifnot(any(wide_hist$count[wide_hist$fill == "#D46B25"] > 0))
 cat("Shift output chart checks passed\n")
-# Startup is the preloaded Shared/2-paint scenario. Try it still pairs a
-# 1-paint baseline against a 2-paint experiment; Reset returns default_params().
+# Startup is preloaded Scenario 1 (dedicated, 1 paint). Try it re-runs that
+# line at 5 reps without replacing the Compare preload pair. Reset -> defaults.
 shiny::testServer(e$server, {
   base <- sim_result()
   paint_cap <- function(res) res$params$stations$capacity[res$params$stations$name == "paint"]
   body_cap <- function(res) res$params$stations$capacity[res$params$stations$name == "body_shop"]
   stopifnot(base$provenance$run_number == 1L)
-  stopifnot(paint_cap(base) == 2L, body_cap(base) == 2L)
-  stopifnot(identical(as.integer(base$params$operators$count), c(1L, 2L)))
-  stopifnot(identical(base$bottleneck, "final_assembly"))
-  session$setInputs(guide_try = 1)
-  tried <- sim_result()
-  stopifnot(tried$provenance$run_number == 2L)
-  stopifnot(paint_cap(tried) == 2L)
-  stopifnot(identical(output$main_stale_flag, "fresh"))
+  stopifnot(paint_cap(base) == 1L, body_cap(base) == 2L)
+  stopifnot(identical(as.integer(base$params$operators$count), c(1L, 1L, 1L, 1L)))
+  stopifnot(identical(base$bottleneck, "paint"))
+  stopifnot(base$params$n_replications == 20L)
+  # Flush so the preload observeEvent can seed Compare before we read it.
+  session$flushReact()
+  invisible(output$kpi_throughput)
+  session$flushReact()
   comp <- two_set_study$results()
   stopifnot(!is.null(comp))
   stopifnot(paint_cap(comp$runs[[1]]) == 1L, paint_cap(comp$runs[[2]]) == 2L)
-  stopifnot(identical(two_set_study$titles(), e$comparison_guided_labels))
-  stopifnot(!isTRUE(two_set_study$dirty()))
+  stopifnot(identical(
+    two_set_study$titles(),
+    c("Dedicated operators, 1 paint bay", "Shared operators, 2 paint bays")
+  ))
   ranked <- e$comparison_rank_changes(comp$runs)
   cap <- e$comparison_change_caption(comp$runs, ranked$scores)
   stopifnot(grepl("Throughput", cap))
   stopifnot(nrow(ranked$shown) >= 1L, nrow(ranked$shown) <= e$comparison_highlight_n)
-  exported <- e$comparison_highlight_export(ranked, two_set_study$titles())
-  stopifnot(nrow(exported) == nrow(ranked$shown) * tried$params$n_replications * 2L)
-  stopifnot(all(e$comparison_guided_labels %in% exported$set))
-  diff <- e$comparison_diff(comp$runs[[1]]$params, comp$runs[[2]]$params, two_set_study$titles())
-  stopifnot(nrow(diff) >= 1L)
-  stopifnot(any(grepl("Paint", diff$Parameter) & grepl("Capacity", diff$Parameter)))
   cat("Guided comparison metrics:", paste(ranked$shown$label, collapse = " | "), "\n")
-  session$setInputs(n_reps = 2)
-  session$setInputs(run = 1)
-  held <- sim_result()
-  stopifnot(paint_cap(held) == 2L, held$params$n_replications == 2L)
   session$setInputs(guide_try = 1)
-  retried <- sim_result()
-  comp2 <- two_set_study$results()
-  stopifnot(paint_cap(comp2$runs[[1]]) == 1L, paint_cap(comp2$runs[[2]]) == 2L)
-  stopifnot(identical(paint_cap(retried), paint_cap(comp2$runs[[2]])))
-  stopifnot(comp2$runs[[1]]$params$n_replications == 2L)
-  stopifnot(comp2$runs[[1]]$params$base_seed == retried$params$base_seed)
-  stopifnot(!identical(comp2$runs[[1]], held))
-  stopifnot(identical(two_set_study$titles(), e$comparison_guided_labels))
+  tried <- sim_result()
+  stopifnot(tried$provenance$run_number == 2L)
+  stopifnot(paint_cap(tried) == 1L)
+  stopifnot(tried$params$n_replications == 5L)
+  stopifnot(identical(as.integer(tried$params$operators$count), c(1L, 1L, 1L, 1L)))
+  stopifnot(identical(output$main_stale_flag, "fresh"))
+  comp_after <- two_set_study$results()
+  stopifnot(paint_cap(comp_after$runs[[1]]) == 1L, paint_cap(comp_after$runs[[2]]) == 2L)
+  stopifnot(comp_after$runs[[1]]$params$n_replications == 20L)
+  session$setInputs(n_reps = 20, planned_rate = 10)
+  session$setInputs(staffing = "dedicated", paint_cap = 1, op_body_shop = 1, op_paint = 1,
+                    op_final_assembly = 1, op_inspection = 1)
+  session$setInputs(run = 1)
+  preloaded_again <- sim_result()
+  stopifnot(paint_cap(preloaded_again) == 1L, preloaded_again$params$n_replications == 20L)
   session$setInputs(body_cap = 4, n_reps = 2)
   session$setInputs(guide_reset = 1)
   reset <- sim_result()

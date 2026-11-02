@@ -12,7 +12,7 @@ server <- function(input, output, session) {
   # When set, assemble_params returns this list so fingerprints match the preloaded run
   # until the sidebar inputs catch up via apply_params_to_inputs().
   params_overlay <- reactiveVal(
-    if (!is.null(preload_bundle)) preload_bundle$scenario2$params else NULL
+    if (!is.null(preload_bundle)) preload_bundle$scenario1$params else NULL
   )
 
   set_sim_btn_state <- function(state) {
@@ -90,7 +90,7 @@ server <- function(input, output, session) {
   # suspendWhenHidden = FALSE lets a later run see values from panels that
   # are still collapsed.
   assemble_params <- function(mode = NULL) {
-    # Preload overlay keeps fingerprints aligned with Scenario 2 until inputs update.
+    # Preload overlay keeps fingerprints aligned with the startup scenario until inputs update.
     if (is.null(mode)) {
       overlay <- params_overlay()
       if (!is.null(overlay)) return(overlay)
@@ -153,44 +153,21 @@ server <- function(input, output, session) {
       unload_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"unload", ignore)),
       task_timing=map(seq_len(n()),~if(noncyclic) read_timing(p$stations[.x,],"task", ignore) else timing_spec()))
     if (identical(mode, "try")) {
-      p$stations$capacity[p$stations$name == "paint"] <- 2L
+      # Fast live pass: dedicated operators, 1 paint bay, 5 replications.
+      return(scenario_dedicated_one_paint(5L))
     }
     validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
     normalize_params(p)
   }
   build_params <- reactive(assemble_params(guide_mode()))
   observeEvent(input$guide_try, {
-    updateNumericInput(session, "paint_cap", value = 2)
+    # Fast 5-rep live run of Scenario 1 (dedicated, 1 paint). Compare stays on
+    # the preloaded 20-rep pair unless the user re-runs Compare themselves.
+    guide_pair(NULL)
+    try_params <- scenario_dedicated_one_paint(5L)
+    apply_params_to_inputs(session, try_params)
+    params_overlay(try_params)
     guide_mode("try")
-    exp_params <- tryCatch(assemble_params("try"), error = function(e) NULL)
-    if (!is.null(exp_params)) {
-      base_params <- comparison_baseline_params(exp_params)
-      current <- tryCatch(isolate(sim_result()), error = function(e) NULL)
-      # Reuse the run already on screen when it is the 1-bay line with the
-      # same seeds and replications. Otherwise simulate that baseline once.
-      baseline_run <- if (!is.null(current) && comparison_same(current$params, base_params)) {
-        current
-      } else {
-        local({
-          show_sim_progress(
-            sprintf("%d replications · 1-bay baseline · horizon %.0f min",
-                    base_params$n_replications, base_params$sim_length_min),
-            0.25
-          )
-          # withProgress forces a websocket flush so the fixed panel paints;
-          # its own toast stays hidden by CSS. Keep Running… through the
-          # experiment leg — do not flip Done between the two sims.
-          tryCatch(
-            withProgress(message = "", value = 0.25, run_line_sim(base_params)),
-            error = function(e) {
-              hide_sim_progress(done = FALSE)
-              stop(e)
-            }
-          )
-        })
-      }
-      guide_pair(list(baseline = baseline_run, experiment_params = exp_params))
-    }
     guide_run(isolate(guide_run()) + 1L)
   })
   observeEvent(input$guide_reset, {
@@ -199,6 +176,11 @@ server <- function(input, output, session) {
     guide_mode("defaults")
     guide_run(isolate(guide_run()) + 1L)
   })
+  # Run simulation always follows the sidebar; drop any Try-it / Reset override.
+  observeEvent(input$run, {
+    guide_mode(NULL)
+    guide_pair(NULL)
+  }, ignoreInit = TRUE)
   # Drop the overlay once the sidebar shows the same line the run used.
   observe({
     mode <- guide_mode()
@@ -210,7 +192,7 @@ server <- function(input, output, session) {
     if (isTRUE(matched)) guide_mode(NULL)
   })
   # While every sidebar input is still NULL, the overlay keeps the first
-  # fingerprint aligned with the preloaded Scenario 2. As soon as any control
+  # fingerprint aligned with the startup Scenario 1. As soon as any control
   # is registered, stop masking so edits (and tests that set only some inputs)
   # are honored.
   observe({
@@ -232,8 +214,8 @@ server <- function(input, output, session) {
   )
   analysis_page_server("analysis_page")
 
-  # Seed Compare once from the startup preload, then push Scenario 2 into the sidebars.
-  # Tied to the first sim_result so it does not race later guided load_pair calls.
+  # Seed Compare once from the startup preload (S1 baseline, S2 experiment),
+  # then push Scenario 1 into the Simulate sidebars so KPIs match the first paint.
   preload_compare_done <- reactiveVal(FALSE)
   observeEvent(sim_result(), {
     if (is.null(preload_bundle) || isTRUE(isolate(preload_compare_done()))) return()
@@ -248,7 +230,7 @@ server <- function(input, output, session) {
       r1, r2,
       c(preload_bundle$scenario1$label, preload_bundle$scenario2$label)
     )
-    apply_params_to_inputs(session, preload_bundle$scenario2$params)
+    apply_params_to_inputs(session, preload_bundle$scenario1$params)
   }, once = TRUE, ignoreInit = FALSE)
 
   run_seq <- new.env(parent = emptyenv())
@@ -366,14 +348,14 @@ server <- function(input, output, session) {
   # The fixed progress panel is opened from a click handler in JS so it paints
   # before this reactive blocks the session. hide_sim_progress() clears it.
   main_sim_result <- reactive({
-    # First paint: serve the precomputed Scenario 2 without re-running 20 reps.
+    # First paint: serve precomputed Scenario 1 (dedicated, 1 paint, ~6 veh/hr).
     if (!is.null(preload_bundle) && !isTRUE(isolate(preload_consumed()))) {
       preload_consumed(TRUE)
-      p <- preload_bundle$scenario2$params
+      p <- preload_bundle$scenario1$params
       fp <- params_fingerprint(p)
       settings <- format_run_settings(p)
       run_seq$main <- run_seq$main + 1L
-      res <- preload_bundle$scenario2$result
+      res <- preload_bundle$scenario1$result
       res$params <- p
       return(stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings))
     }
@@ -384,6 +366,21 @@ server <- function(input, output, session) {
     p <- assemble_params(guide_mode())
     fp <- params_fingerprint(p)
     settings <- format_run_settings(p)
+    # Instant path: sidebar matches a 20-rep preload scenario.
+    hit <- match_preload_scenario(p, preload_bundle)
+    if (!is.null(hit)) {
+      show_sim_progress(
+        sprintf("%d replications · preloaded · horizon %.0f min",
+                p$n_replications, p$sim_length_min),
+        0.9
+      )
+      run_seq$main <- run_seq$main + 1L
+      res <- hit$result
+      res$params <- p
+      out <- stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings)
+      hide_sim_progress()
+      return(out)
+    }
     show_sim_progress(
       sprintf("%d replications · horizon %.0f min", p$n_replications, p$sim_length_min),
       0.35
@@ -487,7 +484,7 @@ server <- function(input, output, session) {
         actionButton(
           "import_params_compare",
           "Import settings",
-          class = "btn-primary",
+          class = "btn-primary import-busy-btn",
           disabled = !ready
         )
       ),
@@ -503,8 +500,12 @@ server <- function(input, output, session) {
     div(class = "alert alert-success py-2 px-3 mb-0 mt-2", note)
   })
   observeEvent(input$import_params_compare, {
+    session$sendCustomMessage("importBusy", list(id = "import_params_compare", state = "running"))
     d <- two_set_study$draft()
-    if (inherits(d, "error") || is.null(d)) return()
+    if (inherits(d, "error") || is.null(d)) {
+      session$sendCustomMessage("importBusy", list(id = "import_params_compare", state = "idle"))
+      return()
+    }
     idx <- suppressWarnings(as.integer(import_params_selection() %||% input$import_params_set %||% "1"))
     if (!idx %in% c(1L, 2L)) idx <- 1L
     import_params_selection(as.character(idx))
@@ -515,6 +516,9 @@ server <- function(input, output, session) {
       "Imported parameters from %s. Adjust anything you need, then Run simulation.",
       titles[[idx]]
     ))
+    session$onFlushed(function() {
+      session$sendCustomMessage("importBusy", list(id = "import_params_compare", state = "done"))
+    }, once = TRUE)
   }, ignoreInit = TRUE)
 
   results_pages <- c(
@@ -549,7 +553,7 @@ server <- function(input, output, session) {
         actionButton(
           "import_results_compare",
           "Import results",
-          class = "btn-primary",
+          class = "btn-primary import-busy-btn",
           disabled = !ready
         )
       ),
@@ -560,8 +564,12 @@ server <- function(input, output, session) {
     )
   })
   observeEvent(input$import_results_compare, {
+    session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "running"))
     r <- two_set_study$results()
-    if (is.null(r) || is.null(r$runs) || length(r$runs) < 2L) return()
+    if (is.null(r) || is.null(r$runs) || length(r$runs) < 2L) {
+      session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "idle"))
+      return()
+    }
     idx <- suppressWarnings(as.integer(import_results_selection() %||% input$import_results_set %||% "1"))
     if (!idx %in% c(1L, 2L)) idx <- 1L
     import_results_selection(as.character(idx))
@@ -579,6 +587,9 @@ server <- function(input, output, session) {
     if (is.null(page) || !page %in% results_pages) {
       nav_select("main_page", "results_flow", session = session)
     }
+    session$onFlushed(function() {
+      session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "done"))
+    }, once = TRUE)
   }, ignoreInit = TRUE)
 
   current_fingerprint <- reactive(params_fingerprint(build_params()))

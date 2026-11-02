@@ -466,8 +466,8 @@ wip_timeseries_plot <- function(wip_timeseries) {
     theme_sim()
 }
 
-# Chart: "Cycle time" (Results → Lead time & data → Cycle time)
-# Chart: Cycle time (Results → Lead time & data).
+# Chart: "Cycle time" (Results → Cycle time & data → Cycle time)
+# Chart: Cycle time (Results → Cycle time & data).
 cycle_time_plot <- function(cycles) {
   mean_ct <- mean(cycles$cycle_time, na.rm = TRUE)
   xlim <- density_xlim(cycles$cycle_time, level = 0.95, bounds = c(0, Inf))

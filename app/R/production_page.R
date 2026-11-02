@@ -10,7 +10,7 @@ production_page_ui <- function(id) {
       p("Shifts are consecutive production periods. Work carries over between shifts; nights, weekends and off-shift maintenance are not simulated. The settling period is excluded from all measured shift totals."),
       layout_columns(fill=FALSE,col_widths=c(6,6),
         plot_card("Output per measured shift",plotOutput(ns("shifts"),height=400)),
-        plot_card("Waiting for admission versus work in production",plotOutput(ns("inventory"),height=400))),
+        plot_card("Demand versus output",plotOutput(ns("inventory"),height=400))),
       card(fill=FALSE,card_header("Shift results"),DTOutput(ns("shift_table")),downloadButton(ns("dl_shifts"),"Download every shift (.csv)")),
       p(class="text-muted small",
         "Why occupied bays wait and the downtime fraction chart live under Results → Bottleneck & capacity (top of that page). Reliability losses is in that page's Downtime tab."),
@@ -36,19 +36,13 @@ production_page_server <- function(id,result,current_fingerprint) moduleServer(i
     shift_output_plot(r$shift_summaries, theoretical_shift_capacity(r$params))
   })
   output$inventory<-renderPlot({
-    saved()$release_timeseries %>% group_by(time) %>% summarise(
-      `Unreleased orders`=mean(unreleased_backlog),`Shop-floor WIP`=mean(wip),.groups="drop") %>%
-      pivot_longer(-time,names_to="location",values_to="vehicles") %>%
-      ggplot(aes(time,vehicles,color=location))+geom_step(linewidth=1)+
-      scale_color_manual(values=c("Unreleased orders"="#D46B25","Shop-floor WIP"="#2474A5"))+
-      labs(x="Time including settling (min)",y="Vehicles",color=NULL,
-        subtitle=plot_subtitle("Mean across runs. The chart begins after the settling period."))+theme_sim()
+    demand_vs_output_plot(saved()$release_timeseries)
   })
   output$shift_table<-renderDT({
     saved()$shift_summaries %>% group_by(shift) %>% summarise(
       `Mean planned orders`=mean(orders_due),`Mean admitted`=mean(n_released),`Mean completed`=mean(n_completed),
       `Completion SD`=sd(n_completed),`Mean ending WIP`=mean(end_wip),`Mean ending unreleased`=mean(end_backlog),
-      `Production lead time (min)`=mean(release_lead_time,na.rm=TRUE),
+      `Production cycle time (min)`=mean(release_lead_time,na.rm=TRUE),
       `Order-to-completion (min)`=mean(order_lead_time,na.rm=TRUE),.groups="drop") %>%
       datatable(rownames=FALSE,options=list(scrollX=TRUE,pageLength=20)) %>% formatRound(columns=2:9,digits=2)
   })

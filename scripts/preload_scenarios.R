@@ -1,7 +1,8 @@
 #!/usr/bin/env Rscript
 # preload_scenarios.R
 # Rebuild app/data/preload_scenarios.rds: 20-rep dedicated (1 paint) vs shared
-# (2 paint) pair with common seeds. Every other setting stays at default_params().
+# (2 paint) pair with common seeds. Arrival rate = preload_stretch_demand_per_hr
+# (Scenario 2 break from the break-sweep, currently 12 veh/hr).
 
 suppressPackageStartupMessages({
   library(tidyverse)

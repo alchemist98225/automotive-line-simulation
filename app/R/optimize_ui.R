@@ -97,13 +97,13 @@ optimize_page_ui <- function(id = "optimize_page") {
             title = "Search setup",
             value = "search_setup",
             p(class = "small text-muted mb-2",
-              "Baseline for the throughput floor and cost deltas."),
+              "Starts from Scenario 2 settings at 12 veh/hr demand. Lowest hours per vehicle without losing throughput."),
             selectInput(
               ns("baseline_source"),
               "Baseline",
               choices = c(
                 "Current Parameters" = "current",
-                "Guided balanced set" = "guided",
+                "Shared 2-paint @ 12/hr" = "guided",
                 "Compare Baseline" = "compare_1",
                 "Compare Experiment" = "compare_2"
               ),

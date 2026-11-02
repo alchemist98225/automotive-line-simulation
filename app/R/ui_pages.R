@@ -1,7 +1,7 @@
 # ui_pages.R
 # Top-level page UIs returned as nav_panel() objects and assembled in app.R.
 # Pages: Simulate, Parameters, Bottleneck & capacity, Flow over time,
-# Lead time & data, About this model.
+# Cycle time & data, About this model.
 # (Compare and Production Schedule live in comparison_ui.R / production_page.R.)
 
 simulate_page_ui <- function() {
@@ -41,7 +41,7 @@ nav_panel(
                        value = 20261027, min = 1, step = 1),
           actionButton("compare_timing", "Compare timing variability", class = "w-100"),
           actionButton("compare", "Compare staffing scenarios", class = "w-100"),
-          helpText("Staffing comparison opens under Results → Bottleneck & capacity. Timing comparison and CSV downloads open under Results → Lead time & data.")
+          helpText("Staffing comparison opens under Results → Bottleneck & capacity. Timing comparison and CSV downloads open under Results → Cycle time & data.")
         )
       ),
       div(
@@ -76,39 +76,29 @@ nav_panel(
       id = "headline_kpis",
       layout_columns(
         fill = FALSE,
-        col_widths = breakpoints(sm = 12, md = 6, xl = 4),
+        col_widths = breakpoints(sm = 12, md = 6, xl = 3),
         kpi_nav_box(
           "production_schedule",
           title = "Throughput",
           value = textOutput("kpi_throughput", inline = TRUE),
           showcase = bs_icon("speedometer2"),
           theme = "primary",
-          p("departures / hour (mean across reps)")
+          p("vehicles / hour (mean across reps)")
         ),
         kpi_nav_box(
           "results_lead",
-          title = "Mean production lead time",
+          title = tagList(
+            tags$abbr(
+              class = "term-tip",
+              title = "Mean time from admission to completion (minutes).",
+              "Cycle time"
+            )
+          ),
           value = textOutput("kpi_cycle", inline = TRUE),
           showcase = bs_icon("hourglass-split"),
           theme = "info",
-          p("minutes")
-        ),
-        kpi_nav_box(
-          "results_flow",
-          title = "WIP",
-          value = textOutput("kpi_wip", inline = TRUE),
-          showcase = bs_icon("boxes"),
-          theme = "secondary",
-          p(
-            tagList(
-              "vehicles in production (mean). ",
-              tags$abbr(
-                class = "term-tip",
-                title = "Work in process: vehicles admitted to the shop floor and not yet finished.",
-                "WIP"
-              )
-            )
-          )
+          p("minutes (mean across reps)"),
+          box_key = "cycle"
         ),
         kpi_nav_box(
           "results_capacity",
@@ -127,7 +117,7 @@ nav_panel(
         ),
         kpi_nav_box(
           "results_capacity",
-          title = "Bottleneck candidate",
+          title = "Bottleneck",
           value = textOutput("kpi_bottleneck", inline = TRUE),
           showcase = bs_icon("exclamation-triangle"),
           theme = "danger",
@@ -547,7 +537,7 @@ nav_panel(
 
 results_lead_ui <- function() {
 nav_panel(
-  title = "Lead time & data",
+  title = "Cycle time & data",
   value = "results_lead",
   navset_pill(
     id = "lead_tabs",
@@ -673,16 +663,16 @@ CI. Compare overlays histograms for every replication and a
 vertical line when every replication is identical. Queue and WIP series are faint
 lines plus a loess ribbon, resampled onto a 2-minute grid before the loess. WIP
 counts each vehicle once. Downtime is machine-time in repair during the
-observation window, divided by capacity. **Lead time & data → Downloads** exports
+observation window, divided by capacity. **Cycle time & data → Downloads** exports
 the tidy tables behind the charts, including repair events, plus a zip of all of
 them. Staffing experiments sit under **Bottleneck & capacity**; the
-timing-variability comparison sits under **Lead time & data**.
+timing-variability comparison sits under **Cycle time & data**.
 
 **Compare two sets** keeps two editable copies of the line. Each set has a title
 used on the charts, tables, and downloads. A table above the editors lists only
 the settings that differ. After a run, the metrics that moved the most are
 overlaid histograms of every replication, with a dashed normal curve per set and
-a vertical line when a set does not vary. Throughput, lead time, WIP, HPU (labor hours per unit),
+a vertical line when a set does not vary. Throughput, cycle time, HPU (labor hours per unit),
 bay occupancy, operator utilization, and active repair use the same chart. A vertical line means that set did not
 vary. CSV files there are the data behind those charts. The guided example fills
 this page with the 1-bay baseline and the 2-bay experiment.
