@@ -1,12 +1,16 @@
 # analysis_server.R
 # Render precomputed Analysis charts. No simulation calls.
 
-analysis_page_server <- function(id = "analysis_page") {
+analysis_page_server <- function(id = "analysis_page",
+                                  active = NULL) {
   moduleServer(id, function(input, output, session) {
-    # Load once. A reactive() that re-reads on every plot invalidation was fine
-    # for correctness but kept plots in .recalculating longer than needed.
+    # Load once, and only after Analysis is first selected so cold start does
+    # not pay for Analysis RDS + plot pkg attach before Simulate KPIs paint.
     data <- shiny::reactiveVal(NULL)
     observe({
+      if (!is.null(active)) {
+        req(isTRUE(active()))
+      }
       if (!is.null(isolate(data()))) return()
       loaded <- tryCatch(
         load_analysis_precomputed(),

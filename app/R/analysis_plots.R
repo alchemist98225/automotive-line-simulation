@@ -4,6 +4,13 @@
 # break charts may drop to ~12–13), legend at the bottom in one row, dashed
 # references, large points, no rugs.
 
+# Lazy-load plot extras used only on the Analysis page.
+ensure_analysis_plot_pkgs <- function() {
+  requireNamespace("ggtext", quietly = TRUE)
+  requireNamespace("patchwork", quietly = TRUE)
+  invisible(TRUE)
+}
+
 # --- from scripts/break_plot.R ---
 
 break_theme <- function(base_size = 16, ...) {
@@ -36,6 +43,8 @@ break_setup_colors <- function() {
 
 # Build the two-panel headline figure; returns a patchwork object.
 break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95, base_size = 16) {
+  ensure_analysis_plot_pkgs()
+
   cols <- break_setup_colors()
   summary_tbl <- summary_tbl %>%
     mutate(setup_label = factor(setup_label, levels = names(cols)))
@@ -209,6 +218,8 @@ plot_tornado <- function(effects, metric = c("hpu", "thr"), base_size = 16) {
 
 
 plot_tornado_pair <- function(effects, base_size = 16) {
+  ensure_analysis_plot_pkgs()
+
   plot_tornado(effects, "hpu", base_size = base_size) /
     plot_tornado(effects, "thr", base_size = base_size) +
     plot_layout(heights = c(1, 1), guides = "collect") &
@@ -239,6 +250,8 @@ val_theme <- function(...) {
 }
 
 plot_mmc_check <- function(summary_tbl) {
+  ensure_analysis_plot_pkgs()
+
   d <- summary_tbl %>%
     filter(metric %in% c("Wq_mean", "Lq", "util")) %>%
     mutate(
@@ -274,6 +287,8 @@ plot_mmc_check <- function(summary_tbl) {
 }
 
 plot_littles <- function(rep_tbl, summary_tbl) {
+  ensure_analysis_plot_pkgs()
+
   caption <- stringr::str_wrap(
     "Faint points = replications; large points = scenario means. Dashed: y = x. Post-warmup. Illustrative parameters.",
     width = 95
@@ -319,6 +334,8 @@ wu_theme <- function(...) {
 }
 
 plot_welch_warmup <- function(smooth_tbl, recommend_tbl, current_warmup = 300) {
+  ensure_analysis_plot_pkgs()
+
   cols <- c("Default line" = "#0072B2", "2-bay balanced" = "#D55E00")
   smooth_tbl <- smooth_tbl %>%
     mutate(setup_label = factor(setup_label, levels = names(cols)))
