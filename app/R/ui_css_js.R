@@ -389,10 +389,14 @@ app_header_tags <- function() {
         function finishSimDoneIfReady() {
           if (!window.__simPendingDone) return false;
           var kpi = document.getElementById('kpi_throughput');
-          if (!kpi || !(kpi.textContent || '').trim().length) return false;
+          var txt = kpi ? (kpi.textContent || '').trim() : '';
+          if (!txt) return false;
+          // Prefer a changed throughput tile. Identical re-runs finish on idle.
+          if (txt === (window.__simKpiBaseline || '') && !window.__simAllowDoneOnIdle) return false;
           window.__simPendingDone = false;
           window.__simDeferProgressHide = false;
           window.__simAllowProgressHide = true;
+          window.__simAllowDoneOnIdle = false;
           setSimProgressVisible(false);
           paintAllSimRunBtns('done');
           hideBootOverlay();
@@ -403,17 +407,17 @@ app_header_tags <- function() {
           // The startup run is automatic: keep the buttons idle until the
           // user clicks Run or Try it, so the page never opens on Done.
           if (!window.__simUserRan && state !== 'idle') state = 'idle';
-          // After a user run, hold Done until the KPI tile has content for
-          // this flush. The value event may arrive before or after 'done'.
+          // After a user run, hold Done until the KPI tile refreshes (or idle
+          // after the flush when the number did not change).
           if (state === 'done' && window.__simUserRan) {
             window.__simPendingDone = true;
-            if (!finishSimDoneIfReady()) {
-              // Value already painted earlier in the flush; idle is the backstop.
-              window.setTimeout(finishSimDoneIfReady, 0);
-            }
+            if (!finishSimDoneIfReady()) window.setTimeout(finishSimDoneIfReady, 0);
             return;
           }
-          if (state === 'running') window.__simPendingDone = false;
+          if (state === 'running') {
+            window.__simPendingDone = false;
+            window.__simAllowDoneOnIdle = false;
+          }
           paintAllSimRunBtns(state);
         });
         $(document).on('shiny:value', function(e) {
@@ -426,6 +430,7 @@ app_header_tags <- function() {
         $(document).on('shiny:idle', function() {
           var kpi = document.getElementById('kpi_throughput');
           if (kpi && (kpi.textContent || '').trim().length) hideBootOverlay();
+          if (window.__simPendingDone) window.__simAllowDoneOnIdle = true;
           finishSimDoneIfReady();
         });
       }
@@ -438,17 +443,21 @@ app_header_tags <- function() {
         if (window.__simRunButtons || ++_srb > 50) window.clearInterval(_srbTimer);
       }, 100);
       // Open the panel immediately on click so it is visible while Shiny blocks.
-      $(document).on('click', '#run', function() {
+      function markSimUserRun() {
         window.__simUserRan = true;
         window.__simAllowProgressHide = false;
         window.__simPendingDone = false;
+        window.__simAllowDoneOnIdle = false;
+        var kpi = document.getElementById('kpi_throughput');
+        window.__simKpiBaseline = kpi ? ((kpi.textContent || '').trim()) : '';
+      }
+      $(document).on('click', '#run', function() {
+        markSimUserRun();
         paintSimRunBtn(this, 'running');
         showSimProgressLocal(repsLabel());
       });
       $(document).on('click', '#guide_try', function() {
-        window.__simUserRan = true;
-        window.__simAllowProgressHide = false;
-        window.__simPendingDone = false;
+        markSimUserRun();
         paintSimRunBtn(this, 'running');
         // Mirror on the main Run button so both signal the active sim.
         paintSimRunBtn(document.getElementById('run'), 'running');
