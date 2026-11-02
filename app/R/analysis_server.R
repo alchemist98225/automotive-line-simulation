@@ -31,20 +31,30 @@ analysis_page_server <- function(id = "analysis_page") {
       )
     }
 
+    # Phone-only denser type for tornado / break (desktop stays 16).
+    # Wait for plot width so the first paint uses the right size; execOnResize
+    # stays FALSE so Updating… does not stick on reflow.
+    analysis_phone_base_size <- function(output_id) {
+      w <- session$clientData[[paste0("output_", session$ns(output_id), "_width")]]
+      req(!is.null(w), is.finite(w), w > 0)
+      if (w < 576) 12.5 else 16
+    }
+
     output$break_plot <- analysis_render_plot({
       d <- data()
       req(!is.null(d))
       break_plot_sweep(
         d$break_sweep$summary,
         d$break_sweep$breakpoints,
-        fill_threshold = d$break_sweep$fill_threshold %||% 0.95
+        fill_threshold = d$break_sweep$fill_threshold %||% 0.95,
+        base_size = analysis_phone_base_size("break_plot")
       )
     })
 
     output$tornado_plot <- analysis_render_plot({
       d <- data()
       req(!is.null(d))
-      plot_tornado_pair(d$tornado$effects)
+      plot_tornado_pair(d$tornado$effects, base_size = analysis_phone_base_size("tornado_plot"))
     })
 
     output$mmc_plot <- analysis_render_plot({

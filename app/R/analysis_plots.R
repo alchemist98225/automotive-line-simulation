@@ -1,26 +1,30 @@
 # analysis_plots.R
 # ggplot builders for the Analysis page. Ported from scripts/*_plot.R so the
-# app/ deploy stays self-contained. House style: base size 16, legend at the
-# bottom in one row, dashed references, large points, no rugs.
+# app/ deploy stays self-contained. House style: base size 16 (phone tornado /
+# break charts may drop to ~12–13), legend at the bottom in one row, dashed
+# references, large points, no rugs.
 
 # --- from scripts/break_plot.R ---
 
-break_theme <- function(...) {
-  theme_minimal(base_size = 16) +
+break_theme <- function(base_size = 16, ...) {
+  # Desktop default 16; Analysis phone (<576px plot width) may pass ~12–13.
+  sub_size <- max(11, round(base_size * 14 / 16))
+  cap_size <- max(10, round(base_size * 12 / 16))
+  theme_minimal(base_size = base_size) +
     theme(
-      text = element_text(size = 16, colour = "#1a1a1a"),
-      plot.title = element_text(face = "bold", size = 16, colour = "#1a1a1a"),
-      plot.subtitle = element_text(size = 14, colour = "#1a1a1a"),
-      plot.caption = element_text(size = 12, colour = "#1a1a1a", hjust = 0,
+      text = element_text(size = base_size, colour = "#1a1a1a"),
+      plot.title = element_text(face = "bold", size = base_size, colour = "#1a1a1a"),
+      plot.subtitle = element_text(size = sub_size, colour = "#1a1a1a"),
+      plot.caption = element_text(size = cap_size, colour = "#1a1a1a", hjust = 0,
                                  margin = margin(8, 0, 0, 0)),
       plot.caption.position = "plot",
-      axis.title = element_text(size = 16, colour = "#1a1a1a"),
-      axis.text = element_text(size = 16, colour = "#1a1a1a"),
+      axis.title = element_text(size = base_size, colour = "#1a1a1a"),
+      axis.text = element_text(size = base_size, colour = "#1a1a1a"),
       legend.title = element_blank(),
-      legend.text = element_text(size = 16, colour = "#1a1a1a"),
+      legend.text = element_text(size = base_size, colour = "#1a1a1a"),
       legend.position = "bottom",
       legend.direction = "horizontal",
-      strip.text = element_text(size = 16, colour = "#1a1a1a"),
+      strip.text = element_text(size = base_size, colour = "#1a1a1a"),
       panel.grid.minor = element_blank(),
       ...
     )
@@ -31,7 +35,7 @@ break_setup_colors <- function() {
 }
 
 # Build the two-panel headline figure; returns a patchwork object.
-break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95) {
+break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95, base_size = 16) {
   cols <- break_setup_colors()
   summary_tbl <- summary_tbl %>%
     mutate(setup_label = factor(setup_label, levels = names(cols)))
@@ -66,7 +70,7 @@ break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95) {
       x = NULL,
       y = "Throughput (veh/hr)"
     ) +
-    break_theme()
+    break_theme(base_size = base_size)
 
   # Lead-time blow-up when the line saturates.
   lt_max <- max(summary_tbl$lead_time_p90, na.rm = TRUE)
@@ -90,7 +94,7 @@ break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95) {
       x = "Offered demand (veh/hr)",
       y = "Mean lead time (min)"
     ) +
-    break_theme()
+    break_theme(base_size = base_size)
 
   # Short caption; break values are marked by the dashed verticals on the chart.
   # str_wrap width ~95 fits an 11in PNG at size 12 with plot margins.
@@ -106,7 +110,9 @@ break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95) {
     if (is.finite(n_reps_caption)) paste0(n_reps_caption, " replications") else "replications",
     ", after warm-up. Illustrative parameters, not plant predictions."
   )
-  caption <- stringr::str_wrap(caption_raw, width = 95)
+  wrap_w <- if (base_size < 15) 55 else 95
+  caption <- stringr::str_wrap(caption_raw, width = wrap_w)
+  cap_size <- max(10, round(base_size * 12 / 16))
 
   (thr_panel / lt_panel) +
     plot_layout(heights = c(1.15, 1), guides = "collect") &
@@ -116,7 +122,7 @@ break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95) {
       plot.caption.position = "plot",
       plot.title.position = "plot",
       plot.caption = ggtext::element_textbox_simple(
-        size = 12,
+        size = cap_size,
         colour = "#1a1a1a",
         hjust = 0,
         halign = 0,
@@ -138,18 +144,19 @@ break_save_plot <- function(plot_obj, path, width = 11, height = 10, dpi = 150) 
 
 # --- from scripts/tornado_plot.R ---
 
-tor_theme <- function(...) {
-  theme_minimal(base_size = 16) +
+tor_theme <- function(base_size = 16, ...) {
+  cap_size <- max(10, round(base_size * 12 / 16))
+  theme_minimal(base_size = base_size) +
     theme(
-      plot.title = element_text(face = "bold", size = 16),
-      plot.caption = element_text(size = 12, hjust = 0),
+      plot.title = element_text(face = "bold", size = base_size),
+      plot.caption = element_text(size = cap_size, hjust = 0),
       plot.caption.position = "plot",
       legend.position = "bottom", legend.direction = "horizontal",
       panel.grid.minor = element_blank(), ...
     )
 }
 
-plot_tornado <- function(effects, metric = c("hpu", "thr")) {
+plot_tornado <- function(effects, metric = c("hpu", "thr"), base_size = 16) {
   metric <- match.arg(metric)
   # Compact single-line y labels so phone widths (~390px) keep a usable plot.
   short_factor <- function(x) {
@@ -184,6 +191,7 @@ plot_tornado <- function(effects, metric = c("hpu", "thr")) {
     title <- "Tornado: throughput"
     xlab <- "Throughput (veh/hr)"
   }
+  y_size <- max(10, round(base_size * 13 / 16))
   ggplot(d, aes(y = label)) +
     geom_vline(aes(xintercept = base), linetype = "dashed", color = "grey40", linewidth = 0.9) +
     geom_segment(aes(x = low, xend = high, yend = label), linewidth = 2.2, color = "#4C78A8") +
@@ -193,14 +201,16 @@ plot_tornado <- function(effects, metric = c("hpu", "thr")) {
     labs(title = title, x = xlab, y = NULL, color = NULL,
          caption = "2-bay balanced baseline at 10 veh/hr demand. OAT low/high; dashed = baseline. CRN. Illustrative.") +
     tor_theme(
-      axis.text.y = element_text(size = 13, lineheight = 0.92),
+      base_size = base_size,
+      axis.text.y = element_text(size = y_size, lineheight = 0.92),
       plot.margin = margin(6, 10, 8, 4)
     )
 }
 
 
-plot_tornado_pair <- function(effects) {
-  plot_tornado(effects, "hpu") / plot_tornado(effects, "thr") +
+plot_tornado_pair <- function(effects, base_size = 16) {
+  plot_tornado(effects, "hpu", base_size = base_size) /
+    plot_tornado(effects, "thr", base_size = base_size) +
     plot_layout(heights = c(1, 1), guides = "collect") &
     theme(legend.position = "bottom", legend.direction = "horizontal")
 }
