@@ -209,10 +209,16 @@ server <- function(input, output, session) {
     )
     if (isTRUE(matched)) guide_mode(NULL)
   })
-  # Once the sidebar has hydrated (paint_cap is registered), stop masking inputs.
+  # While every sidebar input is still NULL, the overlay keeps the first
+  # fingerprint aligned with the preloaded Scenario 2. As soon as any control
+  # is registered, stop masking so edits (and tests that set only some inputs)
+  # are honored.
   observe({
     if (is.null(params_overlay())) return()
-    if (is.null(input$paint_cap)) return()
+    hydrated <- !is.null(input$paint_cap) || !is.null(input$n_reps) ||
+      !is.null(input$sim_length) || !is.null(input$n_shifts) ||
+      !is.null(input$staffing)
+    if (!hydrated) return()
     params_overlay(NULL)
   })
   two_set_study <- comparison_page_server("two_set_study", build_params, reactive(input$main_page))

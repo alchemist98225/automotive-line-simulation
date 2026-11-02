@@ -38,6 +38,13 @@ shiny::testServer(e$server, {
   stopifnot(all(c("station", "replication", "avg_util") %in% names(res$utilization_by_rep)))
   stopifnot(nrow(res$queue_timeseries)>0, nrow(res$wip_timeseries)>0, nrow(res$downtime_by_rep)>0)
   stopifnot(is.character(output$kpi_throughput), nzchar(output$kpi_throughput))
+  stopifnot(is.character(output$kpi_wip), nzchar(output$kpi_wip))
+  # Preload is not a user run: buttons stay idle, KPIs are already filled,
+  # and Compare is seeded without a stale banner.
+  stopifnot(identical(sim_btn_state(), "idle"))
+  preload_compare <- two_set_study$results()
+  stopifnot(!is.null(preload_compare), length(preload_compare$runs) == 2L)
+  stopifnot(!isTRUE(two_set_study$dirty()))
   stopifnot(identical(staffing_trigger(), 0L), identical(timing_trigger(), 0L))
   stopifnot(identical(output$main_stale_flag, "fresh"))
   stopifnot(identical(output$staffing_stale_flag, "fresh"))
