@@ -53,11 +53,16 @@ hist <- readr::read_csv(file.path(in_dir, "convergence.csv"), show_col_types = F
 diff <- readr::read_csv(file.path(in_dir, "param_diff.csv"), show_col_types = FALSE)
 summary <- readr::read_csv(file.path(in_dir, "best_vs_baseline.csv"), show_col_types = FALSE)
 
-# Chart: Optimizer convergence (best and mean fitness by generation)
+# Prefer mean among feasible for the Mean series when available — raw mean spikes
+# when a few heavily penalized genomes appear; seeds stay fixed within search.
+has_feas_mean <- "mean_fitness_feasible" %in% names(hist)
 conv_long <- hist %>%
-  select(generation, best = best_fitness, mean = mean_fitness) %>%
-  pivot_longer(-generation, names_to = "series", values_to = "fitness") %>%
-  mutate(series = recode(series, best = "Best", mean = "Mean"))
+  transmute(
+    generation,
+    Best = best_fitness,
+    Mean = if (has_feas_mean) mean_fitness_feasible else mean_fitness
+  ) %>%
+  pivot_longer(-generation, names_to = "series", values_to = "fitness")
 
 p_conv <- ggplot(conv_long, aes(generation, fitness, color = series, linetype = series)) +
   geom_line(linewidth = 0.9) +
@@ -66,16 +71,22 @@ p_conv <- ggplot(conv_long, aes(generation, fitness, color = series, linetype = 
   scale_linetype_manual(values = c(Best = "solid", Mean = "dashed")) +
   labs(
     title = "Optimizer convergence (best and mean fitness by generation)",
-    subtitle = "Fitness = mean HPU + penalty × throughput shortfall vs baseline",
+    subtitle = paste(
+      "Fitness = HPU + cost_hpu + thr-shortfall penalty.",
+      if (has_feas_mean) {
+        "Mean = feasible members only (raw mean spikes from rare penalties; seeds fixed in search)."
+      } else {
+        "Mean spikes when rare thr-penalized genomes appear; search seeds stay fixed."
+      }
+    ),
     x = "Generation", y = "Fitness (lower is better)",
-    color = NULL, linetype = NULL,
+    color = NULL, linetype = NULL
   ) +
   theme_minimal(base_size = 16) +
   theme(
     legend.position = "bottom",
     legend.direction = "horizontal"
   )
-
 
 ggsave(file.path(plot_dir, "convergence.png"), p_conv, width = 9, height = 5.5, dpi = 120)
 
@@ -105,7 +116,6 @@ if (all(c("n_unique", "mean_pairwise_l1") %in% names(hist))) {
 
 readr::write_csv(conv_long, file.path(plot_dir, "convergence_data.csv"))
 
-# Chart: Best vs baseline decision variables
 diff_plot <- diff %>%
   mutate(label = factor(label, levels = rev(label)))
 
@@ -117,7 +127,7 @@ p_diff <- ggplot(diff_plot, aes(y = label)) +
   labs(
     title = "Best vs baseline decision variables",
     x = "Value", y = NULL, color = NULL,
-    caption = "Queue = inter-station buffer; operators are zone crews."
+    caption = "Queue = inter-station buffer; operators are zone crews. Baseline = guided Experiment."
   ) +
   theme_minimal(base_size = 16) +
   theme(legend.position = "bottom", legend.direction = "horizontal")

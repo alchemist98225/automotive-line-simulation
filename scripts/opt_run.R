@@ -1,6 +1,8 @@
 #!/usr/bin/env Rscript
 # CLI integer-GA optimizer for queues, zone operators, and paint capacity.
-# Objective: minimize mean HPU subject to mean throughput >= baseline.
+# Objective: minimize labor-equivalent cost per unit
+#   HPU + (capacity_cost_h * extra paint capacity + queue_cost_h * extra queue spots) / thr
+#   + penalty * throughput shortfall vs guided Experiment baseline.
 # Reuses app/R/model.R via the DOE helpers — does not fork the simulation.
 #
 # Example:
@@ -25,7 +27,10 @@ parse_args <- function(argv) {
     pop = 24L, gen = 15L, reps = 3L, elite_reps = 15L, elites = 5L,
     out = "results/opt_run", seed = 42L,
     cores = max(1L, parallel::detectCores() - 1L),
-    penalty = 10, p_mut = 0.25, help = FALSE
+    penalty = 10, p_mut = 0.25,
+    capacity_cost_h = opt_default_capacity_cost_h,
+    queue_cost_h = opt_default_queue_cost_h,
+    help = FALSE
   )
   if (!length(argv) || "--help" %in% argv || "-h" %in% argv) {
     opts$help <- TRUE
@@ -49,6 +54,8 @@ parse_args <- function(argv) {
     else if (key == "--cores") opts$cores <- as.integer(take())
     else if (key == "--penalty") opts$penalty <- as.numeric(take())
     else if (key == "--p-mut") opts$p_mut <- as.numeric(take())
+    else if (key == "--capacity-cost") opts$capacity_cost_h <- as.numeric(take())
+    else if (key == "--queue-cost") opts$queue_cost_h <- as.numeric(take())
     else stop("Unknown argument: ", key, " (try --help)", call. = FALSE)
     i <- i + 1L
   }
@@ -59,9 +66,13 @@ usage <- function() {
   cat("Usage:\n",
       "  Rscript scripts/opt_run.R --pop N --gen N --reps N --out DIR",
       " [--seed N] [--cores N] [--elite-reps N] [--elites N]",
-      " [--penalty X] [--p-mut X]  (default 0.25; at least one gene always changes)\n\n",
-      "  Minimizes mean HPU with mean throughput >= baseline mean.\n",
-      "  Knobs: queues (paint/FA/inspection), zone operators, paint capacity.\n",
+      " [--penalty X] [--p-mut X]",
+      " [--capacity-cost X] [--queue-cost X]\n\n",
+      "  Baseline = guided Compare Experiment (paint capacity 2).\n",
+      "  Fitness = HPU + cost_hpu + penalty * thr shortfall.\n",
+      "  cost_hpu = (capacity_cost_h * extra paint capacity + queue_cost_h * extra queue spots) / thr.\n",
+      "  Defaults: capacity_cost_h=1, queue_cost_h=0.1 (illustrative labor-hour equivalents).\n",
+      "  Knobs: Queue before paint/FA/inspection, zone operators, Paint capacity.\n",
       sep = "")
 }
 
@@ -77,8 +88,12 @@ dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
 dir.create(file.path(out_dir, "chunks"), recursive = TRUE, showWarnings = FALSE)
 
 cat(sprintf(
-  "Optimize: pop=%d gen=%d reps=%d elite_reps=%d seed=%d cores=%d penalty=%.3g\n",
-  opts$pop, opts$gen, opts$reps, opts$elite_reps, opts$seed, opts$cores, opts$penalty
+  paste0(
+    "Optimize: pop=%d gen=%d reps=%d elite_reps=%d seed=%d cores=%d ",
+    "penalty=%.3g capacity_cost_h=%.3g queue_cost_h=%.3g\n"
+  ),
+  opts$pop, opts$gen, opts$reps, opts$elite_reps, opts$seed, opts$cores,
+  opts$penalty, opts$capacity_cost_h, opts$queue_cost_h
 ), file = stderr())
 cat(sprintf("Output: %s\n", out_dir), file = stderr())
 
@@ -93,30 +108,31 @@ res <- opt_run_ga(
   penalty = opts$penalty,
   p_mut = opts$p_mut,
   cores = opts$cores,
+  capacity_cost_h = opts$capacity_cost_h,
+  queue_cost_h = opts$queue_cost_h,
   verbose = TRUE
 )
 wall <- proc.time()[["elapsed"]] - t_wall0
 
-# Writes
 readr::write_csv(res$history, file.path(out_dir, "convergence.csv"))
 readr::write_csv(res$evaluations, file.path(out_dir, "evaluations.csv.gz"))
 readr::write_csv(res$generation0, file.path(out_dir, "generation0.csv"))
-readr::write_csv(res$history %>% dplyr::select(generation, n_unique, mean_pairwise_l1, pct_feasible),
-                 file.path(out_dir, "diversity.csv"))
+readr::write_csv(
+  res$history %>% dplyr::select(
+    generation, n_unique, mean_pairwise_l1, pct_feasible, mean_fitness_feasible
+  ),
+  file.path(out_dir, "diversity.csv")
+)
 readr::write_csv(res$elites, file.path(out_dir, "elites.csv"))
 readr::write_csv(res$best_summary, file.path(out_dir, "best_vs_baseline.csv"))
 readr::write_csv(res$param_diff, file.path(out_dir, "param_diff.csv"))
 readr::write_csv(res$operator_util, file.path(out_dir, "operator_util.csv"))
 
-# Best design row (DOE columns) — feed doe_params_from_row / future Compare import
 best_row <- opt_genome_to_row(res$best$genome, design_id = "optimized")
 readr::write_csv(best_row, file.path(out_dir, "best_params_design.csv"))
-
-# App-style run_parameters table (same shape as Simulate download)
 readr::write_csv(res$best$run_parameters, file.path(out_dir, "best_run_parameters.csv"))
 readr::write_csv(res$baseline$run_parameters, file.path(out_dir, "baseline_run_parameters.csv"))
 
-# Checkpoint-style metrics for best (elite reps)
 doe_write_chunk(res$best$metrics, out_dir, "optimized")
 doe_write_chunk(res$baseline$metrics, out_dir, "baseline")
 
@@ -125,18 +141,26 @@ info <- list(
   pop = opts$pop, gen = opts$gen, reps = opts$reps,
   elite_reps = opts$elite_reps, elites = opts$elites,
   seed = opts$seed, cores = opts$cores, penalty = opts$penalty,
-  p_mut = opts$p_mut, wall_sec = wall,
+  p_mut = opts$p_mut,
+  capacity_cost_h = opts$capacity_cost_h,
+  queue_cost_h = opts$queue_cost_h,
+  wall_sec = wall,
   thr_floor = res$thr_floor,
   thr_floor_elite = res$thr_floor_elite,
-  baseline_source = "default_params()",
+  baseline_source = "opt_guided_experiment_params() (assemble_params('try') mirror)",
   best_fitness = res$best$fitness,
   best_hpu = res$best$hpu_mean,
+  best_cost_hpu = res$best$cost_hpu,
   best_thr = res$best$thr_mean,
   baseline_hpu = res$baseline$hpu_mean,
+  baseline_cost_hpu = res$baseline$cost_hpu,
   baseline_thr = res$baseline$thr_mean,
-  objective = "minimize mean HPU subject to mean throughput >= baseline",
+  objective = paste(
+    "minimize HPU + cost_hpu + penalty*thr_shortfall;",
+    "cost_hpu from capacity_cost_h and queue_cost_h vs guided baseline"
+  ),
   knobs = paste(res$defs$name, collapse = ", "),
-  note = "Illustrative only — placeholder parameters, not plant predictions."
+  note = "Cost rates are illustrative labor-hour equivalents, not plant costs."
 )
 if (requireNamespace("jsonlite", quietly = TRUE)) {
   jsonlite::write_json(info, file.path(out_dir, "run_info.json"), auto_unbox = TRUE, pretty = TRUE)
@@ -146,7 +170,7 @@ if (requireNamespace("jsonlite", quietly = TRUE)) {
 
 cat(sprintf("Wrote results under %s (wall %s)\n", out_dir, doe_format_duration(wall)), file = stderr())
 cat(sprintf(
-  "Best HPU=%.4f (baseline %.4f); thr=%.3f (floor %.3f); feasible=%s\n",
-  res$best$hpu_mean, res$baseline$hpu_mean, res$best$thr_mean, res$thr_floor,
-  res$best$feasible
+  "Best fitness=%.4f (HPU=%.4f cost=%.4f); thr=%.3f (floor %.3f); feasible=%s\n",
+  res$best$fitness, res$best$hpu_mean, res$best$cost_hpu,
+  res$best$thr_mean, res$thr_floor_elite, res$best$feasible
 ), file = stderr())

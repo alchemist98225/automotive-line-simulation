@@ -1,8 +1,25 @@
 # opt_space.R
-# Integer decision variables for the line optimizer (queues, zone ops, paint capacity).
+# Decision variables and cost-equivalent rates for the line optimizer.
+# Baseline knobs match the app guided Experiment (paint capacity 2).
 # Sourced by opt_lib.R.
 
+# Illustrative labor-hour equivalents per clock-hour of resource held.
+# capacity_cost_h: one extra paint capacity unit ≈ one operator-hour per hour.
+# queue_cost_h: one extra queue spot ≈ 0.1 operator-hour per hour.
+# Tunable via opt_run.R --capacity-cost / --queue-cost.
+opt_default_capacity_cost_h <- 1.0
+opt_default_queue_cost_h <- 0.1
+
+# Mirrors app/R/server_main.R assemble_params("try") with default UI values:
+# default_params() then paint capacity <- 2. That is the guided Compare Experiment.
+opt_guided_experiment_params <- function() {
+  p <- default_params()
+  p$stations$capacity[p$stations$name == "paint"] <- 2L
+  p
+}
+
 opt_knob_defs <- function() {
+  # Defaults = guided Experiment (balanced 2-paint set).
   tibble::tribble(
     ~name,                    ~lo, ~hi, ~default, ~label,
     "buffer_paint",              0L,  8L,       3L, "Queue before paint",
@@ -10,11 +27,10 @@ opt_knob_defs <- function() {
     "buffer_inspection",         0L,  8L,       3L, "Queue before inspection",
     "op_upstream",               1L,  5L,       2L, "Upstream operators",
     "op_downstream",             1L,  5L,       2L, "Downstream operators",
-    "cap_paint",                 1L,  4L,       1L, "Paint capacity"
+    "cap_paint",                 1L,  4L,       2L, "Paint capacity"
   )
 }
 
-# One genome is an integer vector aligned with opt_knob_defs()$name.
 opt_clip_genome <- function(genome, defs = opt_knob_defs()) {
   genome <- as.integer(round(genome))
   stopifnot(length(genome) == nrow(defs))
@@ -26,12 +42,12 @@ opt_default_genome <- function(defs = opt_knob_defs()) {
 }
 
 opt_random_genome <- function(defs = opt_knob_defs()) {
-  as.integer(map2_int(defs$lo, defs$hi, ~ sample.int(.y - .x + 1L, 1L) + .x - 1L))
+  as.integer(purrr::map2_int(defs$lo, defs$hi, ~ sample.int(.y - .x + 1L, 1L) + .x - 1L))
 }
 
 opt_genome_to_row <- function(genome, design_id = "candidate", defs = opt_knob_defs()) {
   genome <- opt_clip_genome(genome, defs)
-  row <- as.list(setNames(as.integer(genome), defs$name))
+  row <- as.list(stats::setNames(as.integer(genome), defs$name))
   row$design_id <- as.character(design_id)
   tibble::as_tibble(row)
 }
@@ -49,4 +65,36 @@ opt_row_to_genome <- function(row, defs = opt_knob_defs()) {
 
 opt_genome_key <- function(genome) {
   paste(opt_clip_genome(genome), collapse = "_")
+}
+
+# Extra paint capacity and queue spots vs baseline genome (can be negative = savings).
+opt_resource_delta <- function(genome, baseline_genome = opt_default_genome(),
+                               defs = opt_knob_defs()) {
+  genome <- opt_clip_genome(genome, defs)
+  baseline_genome <- opt_clip_genome(baseline_genome, defs)
+  names(genome) <- defs$name
+  names(baseline_genome) <- defs$name
+  queue_names <- c("buffer_paint", "buffer_final_assembly", "buffer_inspection")
+  list(
+    extra_paint_cap = as.integer(genome[["cap_paint"]] - baseline_genome[["cap_paint"]]),
+    extra_queue_spots = as.integer(sum(genome[queue_names] - baseline_genome[queue_names]))
+  )
+}
+
+# Clock-hour cost-equivalent rate, then per completed unit via throughput.
+opt_cost_hpu <- function(genome, thr_mean,
+                         baseline_genome = opt_default_genome(),
+                         capacity_cost_h = opt_default_capacity_cost_h,
+                         queue_cost_h = opt_default_queue_cost_h,
+                         defs = opt_knob_defs()) {
+  d <- opt_resource_delta(genome, baseline_genome, defs)
+  rate <- as.numeric(capacity_cost_h) * d$extra_paint_cap +
+    as.numeric(queue_cost_h) * d$extra_queue_spots
+  thr <- if (is.finite(thr_mean) && thr_mean > 0) thr_mean else 1e-6
+  list(
+    extra_paint_cap = d$extra_paint_cap,
+    extra_queue_spots = d$extra_queue_spots,
+    cost_rate_h = rate,
+    cost_hpu = rate / thr
+  )
 }

@@ -90,8 +90,8 @@ Integer GA over queues, zone operators, and paint capacity. Minimizes mean HPU w
 | File | Purpose | Key functions / charts |
 |------|---------|------------------------|
 | `scripts/opt_lib.R` | Entry: source DOE + optimizer modules | — |
-| `scripts/opt_space.R` | Knobs / genome encode-decode | `opt_knob_defs`, `opt_genome_to_row` |
-| `scripts/opt_fitness.R` | HPU + throughput-floor penalty | `opt_evaluate_genome`, `opt_baseline_metrics` |
+| `scripts/opt_space.R` | Knobs, cost rates, guided-Experiment baseline | `opt_knob_defs`, `opt_guided_experiment_params`, `opt_cost_hpu` |
+| `scripts/opt_fitness.R` | HPU + cost_hpu + thr-shortfall penalty | `opt_evaluate_genome`, `opt_evaluate_baseline` |
 | `scripts/opt_ga.R` | tidyverse/purrr integer GA + elite re-eval | `opt_run_ga` |
 | `scripts/opt_run.R` | CLI runner | CLI |
 | `scripts/opt_plot.R` | Convergence + param-diff plots | "Optimizer convergence (best and mean fitness by generation)"; "Best vs baseline decision variables" |

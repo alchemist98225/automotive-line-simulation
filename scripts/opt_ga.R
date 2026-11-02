@@ -1,5 +1,7 @@
 # opt_ga.R
 # Tiny integer genetic algorithm (tidyverse/purrr). No GA package dependency.
+# Seeds stay fixed for a genome within search (cand_index-derived); only elite
+# re-eval refreshes to the shared CRN schedule base_seed..(base_seed+n-1).
 # Sourced by opt_lib.R.
 
 opt_tournament <- function(fitness, k = 3L) {
@@ -19,13 +21,11 @@ opt_mutate <- function(genome, defs = opt_knob_defs(), p_mut = 0.25) {
   original <- genome
   for (i in seq_along(genome)) {
     if (runif(1) < p_mut) {
-      # Draw a different allele when the range allows it.
       choices <- seq.int(defs$lo[[i]], defs$hi[[i]])
       choices <- choices[choices != genome[[i]]]
       if (length(choices)) genome[[i]] <- as.integer(sample(choices, 1L))
     }
   }
-  # Guarantee at least one locus changes so mutation is never a no-op.
   if (identical(as.integer(genome), as.integer(original))) {
     i <- sample.int(length(genome), 1L)
     choices <- seq.int(defs$lo[[i]], defs$hi[[i]])
@@ -35,7 +35,6 @@ opt_mutate <- function(genome, defs = opt_knob_defs(), p_mut = 0.25) {
   opt_clip_genome(genome, defs)
 }
 
-# Mean pairwise L1 distance among genomes (list of integer vectors).
 opt_mean_pairwise_distance <- function(genomes) {
   n <- length(genomes)
   if (n < 2L) return(0)
@@ -50,7 +49,6 @@ opt_mean_pairwise_distance <- function(genomes) {
   total / count
 }
 
-# Parallel map over genomes with optional mclapply (fork) on Unix.
 opt_map_eval <- function(genomes, eval_fn, cores = 1L) {
   cores <- max(1L, as.integer(cores))
   if (cores == 1L || length(genomes) <= 1L) {
@@ -59,7 +57,6 @@ opt_map_eval <- function(genomes, eval_fn, cores = 1L) {
   parallel::mclapply(genomes, eval_fn, mc.cores = min(cores, length(genomes)), mc.preschedule = FALSE)
 }
 
-# Run the GA. Returns a list with history tibble, elites, best, baseline.
 opt_run_ga <- function(pop_size = 24L,
                        n_gen = 15L,
                        n_reps = 3L,
@@ -70,6 +67,8 @@ opt_run_ga <- function(pop_size = 24L,
                        p_mut = 0.25,
                        tournament_k = 3L,
                        cores = 1L,
+                       capacity_cost_h = opt_default_capacity_cost_h,
+                       queue_cost_h = opt_default_queue_cost_h,
                        cache = opt_eval_cache_new(),
                        defs = opt_knob_defs(),
                        verbose = TRUE) {
@@ -78,27 +77,37 @@ opt_run_ga <- function(pop_size = 24L,
   n_reps <- as.integer(n_reps)
   elite_reps <- as.integer(elite_reps)
   n_elites <- as.integer(n_elites)
+  capacity_cost_h <- as.numeric(capacity_cost_h)
+  queue_cost_h <- as.numeric(queue_cost_h)
+  baseline_genome <- opt_default_genome(defs)
 
   if (verbose) {
     cat(sprintf(
-      "Baseline (app defaults) search eval: %d reps, seed=%d\n", n_reps, base_seed
+      "Baseline (guided Experiment, paint capacity 2): %d reps, seed=%d\n",
+      n_reps, base_seed
+    ), file = stderr())
+    cat(sprintf(
+      "Cost rates (illustrative): capacity_cost_h=%.3g, queue_cost_h=%.3g\n",
+      capacity_cost_h, queue_cost_h
     ), file = stderr())
   }
-  baseline <- opt_baseline_metrics(n_reps = n_reps, base_seed = base_seed, defs = defs)
+  baseline <- opt_baseline_metrics(
+    n_reps = n_reps, base_seed = base_seed, defs = defs,
+    capacity_cost_h = capacity_cost_h, queue_cost_h = queue_cost_h
+  )
   thr_floor <- baseline$thr_mean
   if (verbose) {
     cat(sprintf(
-      "Baseline HPU=%.4f throughput=%.3f/hr (floor)\n",
-      baseline$hpu_mean, thr_floor
+      "Baseline HPU=%.4f thr=%.3f/hr cost_hpu=%.4f fitness=%.4f\n",
+      baseline$hpu_mean, thr_floor, baseline$cost_hpu, baseline$fitness
     ), file = stderr())
   }
 
-  # Stable cand_index from the genome itself (fork-safe under mclapply).
-  # Index 1 is reserved for the default/baseline genome.
+  # Stable cand_index from the genome itself (fork-safe). Seeds stay fixed
+  # for a given genome across generations (no mid-search CRN refresh).
   assign_index <- function(genome) {
     genome <- opt_clip_genome(genome, defs)
-    if (identical(opt_genome_key(genome), opt_genome_key(opt_default_genome(defs)))) return(1L)
-    # Unique mixed integer in 2.. for our small bounded knobs.
+    if (identical(opt_genome_key(genome), opt_genome_key(baseline_genome))) return(1L)
     weights <- as.integer(cumprod(c(1L, defs$hi - defs$lo + 1L)))[seq_along(genome)]
     as.integer(2L + sum((genome - defs$lo) * weights))
   }
@@ -112,14 +121,18 @@ opt_run_ga <- function(pop_size = 24L,
       thr_floor = thr_floor,
       penalty = penalty,
       cache = cache,
-      defs = defs
+      defs = defs,
+      baseline_genome = baseline_genome,
+      capacity_cost_h = capacity_cost_h,
+      queue_cost_h = queue_cost_h
     )
   }
 
-  # Initial population: include baseline, fill with random
-  pop <- vector("list", pop_size)
-  pop[[1]] <- opt_default_genome(defs)
-  for (i in seq(2L, pop_size)) pop[[i]] <- opt_random_genome(defs)
+  # All-random initial population (no seeded baseline). Seeding the guided
+  # Experiment made gen-0 best = baseline and often a single early jump to a
+  # near-optimum staffing cut, then a flat best line. Random start lets best
+  # improve across generations while thr_floor still comes from the baseline eval.
+  pop <- lapply(seq_len(pop_size), function(i) opt_random_genome(defs))
 
   history <- list()
   all_evals <- list()
@@ -129,18 +142,23 @@ opt_run_ga <- function(pop_size = 24L,
     evaluated <- opt_map_eval(pop, function(g) eval_one(g, n_reps), cores = cores)
     fitness <- vapply(evaluated, `[[`, numeric(1), "fitness")
     hpu <- vapply(evaluated, `[[`, numeric(1), "hpu_mean")
+    cost <- vapply(evaluated, `[[`, numeric(1), "cost_hpu")
     thr <- vapply(evaluated, `[[`, numeric(1), "thr_mean")
     feasible <- vapply(evaluated, `[[`, logical(1), "feasible")
 
     keys <- vapply(evaluated, function(ev) opt_genome_key(ev$genome), character(1))
     n_unique <- length(unique(keys))
     mean_l1 <- opt_mean_pairwise_distance(lapply(evaluated, `[[`, "genome"))
+    mean_fit_feas <- if (any(feasible)) mean(fitness[feasible]) else NA_real_
     history[[gen]] <- tibble(
-      generation = gen - 1L,  # 0 = initial population
+      generation = gen - 1L,
       best_fitness = min(fitness),
       mean_fitness = mean(fitness),
+      mean_fitness_feasible = mean_fit_feas,
       best_hpu = hpu[[which.min(fitness)]],
+      best_cost_hpu = cost[[which.min(fitness)]],
       mean_hpu = mean(hpu),
+      mean_cost_hpu = mean(cost),
       best_thr = thr[[which.min(fitness)]],
       n_feasible = sum(feasible),
       pct_feasible = 100 * mean(feasible),
@@ -156,6 +174,10 @@ opt_run_ga <- function(pop_size = 24L,
         cand_index = ev$cand_index,
         fitness = ev$fitness,
         hpu_mean = ev$hpu_mean,
+        cost_hpu = ev$cost_hpu,
+        cost_rate_h = ev$cost_rate_h,
+        extra_paint_cap = ev$extra_paint_cap,
+        extra_queue_spots = ev$extra_queue_spots,
         thr_mean = ev$thr_mean,
         feasible = ev$feasible,
         genome_key = opt_genome_key(ev$genome),
@@ -165,9 +187,15 @@ opt_run_ga <- function(pop_size = 24L,
 
     if (verbose) {
       cat(sprintf(
-        "[gen %d/%d] best_fit=%.4f mean_fit=%.4f best_hpu=%.4f feasible=%d/%d unique=%d mean_L1=%.2f wall=%s\n",
-        gen - 1L, n_gen - 1L, history[[gen]]$best_fitness, history[[gen]]$mean_fitness,
-        history[[gen]]$best_hpu, history[[gen]]$n_feasible, pop_size,
+        paste0(
+          "[gen %d/%d] best_fit=%.4f mean_fit=%.4f mean_fit_feas=%.4f ",
+          "best_hpu=%.4f best_cost=%.4f feasible=%d/%d unique=%d mean_L1=%.2f wall=%s\n"
+        ),
+        gen - 1L, n_gen - 1L,
+        history[[gen]]$best_fitness, history[[gen]]$mean_fitness,
+        history[[gen]]$mean_fitness_feasible,
+        history[[gen]]$best_hpu, history[[gen]]$best_cost_hpu,
+        history[[gen]]$n_feasible, pop_size,
         history[[gen]]$n_unique, history[[gen]]$mean_pairwise_l1,
         doe_format_duration(history[[gen]]$wall_sec)
       ), file = stderr())
@@ -175,9 +203,8 @@ opt_run_ga <- function(pop_size = 24L,
 
     if (gen == n_gen) break
 
-    # Next generation: elitism + tournament offspring
     ord <- order(fitness)
-    n_keep <- max(1L, min(2L, pop_size))
+    n_keep <- 1L  # single elite; rest are tournament offspring
     next_pop <- pop[ord[seq_len(n_keep)]]
     while (length(next_pop) < pop_size) {
       i <- opt_tournament(fitness, k = tournament_k)
@@ -190,10 +217,8 @@ opt_run_ga <- function(pop_size = 24L,
 
   hist_tbl <- bind_rows(history)
   eval_tbl <- bind_rows(all_evals)
-
   generation0 <- eval_tbl %>% filter(generation == 0L)
 
-  # Unique genomes by best search fitness, then re-evaluate top-k with elite_reps
   uniq <- eval_tbl %>%
     group_by(genome_key) %>%
     slice_min(fitness, n = 1, with_ties = FALSE) %>%
@@ -203,20 +228,22 @@ opt_run_ga <- function(pop_size = 24L,
 
   if (verbose) {
     cat(sprintf(
-      "Re-evaluating baseline + top %d elites with %d reps (shared CRN seeds)...\n",
+      "Re-evaluating guided baseline + top %d elites with %d reps (shared CRN)...\n",
       nrow(top), elite_reps
     ), file = stderr())
   }
 
-  # Final baseline: pristine defaults, elite_reps, seeds base_seed..(base_seed+elite_reps-1)
-  baseline_elite <- opt_evaluate_default_params(
+  # Elite CRN: shared base_seed..(base_seed+elite_reps-1) for baseline and elites.
+  baseline_elite <- opt_evaluate_baseline(
     n_reps = elite_reps,
     base_seed = base_seed,
     thr_floor = 0,
     penalty = 0,
-    cache = cache
+    capacity_cost_h = capacity_cost_h,
+    queue_cost_h = queue_cost_h,
+    cache = cache,
+    defs = defs
   )
-  # Throughput floor for reporting stays the search-floor; feasibility vs elite baseline thr
   thr_floor_elite <- baseline_elite$thr_mean
 
   elite_genomes <- top %>%
@@ -235,7 +262,10 @@ opt_run_ga <- function(pop_size = 24L,
         penalty = penalty,
         cache = cache,
         defs = defs,
-        shared_seed = TRUE
+        shared_seed = TRUE,
+        baseline_genome = baseline_genome,
+        capacity_cost_h = capacity_cost_h,
+        queue_cost_h = queue_cost_h
       )
     },
     cores = cores
@@ -247,6 +277,8 @@ opt_run_ga <- function(pop_size = 24L,
       cand_index = ev$cand_index,
       fitness = ev$fitness,
       hpu_mean = ev$hpu_mean,
+      cost_hpu = ev$cost_hpu,
+      cost_rate_h = ev$cost_rate_h,
       thr_mean = ev$thr_mean,
       feasible = ev$feasible,
       n_reps = ev$n_reps,
@@ -274,8 +306,6 @@ opt_run_ga <- function(pop_size = 24L,
       group_by(pool) %>%
       summarise(util_mean = mean(avg_util), .groups = "drop")
   }
-  best_ops <- op_util(best_ev)
-  base_ops <- op_util(baseline_elite)
 
   list(
     history = hist_tbl,
@@ -287,21 +317,25 @@ opt_run_ga <- function(pop_size = 24L,
     baseline_search = baseline,
     thr_floor = thr_floor,
     thr_floor_elite = thr_floor_elite,
+    capacity_cost_h = capacity_cost_h,
+    queue_cost_h = queue_cost_h,
     defs = defs,
     best_summary = tibble(
       set = c("baseline", "best"),
       hpu_mean = c(base_hpu_ci[["mean"]], best_hpu_ci[["mean"]]),
       hpu_lo = c(base_hpu_ci[["lo"]], best_hpu_ci[["lo"]]),
       hpu_hi = c(base_hpu_ci[["hi"]], best_hpu_ci[["hi"]]),
+      cost_hpu = c(baseline_elite$cost_hpu, best_ev$cost_hpu),
+      cost_rate_h = c(baseline_elite$cost_rate_h, best_ev$cost_rate_h),
+      fitness = c(baseline_elite$fitness, best_ev$fitness),
       thr_mean = c(base_thr_ci[["mean"]], best_thr_ci[["mean"]]),
       thr_lo = c(base_thr_ci[["lo"]], best_thr_ci[["lo"]]),
       thr_hi = c(base_thr_ci[["hi"]], best_thr_ci[["hi"]]),
       n_reps = c(baseline_elite$n_reps, best_ev$n_reps),
-      feasible = c(TRUE, best_ev$feasible),
-      fitness = c(baseline_elite$hpu_mean, best_ev$fitness)
+      feasible = c(TRUE, best_ev$feasible)
     ),
     param_diff = {
-      b <- opt_default_genome(defs)
+      b <- baseline_genome
       g <- best_ev$genome
       tibble(
         parameter = defs$name,
@@ -312,8 +346,8 @@ opt_run_ga <- function(pop_size = 24L,
       )
     },
     operator_util = bind_rows(
-      base_ops %>% mutate(set = "baseline"),
-      best_ops %>% mutate(set = "best")
+      op_util(baseline_elite) %>% mutate(set = "baseline"),
+      op_util(best_ev) %>% mutate(set = "best")
     )
   )
 }
