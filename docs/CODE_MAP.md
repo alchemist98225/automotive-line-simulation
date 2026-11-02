@@ -131,3 +131,13 @@ Welch ensemble WIP from t=0 for Default and 2-bay setups; recommends settling ti
 | `scripts/warmup_lib.R` | Ensemble WIP, Welch smooth, recommendation | `wu_run_ensemble`, `wu_welch_smooth`, `wu_recommend` |
 | `scripts/warmup_plot.R` | Chart | "Welch warm-up: ensemble WIP" |
 | `scripts/warmup_run.R` | CLI | CLI |
+
+## Tornado sensitivity CLI (`scripts/`)
+
+One-at-a-time low/high around 2-bay balanced at ~10 veh/hr demand.
+
+| File | Purpose | Key functions / charts |
+|------|---------|------------------------|
+| `scripts/tornado_lib.R` | Factors, CRN OAT runner, effects | `tor_run`, `tor_effects` |
+| `scripts/tornado_plot.R` | Twin tornado panels | "Tornado: HPU"; "Tornado: throughput" |
+| `scripts/tornado_run.R` | CLI | CLI |
