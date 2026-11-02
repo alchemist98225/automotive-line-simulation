@@ -141,3 +141,17 @@ One-at-a-time low/high around 2-bay balanced at ~10 veh/hr demand.
 | `scripts/tornado_lib.R` | Factors, CRN OAT runner, effects | `tor_run`, `tor_effects` |
 | `scripts/tornado_plot.R` | Twin tornado panels | "Tornado: HPU"; "Tornado: throughput" |
 | `scripts/tornado_run.R` | CLI | CLI |
+
+## Break-sweep CLI (`scripts/`)
+
+Demand sweep that finds where each line setup stops keeping up with arrivals.
+Parallel replications via `furrr` / `future` (multisession). Sources DOE helpers + `app/R/model.R`.
+
+| File | Purpose | Key functions / charts |
+|------|---------|------------------------|
+| `scripts/break_lib.R` | Setups, demand grid, furrr runner, break-point rule | `break_setup_defs`, `break_make_grid`, `break_run_sweep`, `break_find_breakpoints` |
+| `scripts/break_plot.R` | Headline two-panel chart | "Where the line breaks" (`break_plot_sweep`) |
+| `scripts/break_sweep.R` | CLI runner | CLI |
+| `docs/BREAK_SWEEP.md` | How to run the break sweep | — |
+
+Break-point rule: ascending offered demand, first grid point where mean throughput/hr < 95% of offered demand.
