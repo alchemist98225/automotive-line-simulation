@@ -121,3 +121,13 @@ Analytic checks: standalone simmer M/M/c vs Erlang-C, and Little's Law on the fu
 | `scripts/validate_plot.R` | Charts | "M/M/c check vs Erlang-C"; "Little's Law check on the full line" |
 | `scripts/validate_run.R` | CLI | CLI |
 | `tests/testthat/test-validation.R` | Toleranced testthat checks | — |
+
+## Warm-up CLI (`scripts/`)
+
+Welch ensemble WIP from t=0 for Default and 2-bay setups; recommends settling time vs current 300 min.
+
+| File | Purpose | Key functions / charts |
+|------|---------|------------------------|
+| `scripts/warmup_lib.R` | Ensemble WIP, Welch smooth, recommendation | `wu_run_ensemble`, `wu_welch_smooth`, `wu_recommend` |
+| `scripts/warmup_plot.R` | Chart | "Welch warm-up: ensemble WIP" |
+| `scripts/warmup_run.R` | CLI | CLI |
