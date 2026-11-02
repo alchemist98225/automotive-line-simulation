@@ -72,17 +72,13 @@ optimize_param_diff_plot <- function(diff) {
         theme_void(base_size = 16)
     )
   }
-  # Factor for stable order; plot on numeric positions so equal values can dodge
-  # while scale_y_continuous restores knob-name labels.
+  # Numeric y positions + scale_y_continuous so knob names stay as labels.
+  # When best == baseline, both share the same point: solid Best inscribed
+  # inside the hollow Baseline ring (no dodge).
   diff_plot <- diff %>%
     mutate(label = factor(label, levels = rev(as.character(label))))
   lab_levels <- levels(diff_plot$label)
-  diff_plot <- diff_plot %>%
-    mutate(
-      y = as.numeric(label),
-      y_base = y + ifelse(baseline == best, 0.12, 0),
-      y_best = y + ifelse(baseline == best, -0.12, 0)
-    )
+  diff_plot <- diff_plot %>% mutate(y = as.numeric(label))
   x_vals <- c(diff_plot$baseline, diff_plot$best)
   x_min <- floor(min(x_vals, na.rm = TRUE))
   x_max <- ceiling(max(x_vals, na.rm = TRUE))
@@ -92,12 +88,13 @@ optimize_param_diff_plot <- function(diff) {
   if (x_max <= x_min) x_max <- x_min + 1L
   n_lab <- length(lab_levels)
   ggplot(diff_plot) +
-    geom_segment(aes(x = baseline, xend = best, y = y_base, yend = y_best),
+    geom_segment(aes(x = baseline, xend = best, y = y, yend = y),
                  linewidth = 1.2, color = "grey50") +
-    # Open ring for Baseline (visible under Best when values match).
-    geom_point(aes(x = baseline, y = y_base, color = "Baseline"),
+    # Ring first (white fill), then smaller solid Best so equal values read as
+    # Best inscribed in Baseline.
+    geom_point(aes(x = baseline, y = y, color = "Baseline"),
                size = 8, shape = 21, fill = "white", stroke = 1.8) +
-    geom_point(aes(x = best, y = y_best, color = "Best"), size = 6.5) +
+    geom_point(aes(x = best, y = y, color = "Best"), size = 4.2) +
     scale_color_manual(values = c(Baseline = "#0072B2", Best = "#D55E00")) +
     scale_x_continuous(breaks = seq(x_min, x_max), minor_breaks = NULL) +
     scale_y_continuous(
