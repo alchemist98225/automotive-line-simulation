@@ -1,5 +1,20 @@
 # optimize_ui.R
 # Optimize nav page: GA search over queues, zone ops, and paint capacity.
+# Page chrome mirrors Simulate: status bar above the sidebar, then a green
+# "Run optimize" accordion that holds the run button and Search size inputs.
+
+optimize_status_bar_ui <- function(ns) {
+  # Reuse Simulate's .sim-status-bar / .sim-progress-card classes (defined in
+  # ui_simulate.R) so fonts, border, and spacing match exactly.
+  div(
+    class = "px-3 pt-3",
+    div(
+      id = ns("opt_progress_slot"),
+      class = "sim-status-bar",
+      uiOutput(ns("progress_ui"))
+    )
+  )
+}
 
 optimize_page_ui <- function(id = "optimize_page") {
   ns <- NS(id)
@@ -7,61 +22,112 @@ optimize_page_ui <- function(id = "optimize_page") {
     title = "Optimize",
     value = "optimize",
     icon = bs_icon("sliders"),
+    optimize_status_bar_ui(ns),
     layout_sidebar(
+      fillable = FALSE,
       sidebar = sidebar(
-        width = 360,
-        open = "open",
-        h4("Search setup"),
-        p(
-          class = "small text-muted",
-          "A genetic algorithm tries staffing and queue setups, keeping throughput at least as high as the baseline while cutting labor-equivalent cost per unit."
-        ),
-        selectInput(
-          ns("baseline_source"),
-          "Baseline",
-          choices = c(
-            "Current Parameters" = "current",
-            "Guided balanced set" = "guided",
-            "Compare Baseline" = "compare_1",
-            "Compare Experiment" = "compare_2"
+        id = ns("optimize_sidebar"),
+        title = "Optimizer settings",
+        width = 320,
+        open = "desktop",
+        # Green first accordion + run-button states (same pattern as #line_controls / #run).
+        tags$style(HTML(sprintf("
+          #%1$s .accordion-item:first-child > .accordion-header .accordion-button {
+            background: #198754;
+            color: #fff;
+            font-weight: 700;
+          }
+          #%1$s .accordion-item:first-child > .accordion-header .accordion-button:not(.collapsed) {
+            background: #157347;
+            color: #fff;
+            box-shadow: none;
+          }
+          #%1$s .accordion-item:first-child > .accordion-header .accordion-button::after {
+            filter: brightness(0) invert(1);
+          }
+          #%2$s.sim-run-btn.btn-warning,
+          #%2$s.sim-run-btn.btn-warning:disabled {
+            background-color: #e67e00 !important;
+            border-color: #c96e00 !important;
+            color: #ffffff !important;
+            font-weight: 700;
+            opacity: 1 !important;
+          }
+          #%2$s.sim-run-btn.btn-success {
+            background-color: #198754 !important;
+            border-color: #146c43 !important;
+            color: #ffffff !important;
+            font-weight: 700;
+            opacity: 1 !important;
+          }
+          #%2$s.sim-run-btn,
+          #%2$s.sim-run-btn.recalculating,
+          .shiny-busy #%2$s.sim-run-btn {
+            opacity: 1 !important;
+            filter: none !important;
+          }
+        ", ns("optimize_controls"), ns("run")))),
+        accordion(
+          id = ns("optimize_controls"),
+          open = "run_optimize",
+          multiple = TRUE,
+          accordion_panel(
+            title = tagList(bs_icon("play-fill"), " Run optimize"),
+            value = "run_optimize",
+            actionButton(
+              ns("run"),
+              tagList(icon("play"), span(class = "sim-run-label", "Run optimize")),
+              class = "btn-primary w-100 mb-3 sim-run-btn"
+            ),
+            actionButton(ns("cancel"), "Cancel", class = "btn-outline-danger w-100 mb-3"),
+            p(class = "small text-muted mb-2",
+              "Population × generations × replications. Sequential on one core."),
+            div(
+              class = "d-flex flex-wrap gap-2 mb-2",
+              actionButton(ns("preset_quick"), "Quick (~2 min)", class = "btn-outline-primary btn-sm"),
+              actionButton(ns("preset_thorough"), "Thorough", class = "btn-outline-secondary btn-sm")
+            ),
+            numericInput(ns("pop"), "Population", value = 10, min = 4, max = 48, step = 1),
+            numericInput(ns("gen"), "Generations", value = 6, min = 2, max = 40, step = 1),
+            numericInput(ns("reps"), "Replications (search)", value = 2, min = 1, max = 20, step = 1),
+            numericInput(ns("elite_reps"), "Elite replications", value = 15, min = 2, max = 40, step = 1),
+            numericInput(ns("seed"), "Seed", value = 42, min = 1, step = 1)
           ),
-          selected = "guided"
-        ),
-        uiOutput(ns("baseline_note")),
-        hr(),
-        h5("Costs (illustrative)"),
-        p(class = "small text-muted mb-1",
-          "Labor-hour equivalents per clock-hour. Used only for ranking setups."),
-        numericInput(ns("capacity_cost"), "Paint capacity cost", value = 1, min = 0, step = 0.1, width = "100%"),
-        numericInput(ns("queue_cost"), "Queue spot cost", value = 0.1, min = 0, step = 0.05, width = "100%"),
-        hr(),
-        h5("Search size"),
-        p(class = "small text-muted mb-1",
-          "Population × generations × replications. Sequential on one core (shinyapps free tier)."),
-        div(
-          class = "d-flex flex-wrap gap-2 mb-2",
-          actionButton(ns("preset_quick"), "Quick (~2 min)", class = "btn-outline-primary btn-sm"),
-          actionButton(ns("preset_thorough"), "Thorough", class = "btn-outline-secondary btn-sm")
-        ),
-        numericInput(ns("pop"), "Population", value = 10, min = 4, max = 48, step = 1),
-        numericInput(ns("gen"), "Generations", value = 6, min = 2, max = 40, step = 1),
-        numericInput(ns("reps"), "Replications (search)", value = 2, min = 1, max = 20, step = 1),
-        numericInput(ns("elite_reps"), "Elite replications", value = 15, min = 2, max = 40, step = 1),
-        numericInput(ns("seed"), "Seed", value = 42, min = 1, step = 1),
-        hr(),
-        h5("Knob bounds"),
-        p(class = "small text-muted mb-2",
-          "Queues are vehicle spots before each station; operators are per zone."),
-        uiOutput(ns("bounds_ui")),
-        hr(),
-        div(
-          class = "d-flex flex-wrap gap-2",
-          actionButton(ns("run"), "Run optimize", class = "btn-primary", width = "100%"),
-          actionButton(ns("cancel"), "Cancel", class = "btn-outline-danger", width = "100%")
-        ),
-        uiOutput(ns("progress_ui"))
+          accordion_panel(
+            title = "Search setup",
+            value = "search_setup",
+            p(class = "small text-muted mb-2",
+              "Baseline for the throughput floor and cost deltas."),
+            selectInput(
+              ns("baseline_source"),
+              "Baseline",
+              choices = c(
+                "Current Parameters" = "current",
+                "Guided balanced set" = "guided",
+                "Compare Baseline" = "compare_1",
+                "Compare Experiment" = "compare_2"
+              ),
+              selected = "guided"
+            ),
+            uiOutput(ns("baseline_note"))
+          ),
+          accordion_panel(
+            title = "Costs (illustrative)",
+            value = "costs",
+            p(class = "small text-muted mb-2",
+              "Labor-hour equivalents per clock-hour. Ranking only."),
+            numericInput(ns("capacity_cost"), "Paint capacity cost", value = 1, min = 0, step = 0.1, width = "100%"),
+            numericInput(ns("queue_cost"), "Queue spot cost", value = 0.1, min = 0, step = 0.05, width = "100%")
+          ),
+          accordion_panel(
+            title = "Knob bounds",
+            value = "knob_bounds",
+            p(class = "small text-muted mb-2",
+              "Queues are vehicle spots before each station; operators are per zone."),
+            uiOutput(ns("bounds_ui"))
+          )
+        )
       ),
-      # Main
       div(
         class = "optimize-main",
         card(
