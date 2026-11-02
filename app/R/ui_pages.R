@@ -76,7 +76,7 @@ nav_panel(
       id = "headline_kpis",
       layout_columns(
         fill = FALSE,
-        col_widths = breakpoints(sm = 12, md = 6, xl = 3),
+        col_widths = breakpoints(sm = 12, md = 6, xl = 4),
         kpi_nav_box(
           "production_schedule",
           title = "Throughput",
@@ -94,8 +94,31 @@ nav_panel(
           p("minutes")
         ),
         kpi_nav_box(
+          "results_flow",
+          title = "WIP",
+          value = textOutput("kpi_wip", inline = TRUE),
+          showcase = bs_icon("boxes"),
+          theme = "secondary",
+          p(
+            tagList(
+              "vehicles in production (mean). ",
+              tags$abbr(
+                class = "term-tip",
+                title = "Work in process: vehicles admitted to the shop floor and not yet finished.",
+                "WIP"
+              )
+            )
+          )
+        ),
+        kpi_nav_box(
           "results_capacity",
-          title = "HPU",
+          title = tagList(
+            tags$abbr(
+              class = "term-tip",
+              title = "Labor hours per unit completed. Lower is better.",
+              "HPU"
+            )
+          ),
           value = textOutput("kpi_hpu", inline = TRUE),
           showcase = bs_icon("person-gear"),
           theme = "warning",
@@ -109,6 +132,29 @@ nav_panel(
           showcase = bs_icon("exclamation-triangle"),
           theme = "danger",
           p("highest occupancy excluding blocked time")
+        )
+      ),
+      p(
+        class = "small mb-0 mt-2 fine-print",
+        tagList(
+          tags$abbr(
+            class = "term-tip",
+            title = "Constant work-in-process: admission waits until total shop-floor WIP falls below a limit.",
+            "CONWIP"
+          ),
+          " · ",
+          tags$abbr(
+            class = "term-tip",
+            title = "Mean time between failures (up-time). MTTR is mean time to repair.",
+            "MTBF / MTTR"
+          ),
+          " · ",
+          tags$abbr(
+            class = "term-tip",
+            title = "95% confidence interval across independent replications.",
+            "CI"
+          ),
+          ": hover a term for a short definition."
         )
       )
     ),

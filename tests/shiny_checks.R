@@ -107,9 +107,12 @@ stopifnot(grepl("<details open", ui_html, fixed = TRUE) || grepl('<details open=
 stopifnot(page_has("Start here: guided example"))
 stopifnot(page_has("Try it"))
 stopifnot(page_has("Reset to defaults"))
-# The illustrative note appears once, under the guided example, and names no company.
-stopifnot(lengths(regmatches(ui_html, gregexpr("illustrative only", ui_html, fixed = TRUE))) == 1L)
-stopifnot(page_has("Results are illustrative only, based on example inputs."))
+# The illustrative note appears once, near the app title, and names no company.
+stopifnot(lengths(regmatches(ui_html, gregexpr("illustrative only", ui_html, ignore.case = TRUE))) == 1L)
+stopifnot(page_has("Illustrative only — example inputs, not a calibrated plant."))
+stopifnot(grepl("app-title-note", ui_html, fixed = TRUE))
+stopifnot(grepl("app-boot-overlay", ui_html, fixed = TRUE))
+stopifnot(grepl("kpi_wip", ui_html, fixed = TRUE) || grepl("kpi_nav_wip", ui_html, fixed = TRUE))
 stopifnot(!grepl("employer|company|DRI", ui_html))
 stopifnot(grepl("guided-example", ui_html, fixed = TRUE))
 stopifnot(grepl("lightbulb", ui_html) || grepl("Start here: guided example", ui_html, fixed = TRUE))

@@ -9,6 +9,9 @@ comparison_page_server <- function(id, main_params, active_page) {
     initialized <- reactiveVal(FALSE)
     results <- reactiveVal(NULL)
     error <- reactiveVal(NULL)
+    # After load_pair / import, editor inputs lag one round trip. Suppress the
+    # stale banner until draft matches the saved results once (or a real edit).
+    awaiting_editor_sync <- reactiveVal(FALSE)
     # Titles are display state. Editing one does not rerun the simulation
     # and does not mark a saved comparison stale.
     titles <- reactiveVal(comparison_default_labels)
@@ -74,7 +77,18 @@ comparison_page_server <- function(id, main_params, active_page) {
     dirty <- reactive({
       r <- results()
       d <- draft()
-      !is.null(r) && (inherits(d, "error") || !comparison_same(d$one, r$params[[1]]) || !comparison_same(d$two, r$params[[2]]))
+      if (is.null(r)) return(FALSE)
+      if (isTRUE(awaiting_editor_sync())) return(FALSE)
+      inherits(d, "error") || !comparison_same(d$one, r$params[[1]]) || !comparison_same(d$two, r$params[[2]])
+    })
+    observe({
+      if (!isTRUE(awaiting_editor_sync())) return()
+      r <- results()
+      d <- draft()
+      if (is.null(r) || inherits(d, "error")) return()
+      if (comparison_same(d$one, r$params[[1]]) && comparison_same(d$two, r$params[[2]])) {
+        awaiting_editor_sync(FALSE)
+      }
     })
     # Shared box observe + differ note (helpers are defined above import_main).
     observeEvent(input$shared_reps, {
@@ -224,6 +238,7 @@ comparison_page_server <- function(id, main_params, active_page) {
     }
     load_pair <- function(run_one, run_two, labels = comparison_guided_labels) {
       labels <- sanitize_set_labels(labels)
+      awaiting_editor_sync(TRUE)
       one$set_params(run_one$params)
       two$set_params(run_two$params)
       sync_shared_reps_input(run_one$params$n_replications)
@@ -237,6 +252,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         runs = list(run_one, run_two),
         at = format(Sys.time(), "%Y-%m-%d %H:%M:%S %Z")
       ))
+      run_state("done")
       collapse_editors(scroll = identical(isolate(active_page()), "compare_sets"))
       invisible(results())
     }

@@ -18,8 +18,16 @@ server <- function(input, output, session) {
     )
   }
   hide_sim_progress <- function(done = TRUE) {
-    session$sendCustomMessage("simProgress", list(show = FALSE))
-    if (isTRUE(done)) set_sim_btn_state("done")
+    # Defer Ready/Done until this flush reaches the browser so KPI tiles are
+    # not still showing the previous run when the button flips green.
+    if (isTRUE(done)) {
+      session$onFlushed(function() {
+        session$sendCustomMessage("simProgress", list(show = FALSE))
+        set_sim_btn_state("done")
+      }, once = TRUE)
+    } else {
+      session$sendCustomMessage("simProgress", list(show = FALSE))
+    }
   }
   jump_to_params <- function(section_id) {
     nav_select("main_page", "parameters", session = session)
@@ -156,10 +164,14 @@ server <- function(input, output, session) {
             0.25
           )
           # withProgress forces a websocket flush so the fixed panel paints;
-          # its own toast stays hidden by CSS.
+          # its own toast stays hidden by CSS. Keep Running… through the
+          # experiment leg — do not flip Done between the two sims.
           tryCatch(
             withProgress(message = "", value = 0.25, run_line_sim(base_params)),
-            finally = hide_sim_progress()
+            error = function(e) {
+              hide_sim_progress(done = FALSE)
+              stop(e)
+            }
           )
         })
       }
@@ -607,6 +619,12 @@ server <- function(input, output, session) {
     res <- sim_result()
     lab <- station_labels[[res$bottleneck]]
     if (is.null(lab)) res$bottleneck else lab
+  })
+
+  # Mean shop-floor WIP across replications (arrival-based count).
+  output$kpi_wip <- renderText({
+    res <- sim_result()
+    sprintf("%.1f", res$headline$avg_wip_mean)
   })
 
   output$occupancy_summary_table <- renderDT({
