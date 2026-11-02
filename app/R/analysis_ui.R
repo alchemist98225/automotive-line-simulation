@@ -9,7 +9,7 @@ analysis_page_ui <- function(id = "analysis_page") {
     value = "analysis",
     icon = bs_icon("clipboard2-data"),
     div(
-      class = "px-3 pt-3",
+      class = "px-3 pt-3 analysis-page-copy",
       h3("Analysis"),
       p(
         class = "text-muted",
@@ -21,7 +21,7 @@ analysis_page_ui <- function(id = "analysis_page") {
     ),
     layout_columns(
       col_widths = 12,
-      class = "px-3",
+      class = "px-3 analysis-page-charts",
       card(
         fill = FALSE,
         card_header("Where the line breaks"),
@@ -33,7 +33,7 @@ analysis_page_ui <- function(id = "analysis_page") {
             "Default line (1 paint capacity) and 2-bay balanced (2 paint capacity), ",
             "10 replications per point, common seeds."
           ),
-          plotOutput(ns("break_plot"), height = "560px")
+          plotOutput(ns("break_plot"), height = "640px")
         )
       ),
       card(
@@ -46,7 +46,7 @@ analysis_page_ui <- function(id = "analysis_page") {
             "One-at-a-time low/high swings around the 2-bay set at 10 vehicles/hr. ",
             "Bars show how far HPU and throughput move; the dashed line is the baseline."
           ),
-          plotOutput(ns("tornado_plot"), height = "720px")
+          plotOutput(ns("tornado_plot"), height = "780px")
         )
       ),
       layout_columns(

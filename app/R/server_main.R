@@ -425,12 +425,19 @@ server <- function(input, output, session) {
 
   # Import-from-Compare dropdown labels. Defaults stay "Baseline" / "Experiment";
   # custom titles become "Baseline: <title>" / "Experiment: <title>".
+  # Titles that already start with those prefixes (guided Try-it labels) stay as-is
+  # so we never emit "Baseline: Baseline: …".
   compare_import_choice_labels <- function(titles) {
     titles <- as.character(titles[1:2])
     defaults <- as.character(comparison_default_labels[1:2])
+    with_role <- function(title, default, role) {
+      if (identical(title, default)) return(role)
+      if (startsWith(title, paste0(role, ":"))) return(title)
+      paste0(role, ": ", title)
+    }
     labs <- c(
-      if (identical(titles[[1]], defaults[[1]])) "Baseline" else paste0("Baseline: ", titles[[1]]),
-      if (identical(titles[[2]], defaults[[2]])) "Experiment" else paste0("Experiment: ", titles[[2]])
+      with_role(titles[[1]], defaults[[1]], "Baseline"),
+      with_role(titles[[2]], defaults[[2]], "Experiment")
     )
     stats::setNames(c("1", "2"), labs)
   }

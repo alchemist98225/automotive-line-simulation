@@ -8,7 +8,7 @@
 # show the sanitized titles, which default to those keys.
 comparison_colors <- c("Set 1"="#2474A5", "Set 2"="#D46B25")
 comparison_default_labels <- names(comparison_colors)
-comparison_guided_labels <- c("Baseline: 1 paint bay", "Experiment: 2 paint bays")
+comparison_guided_labels <- c("1 paint bay", "2 paint bays")
 comparison_label_max <- 60L
 comparison_highlight_n <- 4L
 comparison_identical_note <- "The two sets have identical settings."

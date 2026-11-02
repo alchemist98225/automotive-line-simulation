@@ -173,6 +173,8 @@ Precomputed credibility charts plus the startup dedicated-vs-shared scenario pai
 
 Charts: "Where the line breaks"; "Tornado: HPU" / "Tornado: throughput"; "M/M/c check vs Erlang-C"; "Little's Law check on the full line"; "Welch warm-up: ensemble WIP".
 
+Phone / polish: Analysis plot heights are owned by `analysis_ui.R` + scoped CSS in `ui_css_js.R` (not the Results clamp). Tornado and break-sweep charts use base_size ~12.5 when their plot width is under 576px (desktop stays 16). Compare headline value boxes wrap long set titles. Guided Try-it labels are `"1 paint bay"` / `"2 paint bays"` so the import dropdown does not double the Baseline/Experiment prefix.
+
 ## Write-up
 
 | File | Purpose |
