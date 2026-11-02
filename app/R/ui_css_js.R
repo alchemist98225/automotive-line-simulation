@@ -386,15 +386,31 @@ app_header_tags <- function() {
         if (window.__simRunButtons) return;
         if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
         window.__simRunButtons = true;
+        function finishSimDoneIfReady() {
+          if (!window.__simPendingDone) return false;
+          var kpi = document.getElementById('kpi_throughput');
+          if (!kpi || !(kpi.textContent || '').trim().length) return false;
+          window.__simPendingDone = false;
+          window.__simDeferProgressHide = false;
+          window.__simAllowProgressHide = true;
+          setSimProgressVisible(false);
+          paintAllSimRunBtns('done');
+          hideBootOverlay();
+          return true;
+        }
         Shiny.addCustomMessageHandler('simRunButtons', function(message) {
           var state = (message && message.state) || 'idle';
           // The startup run is automatic: keep the buttons idle until the
           // user clicks Run or Try it, so the page never opens on Done.
           if (!window.__simUserRan && state !== 'idle') state = 'idle';
-          // After a user run, hold Done until the KPI value arrives so the
-          // button does not flip green before the tiles refresh.
+          // After a user run, hold Done until the KPI tile has content for
+          // this flush. The value event may arrive before or after 'done'.
           if (state === 'done' && window.__simUserRan) {
             window.__simPendingDone = true;
+            if (!finishSimDoneIfReady()) {
+              // Value already painted earlier in the flush; idle is the backstop.
+              window.setTimeout(finishSimDoneIfReady, 0);
+            }
             return;
           }
           if (state === 'running') window.__simPendingDone = false;
@@ -404,18 +420,13 @@ app_header_tags <- function() {
           var name = (e && e.name) ? String(e.name) : '';
           if (name === 'kpi_throughput' || name.indexOf('kpi_throughput') !== -1) {
             hideBootOverlay();
-            if (window.__simPendingDone || window.__simDeferProgressHide) {
-              window.__simPendingDone = false;
-              window.__simDeferProgressHide = false;
-              window.__simAllowProgressHide = true;
-              setSimProgressVisible(false);
-              paintAllSimRunBtns('done');
-            }
+            finishSimDoneIfReady();
           }
         });
         $(document).on('shiny:idle', function() {
           var kpi = document.getElementById('kpi_throughput');
           if (kpi && (kpi.textContent || '').trim().length) hideBootOverlay();
+          finishSimDoneIfReady();
         });
       }
       document.addEventListener('shiny:connected', registerSimRunButtons);
