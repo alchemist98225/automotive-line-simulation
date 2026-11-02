@@ -456,34 +456,42 @@ optimize_page_server <- function(id = "optimize_page",
     })
 
     output$progress_ui <- renderUI({
+      # Same card chrome as Simulate's sim_status_bar_ui (classes from ui_simulate.R).
       running <- isTRUE(state$running)
       idle <- !running && identical(state$phase, "idle") && (state$progress %||% 0) < 1
       pct <- round(100 * (state$progress %||% 0))
+      if (idle) {
+        return(div(
+          class = "sim-progress-card sim-progress-idle",
+          div(class = "sim-progress-title", "Ready"),
+          div(class = "sim-progress-detail text-dark",
+              "Status for the next run appears here.")
+        ))
+      }
       title <- if (running) {
         "Search running"
       } else if (identical(state$phase, "done")) {
         "Done"
-      } else if (identical(state$phase, "idle")) {
-        "Ready"
       } else {
         "Search"
       }
-      detail <- if (idle) "Status for the next run appears here." else (state$status %||% "")
+      detail <- state$status %||% ""
       div(
-        class = paste("opt-progress-card", if (idle) "opt-progress-idle" else ""),
-        div(class = "opt-progress-title", title),
-        div(class = "small mb-0", detail),
-        if (!idle) {
+        class = "sim-progress-card",
+        div(class = "sim-progress-title", title),
+        div(class = "sim-progress-detail text-dark", detail),
+        div(
+          class = "progress",
           div(
-            class = "progress",
-            div(
-              class = paste("progress-bar", if (running) "progress-bar-striped progress-bar-animated" else ""),
-              role = "progressbar",
-              style = sprintf("width:%d%%;", max(pct, if (running) 8 else 0)),
-              if (running && pct < 1) "In progress" else sprintf("%d%%", pct)
-            )
+            class = paste(
+              "progress-bar",
+              if (running) "progress-bar-striped progress-bar-animated" else ""
+            ),
+            role = "progressbar",
+            style = sprintf("width:%d%%;", max(pct, if (running) 8 else 0)),
+            if (running && pct < 1) "In progress" else sprintf("%d%%", pct)
           )
-        }
+        )
       )
     })
 

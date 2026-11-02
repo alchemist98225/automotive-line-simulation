@@ -72,12 +72,16 @@ optimize_param_diff_plot <- function(diff) {
         theme_void(base_size = 16)
     )
   }
+  # Factor for stable order; plot on numeric positions so equal values can dodge
+  # while scale_y_continuous restores knob-name labels.
   diff_plot <- diff %>%
+    mutate(label = factor(label, levels = rev(as.character(label))))
+  lab_levels <- levels(diff_plot$label)
+  diff_plot <- diff_plot %>%
     mutate(
-      label = factor(label, levels = rev(as.character(label))),
-      # Slight vertical dodge when values match so both series stay visible.
-      y_base = as.numeric(label) + ifelse(baseline == best, 0.12, 0),
-      y_best = as.numeric(label) + ifelse(baseline == best, -0.12, 0)
+      y = as.numeric(label),
+      y_base = y + ifelse(baseline == best, 0.12, 0),
+      y_best = y + ifelse(baseline == best, -0.12, 0)
     )
   x_vals <- c(diff_plot$baseline, diff_plot$best)
   x_min <- floor(min(x_vals, na.rm = TRUE))
@@ -86,7 +90,8 @@ optimize_param_diff_plot <- function(diff) {
     x_min <- 0L; x_max <- 1L
   }
   if (x_max <= x_min) x_max <- x_min + 1L
-  ggplot(diff_plot, aes(y = label)) +
+  n_lab <- length(lab_levels)
+  ggplot(diff_plot) +
     geom_segment(aes(x = baseline, xend = best, y = y_base, yend = y_best),
                  linewidth = 1.2, color = "grey50") +
     # Open ring for Baseline (visible under Best when values match).
@@ -95,6 +100,11 @@ optimize_param_diff_plot <- function(diff) {
     geom_point(aes(x = best, y = y_best, color = "Best"), size = 6.5) +
     scale_color_manual(values = c(Baseline = "#0072B2", Best = "#D55E00")) +
     scale_x_continuous(breaks = seq(x_min, x_max), minor_breaks = NULL) +
+    scale_y_continuous(
+      breaks = seq_len(n_lab),
+      labels = lab_levels,
+      limits = c(0.5, n_lab + 0.5)
+    ) +
     labs(
       title = "Best vs baseline",
       x = "Value", y = NULL, color = NULL
@@ -130,11 +140,11 @@ optimize_summary_dt <- function(summary_tbl) {
       `Cost per unit` = round(cost_hpu, 3),
       Fitness = round(fitness, 3),
       `Throughput/hr` = vapply(seq_len(n()), function(i) fmt_ci(thr_mean[[i]], thr_lo[[i]], thr_hi[[i]]), character(1)),
-      `Improvement %` = pmax(0, 100 * (base_fit - fitness) / abs(base_fit))
+      `Improvement %` = round(pmax(0, 100 * (base_fit - fitness) / abs(base_fit)), 1)
     )
   compact_metric_dt(
     show,
-    round_cols = c("Cost per unit", "Fitness", "Improvement %"),
+    round_cols = c("Cost per unit", "Fitness"),
     round_digits = 3,
     bar_col = "Improvement %",
     bar_range = c(0, max(10, max(show$`Improvement %`, na.rm = TRUE)))
