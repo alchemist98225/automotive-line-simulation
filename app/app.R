@@ -26,11 +26,17 @@ library(shiny)
 library(bslib)
 library(bsicons)
 library(tidyverse)
-library(ggtext) # declared so shinyapps.io installs it; the shift caption wraps to the plot width
-library(ggiraph) # interactive hover tooltips on bottleneck wait bars
 library(DT)
-library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
-library(patchwork) # Analysis page multi-panel charts
+
+# Heavy packages used via pkg:: and requireNamespace() on first need so cold
+# start does not pay their attach cost before Simulate KPIs paint.
+# if (FALSE) keeps them visible to rsconnect package detection / install.
+if (FALSE) {
+  library(ggtext)    # plot subtitles/captions (theme_sim, production, analysis)
+  library(ggiraph)   # interactive bottleneck wait bars
+  library(zip)       # Download-all zip export
+  library(patchwork) # Analysis multi-panel charts
+}
 
 # Explicit load order (also safe under Shiny auto-source of R/ by name).
 # model.R path must stay app/R/model.R — scripts/doe_lib.R and Quarto depend on it.

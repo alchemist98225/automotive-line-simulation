@@ -229,6 +229,8 @@ ridge_fill_values <- function(levels, fill_values = NULL) {
 # size 16 so axes and facets match titles rather than rendering ~13pt.
 # Titles, subtitles, axes, legends, strips, and captions stay near-black.
 theme_sim <- function(...) {
+  # Lazy-load ggtext on first plot theme (not at app attach).
+  requireNamespace("ggtext", quietly = TRUE)
   theme_minimal(base_size = 16) +
     theme(
       text = element_text(size = 16, colour = "#1a1a1a"),

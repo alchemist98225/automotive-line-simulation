@@ -1,5 +1,15 @@
 # Code map — Automotive Line Simulator
 
+
+## Cold start
+
+`app/app.R` attaches only `shiny`, `bslib`, `bsicons`, `tidyverse`, and `DT` at load.
+`ggtext`, `ggiraph`, `zip`, and `patchwork` are install-declared with `if (FALSE) library(...)`
+and loaded via `pkg::` / `requireNamespace()` on first use (plot theme, bottleneck bars,
+Analysis charts, zip export). Analysis RDS loads when the Analysis tab is first selected.
+Compare preload seeding runs after the first browser flush so Simulate KPIs paint first.
+`app/R/model.R` is unchanged (still loads simmer + tidyverse).
+
 Structural layout after the pure-move split (`tom/split-app-modules`). Behavior and visuals are unchanged; files exist so a person can find chart code by title.
 
 ## Files

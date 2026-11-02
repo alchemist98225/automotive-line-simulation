@@ -212,25 +212,32 @@ server <- function(input, output, session) {
     compare_titles = two_set_study$titles,
     load_compare_pair = two_set_study$load_pair
   )
-  analysis_page_server("analysis_page")
+  analysis_page_server(
+    "analysis_page",
+    active = reactive(identical(input$main_page, "analysis"))
+  )
 
-  # Seed Compare once from the startup preload (S1 baseline, S2 experiment),
-  # then push Scenario 1 into the Simulate sidebars so KPIs match the first paint.
+  # Seed Compare from the startup preload (S1 baseline, S2 experiment).
+  # Apply S1 into Simulate sidebars immediately; defer load_pair until after the
+  # first browser flush so KPI cards paint before Compare digests both runs.
   preload_compare_done <- reactiveVal(FALSE)
   observeEvent(sim_result(), {
     if (is.null(preload_bundle) || isTRUE(isolate(preload_compare_done()))) return()
-    preload_compare_done(TRUE)
-    s1 <- preload_bundle$scenario1$result
-    s1$params <- preload_bundle$scenario1$params
-    s2 <- preload_bundle$scenario2$result
-    s2$params <- preload_bundle$scenario2$params
-    r1 <- stamp_run(s1, s1$params, 0L)
-    r2 <- stamp_run(s2, s2$params, 0L)
-    two_set_study$load_pair(
-      r1, r2,
-      c(preload_bundle$scenario1$label, preload_bundle$scenario2$label)
-    )
     apply_params_to_inputs(session, preload_bundle$scenario1$params)
+    session$onFlushed(function() {
+      if (isTRUE(isolate(preload_compare_done()))) return()
+      preload_compare_done(TRUE)
+      s1 <- preload_bundle$scenario1$result
+      s1$params <- preload_bundle$scenario1$params
+      s2 <- preload_bundle$scenario2$result
+      s2$params <- preload_bundle$scenario2$params
+      r1 <- stamp_run(s1, s1$params, 0L)
+      r2 <- stamp_run(s2, s2$params, 0L)
+      two_set_study$load_pair(
+        r1, r2,
+        c(preload_bundle$scenario1$label, preload_bundle$scenario2$label)
+      )
+    }, once = TRUE)
   }, once = TRUE, ignoreInit = FALSE)
 
   run_seq <- new.env(parent = emptyenv())
