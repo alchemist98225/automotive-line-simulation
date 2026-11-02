@@ -111,3 +111,13 @@ Integer GA over queues, zone operators, and paint capacity. Minimizes mean HPU w
 
 CLI shims under `scripts/opt_*.R` source the same `app/R/optimize_*.R` core via `opt_lib.R`.
 
+## Validation CLI (`scripts/`)
+
+Analytic checks: standalone simmer M/M/c vs Erlang-C, and Little's Law on the full line.
+
+| File | Purpose | Key functions / charts |
+|------|---------|------------------------|
+| `scripts/validate_lib.R` | Erlang-C, M/M/c runner, Little's Law scenarios | `erlang_c`, `mm_c_run_case`, `littles_run` |
+| `scripts/validate_plot.R` | Charts | "M/M/c check vs Erlang-C"; "Little's Law check on the full line" |
+| `scripts/validate_run.R` | CLI | CLI |
+| `tests/testthat/test-validation.R` | Toleranced testthat checks | — |
