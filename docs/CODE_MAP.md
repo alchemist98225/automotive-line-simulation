@@ -155,3 +155,10 @@ Parallel replications via `furrr` / `future` (multisession). Sources DOE helpers
 | `docs/BREAK_SWEEP.md` | How to run the break sweep | — |
 
 Break-point rule: ascending offered demand, first grid point where mean throughput/hr < 95% of offered demand.
+
+## Write-up
+
+| File | Purpose |
+|------|---------|
+| `README.md` | Portfolio write-up (problem → model → findings → how to run) |
+| `docs/COMPANION_VIDEO_STORYBOARD.md` | 3–4 min companion video storyboard + narration |
