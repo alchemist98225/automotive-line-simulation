@@ -6,6 +6,15 @@
 server <- function(input, output, session) {
   # idle | running | done — drives Run simulation / Try it button colors.
   sim_btn_state <- reactiveVal("idle")
+  # Startup scenario pair (dedicated 1-paint vs shared 2-paint). Missing file = normal empty start.
+  preload_bundle <- tryCatch(load_preload_scenarios(), error = function(e) NULL)
+  preload_consumed <- reactiveVal(FALSE)
+  # When set, assemble_params returns this list so fingerprints match the preloaded run
+  # until the sidebar inputs catch up via apply_params_to_inputs().
+  params_overlay <- reactiveVal(
+    if (!is.null(preload_bundle)) preload_bundle$scenario2$params else NULL
+  )
+
   set_sim_btn_state <- function(state) {
     sim_btn_state(state)
     session$sendCustomMessage("simRunButtons", list(state = state))
@@ -81,6 +90,11 @@ server <- function(input, output, session) {
   # suspendWhenHidden = FALSE lets a later run see values from panels that
   # are still collapsed.
   assemble_params <- function(mode = NULL) {
+    # Preload overlay keeps fingerprints aligned with Scenario 2 until inputs update.
+    if (is.null(mode)) {
+      overlay <- params_overlay()
+      if (!is.null(overlay)) return(overlay)
+    }
     ignore <- identical(mode, "defaults")
     defaults <- default_params()
     st0 <- defaults$stations
@@ -195,6 +209,12 @@ server <- function(input, output, session) {
     )
     if (isTRUE(matched)) guide_mode(NULL)
   })
+  # Once the sidebar has hydrated (paint_cap is registered), stop masking inputs.
+  observe({
+    if (is.null(params_overlay())) return()
+    if (is.null(input$paint_cap)) return()
+    params_overlay(NULL)
+  })
   two_set_study <- comparison_page_server("two_set_study", build_params, reactive(input$main_page))
   optimize_page_server(
     "optimize_page",
@@ -204,6 +224,26 @@ server <- function(input, output, session) {
     compare_titles = two_set_study$titles,
     load_compare_pair = two_set_study$load_pair
   )
+  analysis_page_server("analysis_page")
+
+  # Seed Compare once from the startup preload, then push Scenario 2 into the sidebars.
+  # Tied to the first sim_result so it does not race later guided load_pair calls.
+  preload_compare_done <- reactiveVal(FALSE)
+  observeEvent(sim_result(), {
+    if (is.null(preload_bundle) || isTRUE(isolate(preload_compare_done()))) return()
+    preload_compare_done(TRUE)
+    s1 <- preload_bundle$scenario1$result
+    s1$params <- preload_bundle$scenario1$params
+    s2 <- preload_bundle$scenario2$result
+    s2$params <- preload_bundle$scenario2$params
+    r1 <- stamp_run(s1, s1$params, 0L)
+    r2 <- stamp_run(s2, s2$params, 0L)
+    two_set_study$load_pair(
+      r1, r2,
+      c(preload_bundle$scenario1$label, preload_bundle$scenario2$label)
+    )
+    apply_params_to_inputs(session, preload_bundle$scenario2$params)
+  }, once = TRUE, ignoreInit = FALSE)
 
   run_seq <- new.env(parent = emptyenv())
   run_seq$main <- 0L
@@ -320,7 +360,22 @@ server <- function(input, output, session) {
   # The fixed progress panel is opened from a click handler in JS so it paints
   # before this reactive blocks the session. hide_sim_progress() clears it.
   main_sim_result <- reactive({
-    p <- build_params()
+    # First paint: serve the precomputed Scenario 2 without re-running 20 reps.
+    if (!is.null(preload_bundle) && !isTRUE(isolate(preload_consumed()))) {
+      preload_consumed(TRUE)
+      p <- preload_bundle$scenario2$params
+      fp <- params_fingerprint(p)
+      settings <- format_run_settings(p)
+      run_seq$main <- run_seq$main + 1L
+      res <- preload_bundle$scenario2$result
+      res$params <- p
+      return(stamp_run(res, p, run_seq$main, fingerprint = fp, summary = settings))
+    }
+    # Real Run / Try-it: drop the startup overlay so sidebar edits are honored.
+    # Call assemble_params directly; build_params() may still hold a cached overlay
+    # value from this same flush.
+    params_overlay(NULL)
+    p <- assemble_params(guide_mode())
     fp <- params_fingerprint(p)
     settings <- format_run_settings(p)
     show_sim_progress(

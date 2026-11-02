@@ -30,6 +30,7 @@ library(ggtext) # declared so shinyapps.io installs it; the shift caption wraps 
 library(ggiraph) # interactive hover tooltips on bottleneck wait bars
 library(DT)
 library(zip)   # declared so shinyapps.io installs it for Download-all (zip)
+library(patchwork) # Analysis page multi-panel charts
 
 # Explicit load order (also safe under Shiny auto-source of R/ by name).
 # model.R path must stay app/R/model.R — scripts/doe_lib.R and Quarto depend on it.
@@ -55,6 +56,10 @@ source("R/optimize_ga.R", local = TRUE)
 source("R/optimize_plots.R", local = TRUE)
 source("R/optimize_ui.R", local = TRUE)
 source("R/optimize_server.R", local = TRUE)
+source("R/analysis_data.R", local = TRUE)
+source("R/analysis_plots.R", local = TRUE)
+source("R/analysis_ui.R", local = TRUE)
+source("R/analysis_server.R", local = TRUE)
 source("R/server_main.R", local = TRUE)
 
 ui <- page_navbar(
@@ -94,6 +99,7 @@ ui <- page_navbar(
 
   comparison_page_ui("two_set_study"),
   optimize_page_ui("optimize_page"),
+  analysis_page_ui("analysis_page"),
   about_page_ui()
 )
 

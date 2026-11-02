@@ -6,7 +6,7 @@ Structural layout after the pure-move split (`tom/split-app-modules`). Behavior 
 
 | File | Lines | Purpose | Key functions |
 |------|------:|---------|---------------|
-| `app/app.R` | 79 | Libraries, ordered `source()`, navbar layout, `shinyApp()` | `ui`, (server from `server_main.R`) |
+| `app/app.R` | — | Libraries, ordered `source()`, navbar layout, `shinyApp()` | `ui`, (server from `server_main.R`) |
 | `app/R/comparison_logic.R` | 479 | Compare labels, flatten/diff/shift/metrics, parameter editor module. | `comparison_pools, comparison_flatten, comparison_same, sanitize_set_label, sanitize_set_labels, comparison_palette, pretty_parameter, comparison_display_value, comparison_diff, comparison_diff_table, comparison_baseline_params, comparison_shift…` |
 | `app/R/comparison_plots.R` | 126 | Compare densities, ridges, highlight, flow overlays. | `comparison_densities, comparison_ridge_n, comparison_ridge_height, comparison_ridge_plot, format_highlight_mean, comparison_highlight_subtitle, comparison_highlight_plot, comparison_highlight_frame, comparison_flow` |
 | `app/R/comparison_server.R` | — | Compare page server; shared Replications; load_pair stale-banner suppress until editors sync; headline KPIs. | `comparison_page_server` |
@@ -155,6 +155,23 @@ Parallel replications via `furrr` / `future` (multisession). Sources DOE helpers
 | `docs/BREAK_SWEEP.md` | How to run the break sweep | — |
 
 Break-point rule: ascending offered demand, first grid point where mean throughput/hr < 95% of offered demand.
+
+## Analysis page (`app/R/`)
+
+Precomputed credibility charts plus the startup dedicated-vs-shared scenario pair.
+
+| File | Purpose | Key functions / charts |
+|------|---------|------------------------|
+| `app/R/analysis_data.R` | Load `app/data/*.rds`; scenario param builders | `load_analysis_precomputed`, `load_preload_scenarios`, `scenario_dedicated_one_paint`, `scenario_shared_two_paint` |
+| `app/R/analysis_plots.R` | ggplot builders (ported from CLI plotters) | `break_plot_sweep`, `plot_tornado_pair`, `plot_mmc_check`, `plot_littles`, `plot_welch_warmup` |
+| `app/R/analysis_ui.R` | Analysis nav page | `analysis_page_ui` |
+| `app/R/analysis_server.R` | Render precomputed charts only | `analysis_page_server` |
+| `app/data/analysis_precomputed.rds` | Break / tornado / validation / warm-up tibbles | — |
+| `app/data/preload_scenarios.rds` | 20-rep dedicated vs shared runs | — |
+| `scripts/analysis_precompute.R` | Rebuild analysis `.rds` from CLI outputs | CLI |
+| `scripts/preload_scenarios.R` | Rebuild preload scenario `.rds` | CLI |
+
+Charts: "Where the line breaks"; "Tornado: HPU" / "Tornado: throughput"; "M/M/c check vs Erlang-C"; "Little's Law check on the full line"; "Welch warm-up: ensemble WIP".
 
 ## Write-up
 
