@@ -353,7 +353,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       state <- highlight_state()
       shown <- state$shown
       if (!nrow(shown)) {
-        return(p("These two sets match on throughput, lead time, WIP, bay occupancy, and queues."))
+        return(p("These two sets match on throughput, cycle time, WIP, bay occupancy, and queues."))
       }
       n <- nrow(shown)
       intro <- if (n == 1L) {
@@ -608,7 +608,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       validate(need(nrow(df) > 0, "No completed vehicles in either set."))
       comparison_densities(
         df, "set", "cycle_time",
-        x_label = "Vehicle lead time (min)",
+        x_label = "Vehicle cycle time (min)",
         subtitle = "Pooled departures from every replication. Unfinished vehicles are excluded.",
         percent = FALSE,
         palette = palette()

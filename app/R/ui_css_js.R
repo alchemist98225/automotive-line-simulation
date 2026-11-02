@@ -334,6 +334,21 @@ app_header_tags <- function() {
         -webkit-overflow-scrolling: touch;
       }
     }
+    /* Once a plot has painted an <img>, drop the Updating… cover even if
+       Shiny left .recalculating stuck (preload / multi-tab Compare). */
+    .shiny-plot-output.recalculating:has(img)::after,
+    .ggiraph-container.recalculating:has(svg)::after,
+    .girafe.recalculating:has(svg)::after {
+      content: none !important;
+      display: none !important;
+      background: transparent !important;
+    }
+    .shiny-plot-output.recalculating:has(img),
+    .ggiraph-container.recalculating:has(svg),
+    .girafe.recalculating:has(svg) {
+      opacity: 1 !important;
+      filter: none !important;
+    }
     /* Precomputed Analysis: never cover with Updating… and never fade.
        These charts are static RDS; a lingering .recalculating class is cosmetic. */
     [id*='analysis_page-'].shiny-plot-output.recalculating::after,
@@ -693,22 +708,20 @@ app_header_tags <- function() {
           setTimeout(closeResultsNavChrome, 100);
         }
       });
-      // Analysis: once a plot has its <img>, drop sticky .recalculating / Updating…
-      // (CSS :has() covers modern browsers; this is the fallback).
-      function clearAnalysisUpdating() {
-        document.querySelectorAll('.shiny-plot-output').forEach(function(el) {
-          var id = el.id || '';
-          var inAnalysis = id.indexOf('analysis_page-') !== -1 ||
-            !!(el.closest && el.closest('.analysis-page-charts'));
-          if (!inAnalysis) return;
+      // Once a plot has its <img>/<svg>, drop sticky .recalculating / Updating…
+      // (CSS :has() covers modern browsers; this is the fallback for all pages).
+      function clearStickyPlotUpdating() {
+        document.querySelectorAll('.shiny-plot-output, .ggiraph-container, .girafe').forEach(function(el) {
+          var painted = el.querySelector('img, svg, canvas');
+          if (!painted) return;
           el.classList.remove('recalculating');
           el.style.setProperty('opacity', '1', 'important');
           var kids = el.querySelectorAll('.recalculating');
           for (var i = 0; i < kids.length; i++) kids[i].classList.remove('recalculating');
         });
       }
-      $(document).on('shiny:value shiny:idle', clearAnalysisUpdating);
-      window.setInterval(clearAnalysisUpdating, 750);
+      $(document).on('shiny:value shiny:idle', clearStickyPlotUpdating);
+      window.setInterval(clearStickyPlotUpdating, 750);
       // Phone: if the Simulate sidebar somehow opens over the KPIs, collapse it
       // on first paint under 768px. Stacking CSS keeps KPIs reachable if reopened.
       function collapseSidebarOnPhone() {

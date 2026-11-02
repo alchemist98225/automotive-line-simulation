@@ -77,7 +77,7 @@ page_has <- function(label) {
     grepl(gsub("&", "&amp;", label, fixed = TRUE), ui_html, fixed = TRUE)
 }
 for (label in c(
-  "Bottleneck & capacity", "Flow over time", "Lead time & data",
+  "Bottleneck & capacity", "Flow over time", "Cycle time & data",
   "Production schedule & flow", "Station occupancy", "Operators", "Downtime",
   "Staffing comparison", "WIP", "Queues", "Cycle time", "Station metrics",
   "Timing comparison", "Downloads", "640px", "clamp(520px, 60vh, 720px)",
@@ -91,7 +91,7 @@ for (label in c(
 stopifnot(grepl("results_context_bar", ui_html, fixed = TRUE) || grepl("import_results", app_tree_src(), fixed = TRUE))
 stopifnot(grepl("Hours since settling ended", app_tree_src(), fixed = TRUE))
 stopifnot(!grepl("geom_rug", app_tree_src(), fixed = TRUE))
-# Downloads stay on the Lead time & data page, not in the sidebar.
+# Downloads stay on the Cycle time & data page, not in the sidebar.
 stopifnot(!grepl("Download data", ui_html, fixed = TRUE))
 # Simulate main body: slim status bar, then KPI boxes, then guided example.
 # Chart tabs live on their own Results pages (no inline results_tabs).
@@ -109,7 +109,7 @@ stopifnot(grepl("kpi_nav_throughput", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_cycle", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_hpu", ui_html, fixed = TRUE), grepl("kpi_hpu", ui_html, fixed = TRUE))
 stopifnot(grepl("kpi_nav_bottleneck", ui_html, fixed = TRUE))
-# Run settings lives on the Lead time & data page and starts collapsed.
+# Run settings lives on the Cycle time & data page and starts collapsed.
 stopifnot(settings_at[[1]] > 0L)
 stopifnot(!grepl('class="run-settings[^"]*" open', ui_html))
 # Guided example starts open so it fills the Simulate page.

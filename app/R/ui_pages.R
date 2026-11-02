@@ -1,7 +1,7 @@
 # ui_pages.R
 # Top-level page UIs returned as nav_panel() objects and assembled in app.R.
 # Pages: Simulate, Parameters, Bottleneck & capacity, Flow over time,
-# Lead time & data, About this model.
+# Cycle time & data, About this model.
 # (Compare and Production Schedule live in comparison_ui.R / production_page.R.)
 
 simulate_page_ui <- function() {
@@ -41,7 +41,7 @@ nav_panel(
                        value = 20261027, min = 1, step = 1),
           actionButton("compare_timing", "Compare timing variability", class = "w-100"),
           actionButton("compare", "Compare staffing scenarios", class = "w-100"),
-          helpText("Staffing comparison opens under Results → Bottleneck & capacity. Timing comparison and CSV downloads open under Results → Lead time & data.")
+          helpText("Staffing comparison opens under Results → Bottleneck & capacity. Timing comparison and CSV downloads open under Results → Cycle time & data.")
         )
       ),
       div(
@@ -537,7 +537,7 @@ nav_panel(
 
 results_lead_ui <- function() {
 nav_panel(
-  title = "Lead time & data",
+  title = "Cycle time & data",
   value = "results_lead",
   navset_pill(
     id = "lead_tabs",
@@ -663,10 +663,10 @@ CI. Compare overlays histograms for every replication and a
 vertical line when every replication is identical. Queue and WIP series are faint
 lines plus a loess ribbon, resampled onto a 2-minute grid before the loess. WIP
 counts each vehicle once. Downtime is machine-time in repair during the
-observation window, divided by capacity. **Lead time & data → Downloads** exports
+observation window, divided by capacity. **Cycle time & data → Downloads** exports
 the tidy tables behind the charts, including repair events, plus a zip of all of
 them. Staffing experiments sit under **Bottleneck & capacity**; the
-timing-variability comparison sits under **Lead time & data**.
+timing-variability comparison sits under **Cycle time & data**.
 
 **Compare two sets** keeps two editable copies of the line. Each set has a title
 used on the charts, tables, and downloads. A table above the editors lists only

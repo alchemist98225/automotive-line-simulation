@@ -44,8 +44,8 @@ Search the app UI (or this table) for the chart title, then open the function.
 | Chart: Queues (Results → Flow over time). | `queue_timeseries_plot` | `app/R/plots_flow.R` |
 | Chart: "WIP" (Results → Flow over time → WIP) | `wip_timeseries_plot` | `app/R/plots_flow.R` |
 | Chart: WIP (Results → Flow over time). | `wip_timeseries_plot` | `app/R/plots_flow.R` |
-| Chart: "Cycle time" (Results → Lead time & data → Cycle time) | `cycle_time_plot` | `app/R/plots_flow.R` |
-| Chart: Cycle time (Results → Lead time & data). | `cycle_time_plot` | `app/R/plots_flow.R` |
+| Chart: "Cycle time" (Results → Cycle time & data → Cycle time) | `cycle_time_plot` | `app/R/plots_flow.R` |
+| Chart: Cycle time (Results → Cycle time & data). | `cycle_time_plot` | `app/R/plots_flow.R` |
 | Chart helper: overlaid histograms (Compare Output distributions and faceted station densities). | `overlay_densities` | `app/R/plots_simulate.R` |
 | Chart helper: one histogram per category (station/pool). | `replication_densities` | `app/R/plots_simulate.R` |
 | Chart: Vehicles completed per shift (Results → Production schedule). | `shift_output_plot` | `app/R/production_plots.R` |

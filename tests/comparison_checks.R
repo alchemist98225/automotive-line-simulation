@@ -415,7 +415,7 @@ stopifnot(nrow(ranked$frame %>% dplyr::filter(metric_id == "queue_paint")) == n 
 cap <- e$comparison_change_caption(list(run1, run2), ranked$scores)
 stopifnot(grepl("shifted from Paint to Final assembly", cap, fixed = TRUE))
 stopifnot(grepl("Throughput rose", cap, fixed = TRUE))
-stopifnot(grepl("mean lead time fell", cap, fixed = TRUE))
+stopifnot(grepl("mean cycle time fell", cap, fixed = TRUE))
 stopifnot(grepl("WIP fell", cap, fixed = TRUE))
 stopifnot(grepl("Paint queue", cap, fixed = TRUE))
 stopifnot(grepl("fell", cap, fixed = TRUE))

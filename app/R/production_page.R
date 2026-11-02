@@ -42,7 +42,7 @@ production_page_server <- function(id,result,current_fingerprint) moduleServer(i
     saved()$shift_summaries %>% group_by(shift) %>% summarise(
       `Mean planned orders`=mean(orders_due),`Mean admitted`=mean(n_released),`Mean completed`=mean(n_completed),
       `Completion SD`=sd(n_completed),`Mean ending WIP`=mean(end_wip),`Mean ending unreleased`=mean(end_backlog),
-      `Production lead time (min)`=mean(release_lead_time,na.rm=TRUE),
+      `Production cycle time (min)`=mean(release_lead_time,na.rm=TRUE),
       `Order-to-completion (min)`=mean(order_lead_time,na.rm=TRUE),.groups="drop") %>%
       datatable(rownames=FALSE,options=list(scrollX=TRUE,pageLength=20)) %>% formatRound(columns=2:9,digits=2)
   })
