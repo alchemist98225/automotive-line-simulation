@@ -492,7 +492,7 @@ optimize_page_server <- function(id = "optimize_page",
         h5("Best vs baseline"),
         DTOutput(ns("summary_table")),
         h5("Parameter changes"),
-        plotOutput(ns("param_diff"), height = "320px"),
+        plotOutput(ns("param_diff"), height = "400px"),
         div(
           class = "mt-3",
           actionButton(

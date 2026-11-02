@@ -51,7 +51,7 @@ optimize_page_ui <- function(id = "optimize_page") {
         hr(),
         h5("Knob bounds"),
         p(class = "small text-muted mb-2",
-          "Queue spots and Paint capacity are integers; operators are zone crews. Min/max bound each search knob."),
+          "Queues are vehicle spots before each station; operators are per zone."),
         uiOutput(ns("bounds_ui")),
         hr(),
         div(
@@ -77,7 +77,7 @@ optimize_page_ui <- function(id = "optimize_page") {
         card(
           card_header("Convergence"),
           card_body(
-            plotOutput(ns("convergence"), height = "420px"),
+            plotOutput(ns("convergence"), height = "480px"),
             p(class = "small text-muted mb-1",
               "Fitness = HPU + capacity and queue cost per unit + penalty for throughput below baseline. Mean uses feasible setups only."),
             uiOutput(ns("status_line"))
@@ -94,8 +94,6 @@ optimize_page_ui <- function(id = "optimize_page") {
         card(
           card_header("Results"),
           card_body(
-            p(class = "small text-muted",
-              "Queue knobs are inter-station spots; Paint capacity is parallel paint resources; operators are zone crews."),
             uiOutput(ns("results_block"))
           )
         )

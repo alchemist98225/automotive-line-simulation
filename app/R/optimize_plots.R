@@ -103,25 +103,23 @@ optimize_summary_dt <- function(summary_tbl) {
       NA_character_
     }
   }
-  tbl <- summary_tbl %>%
+  # Lower fitness is better: bar "% better than baseline" so the best set gets the longest bar.
+  base_fit <- summary_tbl$fitness[summary_tbl$set == "baseline"][[1]]
+  if (!is.finite(base_fit) || abs(base_fit) < 1e-12) base_fit <- 1
+  show <- summary_tbl %>%
     transmute(
       Set = set,
       HPU = vapply(seq_len(n()), function(i) fmt_ci(hpu_mean[[i]], hpu_lo[[i]], hpu_hi[[i]]), character(1)),
       `Cost per unit` = round(cost_hpu, 3),
-      Fitness = fitness,
+      Fitness = round(fitness, 3),
       `Throughput/hr` = vapply(seq_len(n()), function(i) fmt_ci(thr_mean[[i]], thr_lo[[i]], thr_hi[[i]]), character(1)),
-      .fitness_bar = fitness
+      `Improvement %` = pmax(0, 100 * (base_fit - fitness) / abs(base_fit))
     )
-  # Bar on Fitness via hidden numeric helper — show Fitness rounded, bar from .fitness_bar
-  # compact_metric_dt bars on named column; keep Fitness numeric for bar, drop helper from display
-  show <- tbl %>% dplyr::select(Set, HPU, `Cost per unit`, Fitness, `Throughput/hr`)
-  bar_range <- range(show$Fitness, na.rm = TRUE)
-  if (diff(bar_range) < 1e-9) bar_range <- bar_range + c(-0.05, 0.05)
   compact_metric_dt(
     show,
-    round_cols = c("Cost per unit", "Fitness"),
+    round_cols = c("Cost per unit", "Fitness", "Improvement %"),
     round_digits = 3,
-    bar_col = "Fitness",
-    bar_range = bar_range
+    bar_col = "Improvement %",
+    bar_range = c(0, max(10, max(show$`Improvement %`, na.rm = TRUE)))
   )
 }
