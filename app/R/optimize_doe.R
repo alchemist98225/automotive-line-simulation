@@ -6,6 +6,25 @@ doe_station_names <- function() {
   c("body_shop", "paint", "final_assembly", "inspection")
 }
 
+doe_known_columns <- function() {
+  stations <- doe_station_names()
+  c(
+    "design_id",
+    # Run horizon / admission
+    "warmup_min", "shift_length_min", "n_shifts", "arrival_mean_min",
+    "release_policy", "entry_buffer", "wip_limit", "order_spacing",
+    "repair_technicians",
+    # Operator counts (zones by default; op_shared switches to one shared team)
+    "op_upstream", "op_downstream", "op_shared",
+    paste0("op_", stations),
+    # Bay capacities and automatic means
+    paste0("cap_", stations),
+    paste0("mean_", stations),
+    # Interstation buffers (no buffer before the first station)
+    "buffer_paint", "buffer_final_assembly", "buffer_inspection"
+  )
+}
+
 doe_params_from_row <- function(row, n_replications = 1L, base_seed = 1L) {
   p <- default_params()
   getv <- function(name, default = NULL) {
