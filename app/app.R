@@ -18,6 +18,7 @@
 # R/server_main.R    Main server() wiring (KPIs, plots, downloads, Try-it)
 # R/comparison_*.R   Compare-two-sets logic / plots / UI / server
 # R/production_*.R   Production-schedule plots + page module
+# R/optimize_*.R     Optimize page (GA core + UI/server)
 # docs/CODE_MAP.md   File → purpose → key functions; chart-title → function index
 # =============================================================================
 
@@ -47,6 +48,13 @@ source("R/comparison_ui.R", local = TRUE)
 source("R/comparison_server.R", local = TRUE)
 source("R/production_plots.R", local = TRUE)
 source("R/production_page.R", local = TRUE)
+source("R/optimize_doe.R", local = TRUE)
+source("R/optimize_space.R", local = TRUE)
+source("R/optimize_fitness.R", local = TRUE)
+source("R/optimize_ga.R", local = TRUE)
+source("R/optimize_plots.R", local = TRUE)
+source("R/optimize_ui.R", local = TRUE)
+source("R/optimize_server.R", local = TRUE)
 source("R/server_main.R", local = TRUE)
 
 ui <- page_navbar(
@@ -78,6 +86,7 @@ ui <- page_navbar(
   ),
 
   comparison_page_ui("two_set_study"),
+  optimize_page_ui("optimize_page"),
   about_page_ui()
 )
 

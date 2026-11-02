@@ -137,3 +137,11 @@ baseline to a near-optimum staffing cut, so the best line can improve across
 generations. Each generation records `n_unique` genomes and mean pairwise L1
 distance in `diversity.csv` / `plots/diversity.png`. Generation **0** is the
 initial population (`generation0.csv`).
+
+## Optimize page (Shiny)
+
+The **Optimize** nav page runs the same GA core (`app/R/optimize_*.R`) sequentially
+(one core) with a live convergence chart, Cancel, and **Send to Compare**.
+Presets: Quick (~4 min; pop 6 × gen 3 × 1 rep, elite 3) and Thorough (24 × 15 × 3, elite 15).
+Cost rates are labeled illustrative. Baseline can be Current Parameters, the guided
+balanced set, or a Compare set. CLI shims under `scripts/opt_*.R` source the app core.

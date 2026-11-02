@@ -96,3 +96,18 @@ Integer GA over queues, zone operators, and paint capacity. Minimizes mean HPU w
 | `scripts/opt_run.R` | CLI runner | CLI |
 | `scripts/opt_plot.R` | Convergence + param-diff plots | "Optimizer convergence (best and mean fitness by generation)"; "Best vs baseline decision variables" |
 | `docs/OPTIMIZE.md` | How to run the optimizer | — |
+
+## Optimize page (`app/R/`)
+
+| File | Role | Key entry |
+|------|------|-----------|
+| `app/R/optimize_doe.R` | DOE helpers shipped with the app | `doe_params_from_row`, `doe_rep_seed` |
+| `app/R/optimize_space.R` | Knobs, cost rates, guided baseline | `opt_knob_defs`, `opt_cost_hpu` |
+| `app/R/optimize_fitness.R` | HPU + cost + thr penalty | `opt_evaluate_genome` |
+| `app/R/optimize_ga.R` | Integer GA + elite re-eval | `opt_run_ga` |
+| `app/R/optimize_plots.R` | Convergence / diversity / summary DT | `optimize_convergence_plot` |
+| `app/R/optimize_ui.R` | Optimize nav page | `optimize_page_ui` |
+| `app/R/optimize_server.R` | Live sequential search + Send to Compare | `optimize_page_server` |
+
+CLI shims under `scripts/opt_*.R` source the same `app/R/optimize_*.R` core via `opt_lib.R`.
+

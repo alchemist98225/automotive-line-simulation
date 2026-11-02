@@ -1,39 +1,37 @@
 # opt_lib.R
-# Shared entry for the integer-GA line optimizer CLI.
-# Sourced by scripts/opt_run.R, opt_plot.R, and tests/opt_checks.R.
-# Portfolio demonstration; results are illustrative only, not plant predictions.
-#
-# Loads DOE helpers (doe_lib.R) then:
-#   opt_space.R    — knobs / genome encode-decode
-#   opt_fitness.R  — HPU + throughput-floor penalty
-#   opt_ga.R       — tidyverse/purrr integer GA
+# Shared entry for optimizer CLI: model + DOE + app/R optimize_* core.
+# Sourced by opt_run.R, opt_plot.R, and tests/opt_checks.R.
 
-suppressPackageStartupMessages({
-  library(tidyverse)
-})
+opt_this_file <- (function() {
+  ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
+  if (!is.null(ofile) && nzchar(ofile)) return(normalizePath(ofile, mustWork = FALSE))
+  args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", args, value = TRUE)
+  if (length(file_arg)) return(normalizePath(sub("^--file=", "", file_arg[[1]]), mustWork = FALSE))
+  NA_character_
+})()
 
-opt_repo_root <- function(script_dir = NULL) {
-  doe_repo_root(script_dir)
+opt_script_dir <- if (!is.na(opt_this_file)) dirname(opt_this_file) else {
+  if (dir.exists("scripts")) normalizePath("scripts") else normalizePath(".")
 }
 
-# Prefer the directory of this file (works when sourced from tests/ or CLI).
-.opt_lib_dir <- local({
-  ofile <- tryCatch(sys.frame(1)$ofile, error = function(e) NULL)
-  if (!is.null(ofile) && nzchar(ofile)) return(dirname(normalizePath(ofile)))
-  args_full <- commandArgs(trailingOnly = FALSE)
-  file_arg <- grep("^--file=", args_full, value = TRUE)
-  if (length(file_arg)) {
-    d <- dirname(normalizePath(sub("^--file=", "", file_arg)))
-    if (basename(d) == "scripts") return(d)
-  }
-  if (dir.exists("scripts")) return(normalizePath("scripts"))
-  normalizePath(".")
-})
-script_dir <- .opt_lib_dir
+opt_repo_root <- function(script_dir = opt_script_dir) {
+  normalizePath(file.path(script_dir, ".."))
+}
 
-source(file.path(script_dir, "doe_lib.R"), local = FALSE)
-doe_source_model(opt_repo_root(script_dir))
+opt_app_r <- function(repo = opt_repo_root()) {
+  file.path(repo, "app", "R")
+}
 
-source(file.path(script_dir, "opt_space.R"), local = FALSE)
-source(file.path(script_dir, "opt_fitness.R"), local = FALSE)
-source(file.path(script_dir, "opt_ga.R"), local = FALSE)
+# Model (byte-identical with quarto/R/model.R)
+source(file.path(opt_app_r(), "model.R"), local = FALSE)
+
+# DOE helpers used by CLI writes + (also provided by optimize_doe for the GA)
+source(file.path(opt_script_dir, "doe_lib.R"), local = FALSE)
+
+# Shared GA core lives under app/R so the Shiny app can ship it.
+app_r <- opt_app_r()
+source(file.path(app_r, "optimize_doe.R"), local = FALSE)
+source(file.path(app_r, "optimize_space.R"), local = FALSE)
+source(file.path(app_r, "optimize_fitness.R"), local = FALSE)
+source(file.path(app_r, "optimize_ga.R"), local = FALSE)

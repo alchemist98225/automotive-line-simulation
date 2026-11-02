@@ -184,6 +184,14 @@ server <- function(input, output, session) {
     if (isTRUE(matched)) guide_mode(NULL)
   })
   two_set_study <- comparison_page_server("two_set_study", build_params, reactive(input$main_page))
+  optimize_page_server(
+    "optimize_page",
+    build_params = build_params,
+    compare_draft = two_set_study$draft,
+    compare_results = two_set_study$results,
+    compare_titles = two_set_study$titles,
+    load_compare_pair = two_set_study$load_pair
+  )
 
   run_seq <- new.env(parent = emptyenv())
   run_seq$main <- 0L
