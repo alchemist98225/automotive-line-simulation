@@ -72,12 +72,8 @@ p_conv <- ggplot(conv_long, aes(generation, fitness, color = series, linetype = 
   labs(
     title = "Optimizer convergence (best and mean fitness by generation)",
     subtitle = paste(
-      "Fitness = HPU + cost_hpu + thr-shortfall penalty.",
-      if (has_feas_mean) {
-        "Mean = feasible members only (raw mean spikes from rare penalties; seeds fixed in search)."
-      } else {
-        "Mean spikes when rare thr-penalized genomes appear; search seeds stay fixed."
-      }
+      "Fitness = HPU + capacity and queue cost per unit + penalty for throughput below baseline.",
+      "Mean uses feasible setups only."
     ),
     x = "Generation", y = "Fitness (lower is better)",
     color = NULL, linetype = NULL
@@ -127,7 +123,7 @@ p_diff <- ggplot(diff_plot, aes(y = label)) +
   labs(
     title = "Best vs baseline decision variables",
     x = "Value", y = NULL, color = NULL,
-    caption = "Queue = inter-station buffer; operators are zone crews. Baseline = guided Experiment."
+    caption = "Queue = inter-station buffer; operators are zone crews. Baseline is the guided Experiment set."
   ) +
   theme_minimal(base_size = 16) +
   theme(legend.position = "bottom", legend.direction = "horizontal")
