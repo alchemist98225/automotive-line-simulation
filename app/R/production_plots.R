@@ -234,3 +234,34 @@ shift_output_plot <- function(df, capacity, palette = NULL) {
       )
     )
 }
+
+# Cumulative demand (orders) vs cumulative completions after warm-up.
+# Gap between the curves is the backlog piling up when the line cannot keep up.
+demand_vs_output_plot <- function(release_timeseries) {
+  req_cols <- c("time", "cumulative_orders", "cumulative_completions")
+  if (is.null(release_timeseries) || !nrow(release_timeseries) ||
+      !all(req_cols %in% names(release_timeseries))) {
+    return(ggplot() + theme_void(base_size = 16) +
+             labs(subtitle = plot_subtitle("No demand / completion series.")))
+  }
+  d <- release_timeseries %>%
+    group_by(time) %>%
+    summarise(
+      Demand = mean(cumulative_orders, na.rm = TRUE),
+      Completed = mean(cumulative_completions, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    pivot_longer(c(Demand, Completed), names_to = "series", values_to = "vehicles") %>%
+    mutate(series = factor(series, levels = c("Demand", "Completed")))
+  ggplot(d, aes(time, vehicles, color = series)) +
+    geom_line(linewidth = 1.2) +
+    geom_point(data = dplyr::slice_tail(d, n = 2), size = 3.2, show.legend = FALSE) +
+    scale_color_manual(values = c(Demand = "#6c757d", Completed = "#2474A5")) +
+    labs(
+      x = "Time including settling (min)",
+      y = "Cumulative vehicles",
+      color = NULL,
+      subtitle = plot_subtitle("Mean across runs. Demand = orders placed; gap = backlog.")
+    ) +
+    theme_sim(legend.position = "bottom", legend.direction = "horizontal")
+}

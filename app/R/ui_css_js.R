@@ -259,6 +259,18 @@ app_header_tags <- function() {
       z-index: 5;
       pointer-events: none;
     }
+    .import-busy-btn.import-busy-running {
+      background-color: #e67e00 !important;
+      border-color: #c96e00 !important;
+      color: #ffffff !important;
+      opacity: 1 !important;
+    }
+    .import-busy-btn.import-busy-done {
+      background-color: #198754 !important;
+      border-color: #146c43 !important;
+      color: #ffffff !important;
+      opacity: 1 !important;
+    }
     /* Soften Shiny's default fade on other outputs without a full-page cover. */
     .recalculating { opacity: 0.72 !important; }
     #run.sim-run-btn.recalculating,
@@ -556,6 +568,44 @@ app_header_tags <- function() {
         paintSimRunBtn(document.getElementById('run'), 'running');
         showSimProgressLocal(repsLabel('guided example'));
       });
+      function paintImportBusyBtn(btn, state) {
+        if (!btn) return;
+        btn.classList.remove('import-busy-running', 'import-busy-done');
+        if (state === 'running') {
+          btn.classList.add('import-busy-running');
+          btn.disabled = true;
+          if (!btn.dataset.importLabel) btn.dataset.importLabel = (btn.textContent || '').trim();
+          btn.textContent = 'Importing…';
+        } else if (state === 'done') {
+          btn.classList.add('import-busy-done');
+          btn.disabled = false;
+          var doneLabel = btn.dataset.importLabel || 'Import';
+          btn.textContent = 'Imported';
+          window.setTimeout(function() {
+            btn.classList.remove('import-busy-done');
+            btn.textContent = doneLabel;
+          }, 1600);
+        } else {
+          btn.disabled = false;
+          if (btn.dataset.importLabel) btn.textContent = btn.dataset.importLabel;
+        }
+      }
+      function registerImportBusy() {
+        if (window.__importBusy) return;
+        if (!window.Shiny || !Shiny.addCustomMessageHandler) return;
+        window.__importBusy = true;
+        Shiny.addCustomMessageHandler('importBusy', function(message) {
+          var id = message && message.id;
+          var state = (message && message.state) || 'idle';
+          paintImportBusyBtn(document.getElementById(id), state);
+        });
+        $(document).on('click', '.import-busy-btn', function() {
+          paintImportBusyBtn(this, 'running');
+        });
+      }
+      document.addEventListener('shiny:connected', registerImportBusy);
+      if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', registerImportBusy);
+      else registerImportBusy();
       $(document).on('click', '#compare', function() {
         showSimProgressLocal(repsLabel('staffing comparison'));
       });

@@ -135,3 +135,53 @@ comparison_flow <- function(df, column, y_label, facet = NULL, palette = compari
   p
 }
 
+# Two-set cumulative demand vs completions. Demand is dashed (same curve shape
+# when arrival rates match); completions are solid colored by set.
+comparison_demand_vs_output <- function(df, palette = comparison_colors) {
+  need <- c("set", "hours", "cumulative_orders", "cumulative_completions", "replication")
+  if (is.null(df) || !nrow(df) || !all(need %in% names(df))) {
+    return(ggplot() + theme_void(base_size = 16) +
+             labs(subtitle = plot_subtitle("No demand / completion series.")))
+  }
+  df <- df %>% mutate(set = factor(set, levels = names(palette)))
+  # Mean across replications on a shared hour grid per set.
+  summ <- df %>%
+    group_by(set, hours) %>%
+    summarise(
+      Demand = mean(cumulative_orders, na.rm = TRUE),
+      Completed = mean(cumulative_completions, na.rm = TRUE),
+      .groups = "drop"
+    )
+  long <- summ %>%
+    pivot_longer(c(Demand, Completed), names_to = "series", values_to = "vehicles") %>%
+    mutate(
+      series = factor(series, levels = c("Demand", "Completed")),
+      key = paste(as.character(set), as.character(series), sep = " · ")
+    )
+  # Color completions by set; demand shared grey dashed.
+  comp <- long %>% filter(series == "Completed")
+  dem <- long %>% filter(series == "Demand")
+  max_h <- max(long$hours, na.rm = TRUE)
+  ggplot() +
+    geom_line(
+      data = dem,
+      aes(hours, vehicles, group = set),
+      color = "#6c757d", linetype = "dashed", linewidth = 1.05, alpha = 0.9
+    ) +
+    geom_line(
+      data = comp,
+      aes(hours, vehicles, color = set),
+      linewidth = 1.2
+    ) +
+    scale_color_manual(values = palette, drop = FALSE, name = NULL) +
+    scale_x_continuous(
+      breaks = observation_hour_breaks(max_h),
+      expand = expansion(mult = c(0.01, 0.03))
+    ) +
+    labs(
+      x = "Hours since settling ended",
+      y = "Cumulative vehicles",
+      subtitle = plot_subtitle("Dashed = demand (orders); solid = completed. Gap = backlog.")
+    ) +
+    theme_sim(legend.position = "bottom", legend.direction = "horizontal")
+}

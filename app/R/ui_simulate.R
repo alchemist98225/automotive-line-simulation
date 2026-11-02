@@ -40,15 +40,15 @@ guided_example_ui <- function() {
             )
           ),
           p(class = "mt-2 mb-2",
-            "This model asks where the line's capacity constraint is, and what changes if you add capacity there."),
-          p(class = "mb-2", "Raise Paint from 1 bay to 2."),
+            "Startup shows the dedicated-operators, 1 paint bay line from a 20-replication preload at 10 veh/hr demand. Compare already holds that set beside the shared 2-paint line at the same demand."),
+          p(class = "mb-2", "Try it re-runs the dedicated 1-paint settings live at 5 replications so you can see a fast pass."),
           div(
             class = "d-flex flex-wrap gap-2 mb-2",
             actionButton("guide_try", tagList(icon("play"), span(class = "sim-run-label", "Try it")), class = "btn-primary btn-sm sim-run-btn"),
             actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
           ),
           p(class = "mb-0",
-            "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline.")
+            "Run simulation returns the matching 20-rep preload instantly when the sidebar matches Scenario 1 or 2. Import either Compare set on Results for the full 20-rep charts. Optimize starts from the shared 2-paint set at 12 veh/hr demand (throughput at least that baseline).")
         )
       )
     )

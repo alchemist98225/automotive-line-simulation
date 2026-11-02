@@ -423,7 +423,7 @@ comparison_page_server <- function(id, main_params, active_page) {
         })
       }
     })
-    # Headline cards match Results order: Throughput, lead time, HPU, bottleneck.
+    # Headline cards match Results order: Throughput, cycle time, HPU, bottleneck.
     # Bottleneck uses the same station as Results / the change-story "busiest station".
     output$kpis <- renderUI({
       r <- results()
@@ -488,7 +488,7 @@ comparison_page_server <- function(id, main_params, active_page) {
           fill = FALSE,
           col_widths = c(3, 3, 3, 3),
           numeric_card("Throughput / hour", thr, 2L),
-          numeric_card("Mean lead time / min", lead, 2L),
+          numeric_card("Cycle time / min", lead, 2L),
           numeric_card("HPU (labor-h/unit)", hpu, 2L),
           value_box(
             title = "Bottleneck candidate",
@@ -535,7 +535,7 @@ comparison_page_server <- function(id, main_params, active_page) {
     output$distribution <- renderPlot({
       labels <- c(
         throughput_per_hr = "Throughput (vehicles/hour)",
-        cycle_time_mean = "Mean lead time (min)",
+        cycle_time_mean = "Cycle time (min)",
         avg_wip = "Average WIP (vehicles)",
         hpu = "HPU (labor-h/unit)"
       )
@@ -624,7 +624,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       )
       shift_output_plot(table_for("shift_summaries"), caps, palette())
     })
-    output$backlog <- renderPlot({comparison_flow(table_for("release_timeseries"),"unreleased_backlog","Orders waiting for admission",palette=palette())})
+    output$backlog <- renderPlot({comparison_demand_vs_output(table_for("release_timeseries"), palette = palette())})
     output$wip <- renderPlot({
       comparison_flow(table_for("wip_timeseries"), "wip", "WIP (vehicles)", palette = palette())
     })
@@ -653,7 +653,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       df <- summary_data()
       names(df) <- c(
         "Parameter set", "Replications", "Throughput / hour", "Standard error",
-        "95% CI half-width", "95% CI lower", "95% CI upper", "Mean lead time / min",
+        "95% CI half-width", "95% CI lower", "95% CI upper", "Cycle time / min",
         "Average WIP", "HPU (labor-hours / unit)"
       )
       datatable(df, rownames = FALSE, options = list(dom = "t", scrollX = TRUE)) %>%

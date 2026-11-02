@@ -1,6 +1,6 @@
 # optimize_fitness.R
 # Fitness = HPU + resource cost-equivalent per unit + throughput-shortfall penalty.
-# Baseline = guided Experiment (paint capacity 2 via opt_guided_experiment_params()).
+# Baseline = Scenario 2 (shared 2-paint @ 12 veh/hr demand via opt_guided_experiment_params()).
 # HPU from run_line_sim()$summaries$hpu (app definition).
 # Sourced by opt_lib.R.
 
@@ -21,15 +21,13 @@ opt_summarise_result <- function(result) {
 # Build run params: guided experiment, then overlay genome knobs.
 opt_params_from_genome <- function(genome, n_reps, base_seed, defs = opt_knob_defs()) {
   row <- opt_genome_to_row(genome, design_id = "candidate", defs = defs)
-  # Start from guided experiment so non-knob fields match the app Try-it set.
-  base <- opt_guided_experiment_params()
-  # doe_params_from_row starts from default_params(); overlay onto guided by
-  # writing knobs onto a design row that also carries guided non-defaults.
-  # Simpler: doe_params_from_row then force paint/queues/ops from genome
-  # (already in row) — but default_params has paint=1. Row includes cap_paint
-  # so doe_params_from_row sets it. Guided == default except paint cap, so
-  # with default genome (cap_paint=2) we match guided. Good.
-  doe_params_from_row(row, n_replications = as.integer(n_reps), base_seed = as.integer(base_seed))
+  # doe_params_from_row starts from default_params(); genome row sets paint /
+  # queues / ops. Copy arrival (and any other non-knob stretch settings) from
+  # the guided Scenario-2 baseline so default genome matches baseline eval.
+  guided <- opt_guided_experiment_params()
+  p <- doe_params_from_row(row, n_replications = as.integer(n_reps), base_seed = as.integer(base_seed))
+  p$arrival_mean_min <- guided$arrival_mean_min
+  normalize_params(p)
 }
 
 opt_pack_eval <- function(genome, result, n_reps, base_seed, cand_index,

@@ -12,7 +12,7 @@ comparison_download_catalog <- function(ns) {
     ),
     entry(
       "dl_summaries", "Replication summaries",
-      "Throughput, lead time, WIP, and HPU (labor-hours per unit) for every replication."
+      "Throughput, cycle time, WIP, and HPU (labor-hours per unit) for every replication."
     ),
     entry(
       "dl_cycle", "Cycle times",
@@ -48,7 +48,7 @@ comparison_download_catalog <- function(ns) {
     ),
     entry(
       "dl_highlights", "Largest changes",
-      "Every replication behind the ranked charts: throughput, lead time, WIP, bay occupancy, and queues."
+      "Every replication behind the ranked charts: throughput, cycle time, WIP, bay occupancy, and queues."
     ),
     div(
       class = "mt-3",

@@ -25,9 +25,11 @@ load_preload_scenarios <- function() {
 # Scenario builders (same shapes the precompute script uses).
 analysis_station_names <- c("body_shop", "paint", "final_assembly", "inspection")
 
-scenario_dedicated_one_paint <- function(n_replications = 20L, base = default_params()) {
+scenario_dedicated_one_paint <- function(n_replications = 20L, base = default_params(),
+                                         demand_per_hr = preload_stretch_demand_per_hr) {
   p <- base
   p$n_replications <- as.integer(n_replications)
+  p$arrival_mean_min <- 60 / as.numeric(demand_per_hr)
   p$operators <- tibble::tibble(
     pool = analysis_station_names,
     count = rep(1L, length(analysis_station_names))
@@ -37,9 +39,11 @@ scenario_dedicated_one_paint <- function(n_replications = 20L, base = default_pa
   normalize_params(p)
 }
 
-scenario_shared_two_paint <- function(n_replications = 20L, base = default_params()) {
+scenario_shared_two_paint <- function(n_replications = 20L, base = default_params(),
+                                      demand_per_hr = preload_stretch_demand_per_hr) {
   p <- base
   p$n_replications <- as.integer(n_replications)
+  p$arrival_mean_min <- 60 / as.numeric(demand_per_hr)
   p$operators <- tibble::tibble(
     pool = c("upstream", "downstream"),
     count = c(1L, 2L)
@@ -53,3 +57,21 @@ preload_scenario_labels <- c(
   "Dedicated operators, 1 paint bay",
   "Shared operators, 2 paint bays"
 )
+
+# Shared demand for both preloaded scenarios and Try it (5 reps).
+# 10 veh/hr keeps Scenario 2 below its break (~12) so Compare tells a clear
+# backlog story vs Scenario 1 without saturating the better line.
+preload_stretch_demand_per_hr <- 10
+
+# Return scenario1/scenario2 list when params fingerprint matches a preload, else NULL.
+match_preload_scenario <- function(params, bundle) {
+  if (is.null(bundle) || is.null(params)) return(NULL)
+  fp <- params_fingerprint(params)
+  for (nm in c("scenario1", "scenario2")) {
+    sc <- bundle[[nm]]
+    if (is.null(sc) || is.null(sc$params)) next
+    if (identical(fp, params_fingerprint(sc$params))) return(sc)
+  }
+  NULL
+}
+
