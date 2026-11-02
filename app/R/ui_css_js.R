@@ -203,9 +203,10 @@ app_header_tags <- function() {
     }
     @keyframes app-boot-spin { to { transform: rotate(360deg); } }
 
-    /* Keep charts readable while Shiny recalculates; show a placeholder instead of a blank fade. */
+    /* Keep Results/Compare charts readable while recalculating; avoid blank fade.
+       Scoped to plots/tables only — not every shiny-html-output (that covered the page). */
     .shiny-plot-output.recalculating,
-    .shiny-html-output.recalculating,
+    .ggiraph-container.recalculating,
     .girafe.recalculating,
     .datatables.recalculating {
       opacity: 1 !important;
@@ -214,7 +215,7 @@ app_header_tags <- function() {
       min-height: 4.5rem;
     }
     .shiny-plot-output.recalculating::after,
-    .shiny-html-output.recalculating::after,
+    .ggiraph-container.recalculating::after,
     .girafe.recalculating::after,
     .datatables.recalculating::after {
       content: 'Updating…';
@@ -229,6 +230,19 @@ app_header_tags <- function() {
       font-size: 1.05rem;
       z-index: 5;
       pointer-events: none;
+    }
+    /* Soften Shiny's default fade on other outputs without a full-page cover. */
+    .recalculating { opacity: 0.72 !important; }
+    #run.sim-run-btn.recalculating,
+    #guide_try.sim-run-btn.recalculating,
+    #sim_progress_slot.recalculating,
+    #sim_progress_slot .recalculating,
+    .sim-status-bar.recalculating,
+    .sim-status-bar .recalculating,
+    #headline_kpis.recalculating,
+    #headline_kpis .recalculating {
+      opacity: 1 !important;
+      filter: none !important;
     }
 
     /* Title-bar illustrative notice (one line under the navbar brand). */
