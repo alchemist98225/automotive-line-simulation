@@ -84,7 +84,7 @@ app_header_tags <- function() {
       font-weight: 500;
     }
     .run-settings summary { cursor: pointer; font-weight: 600; }
-    /* Single illustrative-results note under the guided example. */
+    /* Fine-print helper under KPI defs; title-bar carries the illustrative note. */
     .fine-print { font-size: 0.8rem; color: #1a1a1a; }
     /* Headline cards: every card fills its grid cell, so all four match. */
     #headline_kpis .bslib-grid { align-items: stretch; grid-auto-rows: 1fr; }
@@ -152,8 +152,131 @@ app_header_tags <- function() {
     .shiny-notification .shiny-progress-notification {
       display: none !important;
     }
+
+    /* Cold-start / first-paint cover: visible as soon as HTML arrives. */
+    #app-boot-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 20000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background: #f4f8fb;
+      color: #0a2540;
+      text-align: center;
+      transition: opacity 0.35s ease, visibility 0.35s ease;
+    }
+    #app-boot-overlay.app-boot-hide {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    #app-boot-overlay .app-boot-card {
+      max-width: 28rem;
+      background: #fff;
+      border: 2px solid #2c7fb8;
+      border-radius: 0.75rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      padding: 1.4rem 1.5rem;
+    }
+    #app-boot-overlay .app-boot-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0 0 0.5rem;
+      color: #1b4f72;
+    }
+    #app-boot-overlay .app-boot-detail {
+      margin: 0;
+      font-size: 1rem;
+      line-height: 1.4;
+    }
+    #app-boot-overlay .app-boot-spin {
+      display: inline-block;
+      width: 1.35rem;
+      height: 1.35rem;
+      margin-bottom: 0.75rem;
+      border: 3px solid #9ecae1;
+      border-top-color: #2c7fb8;
+      border-radius: 50%;
+      animation: app-boot-spin 0.8s linear infinite;
+    }
+    @keyframes app-boot-spin { to { transform: rotate(360deg); } }
+
+    /* Keep charts readable while Shiny recalculates; show a placeholder instead of a blank fade. */
+    .shiny-plot-output.recalculating,
+    .shiny-html-output.recalculating,
+    .girafe.recalculating,
+    .datatables.recalculating {
+      opacity: 1 !important;
+      filter: none !important;
+      position: relative;
+      min-height: 4.5rem;
+    }
+    .shiny-plot-output.recalculating::after,
+    .shiny-html-output.recalculating::after,
+    .girafe.recalculating::after,
+    .datatables.recalculating::after {
+      content: 'Updating…';
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(244, 248, 251, 0.78);
+      color: #1b4f72;
+      font-weight: 700;
+      font-size: 1.05rem;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    /* Title-bar illustrative notice (one line under the navbar brand). */
+    .app-title-note {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #f8f9fa;
+      opacity: 0.95;
+      margin: 0;
+      white-space: nowrap;
+    }
+    @media (max-width: 576px) {
+      .app-title-note {
+        white-space: normal;
+        font-size: 0.8rem;
+        line-height: 1.25;
+      }
+    }
+    .term-tip {
+      text-decoration: underline dotted;
+      text-underline-offset: 0.15em;
+      cursor: help;
+    }
   ")),
+    # Full-page cover until the first KPI arrives (and a fallback on shiny:idle).
+    tags$div(
+      id = "app-boot-overlay",
+      role = "status",
+      `aria-live` = "polite",
+      tags$div(
+        class = "app-boot-card",
+        tags$div(class = "app-boot-spin", `aria-hidden` = "true"),
+        tags$p(class = "app-boot-title", "Starting the simulator…"),
+        tags$p(
+          class = "app-boot-detail",
+          "First load can take up to a minute while the app wakes up. Results appear when this message clears."
+        )
+      )
+    ),
     tags$script(HTML("
+      function hideBootOverlay() {
+        var el = document.getElementById('app-boot-overlay');
+        if (!el || el.classList.contains('app-boot-hide')) return;
+        el.classList.add('app-boot-hide');
+        window.setTimeout(function() {
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        }, 400);
+      }
       function setSimProgressVisible(on) {
         var panel = document.getElementById('sim_progress_panel');
         var idle = document.getElementById('sim_progress_idle');
@@ -165,6 +288,7 @@ app_header_tags <- function() {
         var el = document.getElementById('sim_progress_panel');
         if (!el) return;
         if (msg && msg.show) {
+          window.__simAllowProgressHide = false;
           setSimProgressVisible(true);
           var detail = el.querySelector('.sim-progress-detail');
           var bar = el.querySelector('.progress-bar');
@@ -177,6 +301,9 @@ app_header_tags <- function() {
             bar.style.width = '100%';
             bar.textContent = 'In progress';
           }
+        } else if (window.__simUserRan && !window.__simAllowProgressHide) {
+          // Hold Ready until KPI tiles refresh after a user-triggered run.
+          window.__simDeferProgressHide = true;
         } else {
           setSimProgressVisible(false);
         }
@@ -264,7 +391,31 @@ app_header_tags <- function() {
           // The startup run is automatic: keep the buttons idle until the
           // user clicks Run or Try it, so the page never opens on Done.
           if (!window.__simUserRan && state !== 'idle') state = 'idle';
+          // After a user run, hold Done until the KPI value arrives so the
+          // button does not flip green before the tiles refresh.
+          if (state === 'done' && window.__simUserRan) {
+            window.__simPendingDone = true;
+            return;
+          }
+          if (state === 'running') window.__simPendingDone = false;
           paintAllSimRunBtns(state);
+        });
+        $(document).on('shiny:value', function(e) {
+          var name = (e && e.name) ? String(e.name) : '';
+          if (name === 'kpi_throughput' || name.indexOf('kpi_throughput') !== -1) {
+            hideBootOverlay();
+            if (window.__simPendingDone || window.__simDeferProgressHide) {
+              window.__simPendingDone = false;
+              window.__simDeferProgressHide = false;
+              window.__simAllowProgressHide = true;
+              setSimProgressVisible(false);
+              paintAllSimRunBtns('done');
+            }
+          }
+        });
+        $(document).on('shiny:idle', function() {
+          var kpi = document.getElementById('kpi_throughput');
+          if (kpi && (kpi.textContent || '').trim().length) hideBootOverlay();
         });
       }
       document.addEventListener('shiny:connected', registerSimRunButtons);
@@ -278,11 +429,15 @@ app_header_tags <- function() {
       // Open the panel immediately on click so it is visible while Shiny blocks.
       $(document).on('click', '#run', function() {
         window.__simUserRan = true;
+        window.__simAllowProgressHide = false;
+        window.__simPendingDone = false;
         paintSimRunBtn(this, 'running');
         showSimProgressLocal(repsLabel());
       });
       $(document).on('click', '#guide_try', function() {
         window.__simUserRan = true;
+        window.__simAllowProgressHide = false;
+        window.__simPendingDone = false;
         paintSimRunBtn(this, 'running');
         // Mirror on the main Run button so both signal the active sim.
         paintSimRunBtn(document.getElementById('run'), 'running');

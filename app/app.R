@@ -59,7 +59,14 @@ source("R/server_main.R", local = TRUE)
 
 ui <- page_navbar(
   id = "main_page",
-  title = "Automotive Line Simulator",
+  title = tags$span(
+    class = "d-flex flex-column",
+    tags$span("Automotive Line Simulator"),
+    tags$span(
+      class = "app-title-note",
+      "Illustrative only — example inputs, not a calibrated plant."
+    )
+  ),
   theme = bs_theme(
     version = 5,
     bootswatch = "flatly",

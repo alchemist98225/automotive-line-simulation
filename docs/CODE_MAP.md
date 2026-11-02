@@ -9,7 +9,7 @@ Structural layout after the pure-move split (`tom/split-app-modules`). Behavior 
 | `app/app.R` | 79 | Libraries, ordered `source()`, navbar layout, `shinyApp()` | `ui`, (server from `server_main.R`) |
 | `app/R/comparison_logic.R` | 479 | Compare labels, flatten/diff/shift/metrics, parameter editor module. | `comparison_pools, comparison_flatten, comparison_same, sanitize_set_label, sanitize_set_labels, comparison_palette, pretty_parameter, comparison_display_value, comparison_diff, comparison_diff_table, comparison_baseline_params, comparison_shift…` |
 | `app/R/comparison_plots.R` | 126 | Compare densities, ridges, highlight, flow overlays. | `comparison_densities, comparison_ridge_n, comparison_ridge_height, comparison_ridge_plot, format_highlight_mean, comparison_highlight_subtitle, comparison_highlight_plot, comparison_highlight_frame, comparison_flow` |
-| `app/R/comparison_server.R` | — | Compare page server; shared Replications; headline KPIs Throughput/lead/HPU/Bottleneck. | `comparison_page_server` |
+| `app/R/comparison_server.R` | — | Compare page server; shared Replications; load_pair stale-banner suppress until editors sync; headline KPIs. | `comparison_page_server` |
 | `app/R/comparison_ui.R` | 460 | Compare download catalog + comparison_page_ui(); saved-results order is KPIs above highlight graphs. | `comparison_download_catalog, comparison_page_ui` |
 | `app/R/helpers_plots.R` | — | Shared plot plumbing: station labels/colors, theme_sim, ticks, hour breaks, fingerprints. | `label_station, observation_hour_breaks, params_fingerprint, stamp_run, theme_sim…` |
 | `app/R/model.R` | 515 | Simulation engine: default params, validate/normalize, run_line, exports. Path stable for DOE/Quarto. | `sim_now, default_params, timing_spec, validate_timing, make_duration_fn, timing_mean, make_service_fn, activity_timing, normalize_params, validate_params, resource_stats, run_one_replication…` |
@@ -18,10 +18,10 @@ Structural layout after the pure-move split (`tom/split-app-modules`). Behavior 
 | `app/R/plots_simulate.R` | 205 | Overlay and replication density builders (Compare Output distributions). | `overlay_densities, replication_densities` |
 | `app/R/production_page.R` | 64 | Production schedule page UI + server module. | `production_page_ui, production_page_server` |
 | `app/R/production_plots.R` | 222 | Shift capacity helpers + shift_output_plot. | `theoretical_shift_capacity, integer_shift_breaks, capacity_label_hjust, capacity_label, shift_binwidth, shift_hist_breaks, shift_output_plot` |
-| `app/R/server_main.R` | — | Main server(): run lifecycle, Compare→Results/Parameters import, KPIs, downloads. | `server` |
-| `app/R/ui_css_js.R` | 340 | Global page header CSS and Results-nav / KPI JS. | `app_header_tags` |
+| `app/R/server_main.R` | — | Main server(): run lifecycle, onFlushed Done/Ready, Compare→Results/Parameters import, KPIs (incl. WIP), downloads. | `server` |
+| `app/R/ui_css_js.R` | — | Global page header CSS/JS: boot overlay, recalculating placeholders, Run/Try-it Done deferral, Results-nav / KPI JS. | `app_header_tags` |
 | `app/R/ui_pages.R` | 558 | nav_panel builders: Simulate, Parameters, Bottleneck, Flow, Lead, About. | `simulate_page_ui, parameters_page_ui, results_bottleneck_ui, results_flow_ui, results_lead_ui, about_page_ui` |
-| `app/R/ui_simulate.R` | 219 | Guided example card + Simulate run-status banner / Run button CSS+JS. | `guided_example_ui, sim_status_bar_ui` |
+| `app/R/ui_simulate.R` | — | Guided example card + Simulate run-status banner / Run button CSS. | `guided_example_ui, sim_status_bar_ui` |
 | `app/R/ui_widgets.R` | — | Plot cards, download catalog, timing editors, KPI nav boxes, apply/restore params. | `apply_params_to_inputs, restore_default_inputs, provenance_warning, sim_render_plot, plot_card…` |
 
 ## Chart title → function

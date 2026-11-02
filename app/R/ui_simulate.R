@@ -47,11 +47,8 @@ guided_example_ui <- function() {
             actionButton("guide_try", tagList(icon("play"), span(class = "sim-run-label", "Try it")), class = "btn-primary btn-sm sim-run-btn"),
             actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
           ),
-          p(class = "mb-2",
-            "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline."),
-          # The app's single "illustrative" note. Keep it here only.
-          p(class = "small mb-0 fine-print",
-            "Results are illustrative only, based on example inputs.")
+          p(class = "mb-0",
+            "Under these example inputs, paint capacity increases output and reduces production lead time. More work may be admitted as space opens, so shop-floor WIP need not fall. Check unreleased work and the next bottleneck candidate on Production schedule & flow. Compare two sets keeps that run beside the 1-bay baseline.")
         )
       )
     )
