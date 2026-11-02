@@ -96,6 +96,7 @@ opt_run_ga <- function(pop_size = 24L,
     capacity_cost_h = capacity_cost_h, queue_cost_h = queue_cost_h
   )
   thr_floor <- baseline$thr_mean
+  thr_floor_search <- 0.95 * thr_floor
   if (verbose) {
     cat(sprintf(
       "Baseline HPU=%.4f thr=%.3f/hr cost_hpu=%.4f fitness=%.4f\n",
@@ -118,7 +119,7 @@ opt_run_ga <- function(pop_size = 24L,
       n_reps = reps,
       base_seed = base_seed,
       cand_index = assign_index(genome),
-      thr_floor = thr_floor,
+      thr_floor = thr_floor_search,
       penalty = penalty,
       cache = cache,
       defs = defs,
@@ -128,11 +129,22 @@ opt_run_ga <- function(pop_size = 24L,
     )
   }
 
-  # All-random initial population (no seeded baseline). Seeding the guided
-  # Experiment made gen-0 best = baseline and often a single early jump to a
-  # near-optimum staffing cut, then a flat best line. Random start lets best
-  # improve across generations while thr_floor still comes from the baseline eval.
+  # Seed baseline as member 1 so search never reports worse than baseline;
+  # remaining members are random for exploration.
   pop <- lapply(seq_len(pop_size), function(i) opt_random_genome(defs))
+  pop[[1]] <- baseline_genome
+  up_i <- which(defs$name == "op_upstream")[[1]]
+  if (length(up_i) && baseline_genome[[up_i]] > defs$lo[[up_i]] && pop_size >= 2L) {
+    g_cut <- baseline_genome
+    g_cut[[up_i]] <- baseline_genome[[up_i]] - 1L
+    pop[[2]] <- g_cut
+  }
+  n_local <- min(4L, pop_size - 1L)
+  for (i in seq_len(n_local)) {
+    idx <- i + 1L
+    if (idx == 2L) next
+    pop[[idx]] <- opt_mutate(baseline_genome, defs = defs, p_mut = 0.5)
+  }
 
   history <- list()
   all_evals <- list()
@@ -204,8 +216,11 @@ opt_run_ga <- function(pop_size = 24L,
     if (gen == n_gen) break
 
     ord <- order(fitness)
-    n_keep <- 1L  # single elite; rest are tournament offspring
-    next_pop <- pop[ord[seq_len(n_keep)]]
+    # Keep baseline + current elite, then fill with offspring
+    next_pop <- list(baseline_genome, pop[[ord[[1]]]])
+    if (identical(opt_genome_key(next_pop[[1]]), opt_genome_key(next_pop[[2]]))) {
+      next_pop <- next_pop[1L]
+    }
     while (length(next_pop) < pop_size) {
       i <- opt_tournament(fitness, k = tournament_k)
       j <- opt_tournament(fitness, k = tournament_k)
@@ -287,7 +302,13 @@ opt_run_ga <- function(pop_size = 24L,
     )
   }) %>% arrange(fitness)
 
+  # Include baseline in the pool; never report worse than baseline
+  elite_keys <- vapply(elite_evals, function(ev) opt_genome_key(ev$genome), character(1))
+  if (!opt_genome_key(baseline_elite$genome) %in% elite_keys) {
+    elite_evals <- c(list(baseline_elite), elite_evals)
+  }
   best_ev <- elite_evals[[which.min(vapply(elite_evals, `[[`, numeric(1), "fitness"))]]
+  if (best_ev$fitness > baseline_elite$fitness) best_ev <- baseline_elite  # best never worse
 
   ci <- function(x) {
     x <- x[is.finite(x)]

@@ -33,6 +33,7 @@ optimize_page_server <- function(id = "optimize_page",
       cache = NULL,
       defs = NULL,
       best_summary = NULL,
+      improved = FALSE,
       param_diff = NULL,
       best_ev = NULL,
       baseline_elite = NULL,
@@ -43,16 +44,25 @@ optimize_page_server <- function(id = "optimize_page",
     # ---- Bounds UI (defaults from opt_knob_defs) ----
     output$bounds_ui <- renderUI({
       defs <- opt_knob_defs()
-      tagList(lapply(seq_len(nrow(defs)), function(i) {
-        nm <- defs$name[[i]]
-        div(
-          class = "d-flex gap-2 align-items-end mb-1",
-          numericInput(ns(paste0("lo_", nm)), paste0(defs$label[[i]], " min"),
-                       value = defs$lo[[i]], min = 0, step = 1, width = "48%"),
-          numericInput(ns(paste0("hi_", nm)), "max",
-                       value = defs$hi[[i]], min = 1, step = 1, width = "48%")
-        )
-      }))
+      tagList(
+        div(class = "row g-1 mb-1 small fw-semibold text-muted",
+            div(class = "col-6", "Knob"),
+            div(class = "col-3", "Min"),
+            div(class = "col-3", "Max")),
+        lapply(seq_len(nrow(defs)), function(i) {
+          nm <- defs$name[[i]]
+          div(
+            class = "row g-1 align-items-center mb-1",
+            div(class = "col-6 small", defs$label[[i]]),
+            div(class = "col-3",
+                numericInput(ns(paste0("lo_", nm)), label = NULL,
+                             value = defs$lo[[i]], min = 0, step = 1, width = "100%")),
+            div(class = "col-3",
+                numericInput(ns(paste0("hi_", nm)), label = NULL,
+                             value = defs$hi[[i]], min = 1, step = 1, width = "100%"))
+          )
+        })
+      )
     })
 
     custom_defs <- reactive({
@@ -114,10 +124,10 @@ optimize_page_server <- function(id = "optimize_page",
 
     # ---- Presets ----
     observeEvent(input$preset_quick, {
-      updateNumericInput(session, "pop", value = 6)
-      updateNumericInput(session, "gen", value = 3)
-      updateNumericInput(session, "reps", value = 1)
-      updateNumericInput(session, "elite_reps", value = 3)
+      updateNumericInput(session, "pop", value = 10)
+      updateNumericInput(session, "gen", value = 6)
+      updateNumericInput(session, "reps", value = 2)
+      updateNumericInput(session, "elite_reps", value = 15)
     })
     observeEvent(input$preset_thorough, {
       updateNumericInput(session, "pop", value = 24)
@@ -178,8 +188,24 @@ optimize_page_server <- function(id = "optimize_page",
       )
 
       pop <- lapply(seq_len(pop_size), function(i) opt_random_genome(defs))
+      pop[[1]] <- baseline_genome
+      # Local neighbors of baseline so staffing/queue cuts show up early
+      # Explicit one-step staffing cut (often improves HPU when thr holds under elite reps)
+      up_i <- which(defs$name == "op_upstream")[[1]]
+      if (length(up_i) && baseline_genome[[up_i]] > defs$lo[[up_i]] && pop_size >= 2L) {
+        g_cut <- baseline_genome
+        g_cut[[up_i]] <- baseline_genome[[up_i]] - 1L
+        pop[[2]] <- g_cut
+      }
+      n_local <- min(4L, pop_size - 1L)
+      for (i in seq_len(n_local)) {
+        idx <- i + 1L
+        if (idx == 2L && !is.null(pop[[2]])) next
+        pop[[idx]] <- opt_mutate(baseline_genome, defs = defs, p_mut = 0.5)
+      }
 
       state$running <- TRUE
+      state$improved <- FALSE
       state$cancel <- FALSE
       state$phase <- "search"
       state$gen_i <- 0L
@@ -188,6 +214,8 @@ optimize_page_server <- function(id = "optimize_page",
       state$history <- NULL
       state$all_evals <- NULL
       state$thr_floor <- base_eval$thr_mean
+      # Soft floor for search only (2-rep noise); elite re-eval uses hard CRN floor
+      state$thr_floor_search <- 0.95 * base_eval$thr_mean
       state$baseline_genome <- baseline_genome
       state$baseline_params <- base_info$params
       state$capacity_cost_h <- capacity_cost_h
@@ -230,7 +258,7 @@ optimize_page_server <- function(id = "optimize_page",
           gen <- state$gen_i + 1L
           n_gen <- state$n_gen
           n_reps <- state$n_reps
-          thr_floor <- state$thr_floor
+          thr_floor <- state$thr_floor_search %||% (0.95 * state$thr_floor)
           baseline_genome <- state$baseline_genome
           cache <- state$cache
 
@@ -301,7 +329,11 @@ optimize_page_server <- function(id = "optimize_page",
             state$status <- "Re-evaluating top elites…"
           } else {
             ord <- order(fitness)
-            next_pop <- pop[ord[1L]]
+            next_pop <- list(state$baseline_genome, pop[[ord[1L]]])
+            # Drop duplicate if the elite is already the baseline
+            if (identical(opt_genome_key(next_pop[[1]]), opt_genome_key(next_pop[[2]]))) {
+              next_pop <- next_pop[1L]
+            }
             while (length(next_pop) < length(pop)) {
               i <- opt_tournament(fitness, k = 3L)
               j <- opt_tournament(fitness, k = 3L)
@@ -342,6 +374,12 @@ optimize_page_server <- function(id = "optimize_page",
           elite_genomes <- uniq %>%
             dplyr::select(all_of(defs$name)) %>%
             pmap(function(...) as.integer(c(...)))
+          # Always include the baseline genome in the elite re-eval pool
+          base_key <- opt_genome_key(baseline_genome)
+          elite_keys <- vapply(elite_genomes, opt_genome_key, character(1))
+          if (!base_key %in% elite_keys) {
+            elite_genomes <- c(list(baseline_genome), elite_genomes)
+          }
           elite_evals <- lapply(elite_genomes, function(g) {
             opt_evaluate_genome(
               genome = g,
@@ -358,7 +396,14 @@ optimize_page_server <- function(id = "optimize_page",
               queue_cost_h = state$queue_cost_h
             )
           })
-          best_ev <- elite_evals[[which.min(vapply(elite_evals, `[[`, numeric(1), "fitness"))]]
+          # Include pristine baseline_elite in the comparison set
+          all_cands <- c(list(baseline_elite), elite_evals)
+          fits <- vapply(all_cands, `[[`, numeric(1), "fitness")
+          best_ev <- all_cands[[which.min(fits)]]
+          # Guard: never report a best worse than baseline
+          if (best_ev$fitness > baseline_elite$fitness) best_ev <- baseline_elite
+          improved <- best_ev$fitness < baseline_elite$fitness - 1e-12 &&
+            !identical(opt_genome_key(best_ev$genome), opt_genome_key(baseline_genome))
 
           ci <- function(x) {
             x <- x[is.finite(x)]
@@ -393,13 +438,17 @@ optimize_page_server <- function(id = "optimize_page",
             best = as.integer(best_ev$genome),
             delta = as.integer(best_ev$genome - baseline_genome)
           )
+          state$improved <- isTRUE(improved)
           state$phase <- "done"
           state$running <- FALSE
           state$progress <- 1
-          state$status <- sprintf(
-            "Done. Best fitness %.3f (baseline %.3f).",
-            best_ev$fitness, baseline_elite$fitness
-          )
+          state$status <- if (isTRUE(improved)) {
+            sprintf("Done. Best fitness %.3f (baseline %.3f).",
+                    best_ev$fitness, baseline_elite$fitness)
+          } else {
+            sprintf("Done. No better setup found (baseline fitness %.3f). Try Thorough or wider bounds.",
+                    baseline_elite$fitness)
+          }
         }
       })
 
@@ -434,14 +483,23 @@ optimize_page_server <- function(id = "optimize_page",
       if (is.null(state$best_summary)) {
         return(p(class = "text-muted", "Results appear here after a finished run."))
       }
+      improved <- isTRUE(state$improved)
       tagList(
+        if (!improved) {
+          div(class = "alert alert-warning py-2 px-3",
+              "No better setup found — try Thorough or wider bounds.")
+        },
         h5("Best vs baseline"),
         DTOutput(ns("summary_table")),
         h5("Parameter changes"),
         plotOutput(ns("param_diff"), height = "320px"),
         div(
           class = "mt-3",
-          actionButton(ns("send_compare"), "Send to Compare", class = "btn-success")
+          actionButton(
+            ns("send_compare"), "Send to Compare",
+            class = "btn-success",
+            disabled = !improved
+          )
         ),
         uiOutput(ns("send_note"))
       )
@@ -463,7 +521,7 @@ optimize_page_server <- function(id = "optimize_page",
     })
 
     observeEvent(input$send_compare, {
-      req(state$best_ev, state$baseline_elite)
+      req(state$best_ev, state$baseline_elite, isTRUE(state$improved))
       # Build run-like objects for Compare load_pair
       base_run <- list(
         params = state$baseline_elite$params,

@@ -142,6 +142,6 @@ initial population (`generation0.csv`).
 
 The **Optimize** nav page runs the same GA core (`app/R/optimize_*.R`) sequentially
 (one core) with a live convergence chart, Cancel, and **Send to Compare**.
-Presets: Quick (~4 min; pop 6 × gen 3 × 1 rep, elite 3) and Thorough (24 × 15 × 3, elite 15).
+Presets: Quick (~2 min CLI cold on 1 core; pop 10 × gen 6 × 2 reps, elite 15) and Thorough (24 × 15 × 3, elite 15). The baseline genome stays in the pool so reported best is never worse than baseline. Search uses a soft throughput floor (95% of baseline) because 2-rep estimates are noisy; elite re-eval uses the hard CRN floor.
 Cost rates are labeled illustrative. Baseline can be Current Parameters, the guided
 balanced set, or a Compare set. CLI shims under `scripts/opt_*.R` source the app core.
