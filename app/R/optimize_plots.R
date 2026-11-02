@@ -22,8 +22,8 @@ optimize_convergence_plot <- function(history) {
   x_breaks <- if (length(gens) <= 12) gens else pretty(gens, n = 8)
   x_breaks <- unique(as.integer(round(x_breaks)))
   ggplot(long, aes(generation, fitness, color = series, linetype = series)) +
-    geom_line(linewidth = 0.9) +
-    geom_point(size = 2) +
+    geom_line(linewidth = 1.3) +
+    geom_point(size = 5.5) +
     scale_color_manual(values = c(Best = "#0072B2", Mean = "#D55E00")) +
     scale_linetype_manual(values = c(Best = "solid", Mean = "dashed")) +
     scale_x_continuous(breaks = x_breaks) +
@@ -53,8 +53,8 @@ optimize_diversity_plot <- function(history) {
   gens <- sort(unique(long$generation))
   x_breaks <- if (length(gens) <= 12) gens else unique(as.integer(round(pretty(gens, n = 8))))
   ggplot(long, aes(generation, value, color = metric)) +
-    geom_line(linewidth = 0.9) +
-    geom_point(size = 2) +
+    geom_line(linewidth = 1.3) +
+    geom_point(size = 5.5) +
     facet_wrap(~metric, scales = "free_y", ncol = 1) +
     scale_color_manual(values = c(
       "Unique genomes" = "#0072B2",
@@ -72,12 +72,29 @@ optimize_param_diff_plot <- function(diff) {
         theme_void(base_size = 16)
     )
   }
-  diff_plot <- diff %>% mutate(label = factor(label, levels = rev(as.character(label))))
+  diff_plot <- diff %>%
+    mutate(
+      label = factor(label, levels = rev(as.character(label))),
+      # Slight vertical dodge when values match so both series stay visible.
+      y_base = as.numeric(label) + ifelse(baseline == best, 0.12, 0),
+      y_best = as.numeric(label) + ifelse(baseline == best, -0.12, 0)
+    )
+  x_vals <- c(diff_plot$baseline, diff_plot$best)
+  x_min <- floor(min(x_vals, na.rm = TRUE))
+  x_max <- ceiling(max(x_vals, na.rm = TRUE))
+  if (!is.finite(x_min) || !is.finite(x_max)) {
+    x_min <- 0L; x_max <- 1L
+  }
+  if (x_max <= x_min) x_max <- x_min + 1L
   ggplot(diff_plot, aes(y = label)) +
-    geom_segment(aes(x = baseline, xend = best, yend = label), linewidth = 0.8, color = "grey50") +
-    geom_point(aes(x = baseline, color = "Baseline"), size = 3) +
-    geom_point(aes(x = best, color = "Best"), size = 3) +
+    geom_segment(aes(x = baseline, xend = best, y = y_base, yend = y_best),
+                 linewidth = 1.2, color = "grey50") +
+    # Open ring for Baseline (visible under Best when values match).
+    geom_point(aes(x = baseline, y = y_base, color = "Baseline"),
+               size = 8, shape = 21, fill = "white", stroke = 1.8) +
+    geom_point(aes(x = best, y = y_best, color = "Best"), size = 6.5) +
     scale_color_manual(values = c(Baseline = "#0072B2", Best = "#D55E00")) +
+    scale_x_continuous(breaks = seq(x_min, x_max), minor_breaks = NULL) +
     labs(
       title = "Best vs baseline",
       x = "Value", y = NULL, color = NULL

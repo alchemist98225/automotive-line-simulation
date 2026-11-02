@@ -456,15 +456,34 @@ optimize_page_server <- function(id = "optimize_page",
     })
 
     output$progress_ui <- renderUI({
-      if (!isTRUE(state$running) && identical(state$phase, "idle") && state$progress < 1) return(NULL)
+      running <- isTRUE(state$running)
+      idle <- !running && identical(state$phase, "idle") && (state$progress %||% 0) < 1
       pct <- round(100 * (state$progress %||% 0))
+      title <- if (running) {
+        "Search running"
+      } else if (identical(state$phase, "done")) {
+        "Done"
+      } else if (identical(state$phase, "idle")) {
+        "Ready"
+      } else {
+        "Search"
+      }
+      detail <- if (idle) "Status for the next run appears here." else (state$status %||% "")
       div(
-        class = "mt-2",
-        div(class = "progress", style = "height: 1.25rem;",
-            div(class = "progress-bar", role = "progressbar",
-                style = sprintf("width:%d%%;", pct),
-                sprintf("%d%%", pct))),
-        p(class = "small mb-0 mt-1", state$status)
+        class = paste("opt-progress-card", if (idle) "opt-progress-idle" else ""),
+        div(class = "opt-progress-title", title),
+        div(class = "small mb-0", detail),
+        if (!idle) {
+          div(
+            class = "progress",
+            div(
+              class = paste("progress-bar", if (running) "progress-bar-striped progress-bar-animated" else ""),
+              role = "progressbar",
+              style = sprintf("width:%d%%;", max(pct, if (running) 8 else 0)),
+              if (running && pct < 1) "In progress" else sprintf("%d%%", pct)
+            )
+          )
+        }
       )
     })
 
@@ -472,10 +491,10 @@ optimize_page_server <- function(id = "optimize_page",
       p(class = "small text-muted mb-0", state$status)
     })
 
-    output$convergence <- renderPlot({
+    output$convergence <- sim_render_plot({
       optimize_convergence_plot(state$history)
     })
-    output$diversity <- renderPlot({
+    output$diversity <- sim_render_plot({
       optimize_diversity_plot(state$history)
     })
 
@@ -509,7 +528,7 @@ optimize_page_server <- function(id = "optimize_page",
       req(state$best_summary)
       optimize_summary_dt(state$best_summary)
     })
-    output$param_diff <- renderPlot({
+    output$param_diff <- sim_render_plot({
       optimize_param_diff_plot(state$param_diff)
     })
 
