@@ -254,7 +254,7 @@ comparison_page_server <- function(id, main_params, active_page) {
       ))
       run_state("done")
       collapse_editors(scroll = identical(isolate(active_page()), "compare_sets"))
-      invisible(results())
+      invisible(isolate(results()))
     }
     # Value 0 is the button's initial state, not a request to run.
     observeEvent(input$run, {

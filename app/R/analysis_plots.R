@@ -7,7 +7,11 @@
 # Lazy-load plot extras used only on the Analysis page.
 ensure_analysis_plot_pkgs <- function() {
   requireNamespace("ggtext", quietly = TRUE)
-  requireNamespace("patchwork", quietly = TRUE)
+  # Attach patchwork: / and & methods register on load, but plot_layout /
+  # plot_annotation are plain functions and need the search path (or pkg::).
+  if (!"package:patchwork" %in% search()) {
+    suppressPackageStartupMessages(library(patchwork))
+  }
   invisible(TRUE)
 }
 
@@ -124,7 +128,7 @@ break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95, ba
   cap_size <- max(10, round(base_size * 12 / 16))
 
   (thr_panel / lt_panel) +
-    plot_layout(heights = c(1.15, 1), guides = "collect") &
+    patchwork::plot_layout(heights = c(1.15, 1), guides = "collect") &
     theme(
       legend.position = "bottom",
       legend.direction = "horizontal",
@@ -141,7 +145,7 @@ break_plot_sweep <- function(summary_tbl, breakpoints, fill_threshold = 0.95, ba
       ),
       plot.margin = margin(8, 14, 10, 14)
     ) &
-    plot_annotation(caption = caption)
+    patchwork::plot_annotation(caption = caption)
 }
 
 break_save_plot <- function(plot_obj, path, width = 11, height = 10, dpi = 150) {
@@ -222,7 +226,7 @@ plot_tornado_pair <- function(effects, base_size = 16) {
 
   plot_tornado(effects, "hpu", base_size = base_size) /
     plot_tornado(effects, "thr", base_size = base_size) +
-    plot_layout(heights = c(1, 1), guides = "collect") &
+    patchwork::plot_layout(heights = c(1, 1), guides = "collect") &
     theme(legend.position = "bottom", legend.direction = "horizontal")
 }
 
