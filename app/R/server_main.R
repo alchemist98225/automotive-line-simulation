@@ -475,9 +475,15 @@ server <- function(input, output, session) {
   params_import_note <- reactiveVal(NULL)
   output$params_import_compare_ui <- renderUI({
     choices <- compare_set_choices()
-    ready <- isTRUE(compare_has_params())
-    selected <- isolate(import_params_selection())
-    if (!selected %in% c("1", "2")) selected <- "1"
+    # Wait for deferred Compare seed (PR #50 onFlushed) so both sets exist.
+    ready <- isTRUE(compare_has_params()) && isTRUE(preload_compare_done())
+    # Prefer the live select value so a renderUI refresh cannot wipe a
+    # just-chosen set before Import runs (same race as Results).
+    selected <- isolate({
+      v <- as.character(input$import_params_set %||% import_params_selection() %||% "1")
+      if (!v %in% c("1", "2")) v <- "1"
+      v
+    })
     tagList(
       div(
         class = "d-flex flex-wrap gap-3 align-items-end",
@@ -486,7 +492,8 @@ server <- function(input, output, session) {
           "Compare set",
           choices = choices,
           selected = selected,
-          width = "22rem"
+          width = "22rem",
+          selectize = FALSE
         ),
         actionButton(
           "import_params_compare",
@@ -497,7 +504,7 @@ server <- function(input, output, session) {
       ),
       if (!ready) {
         p(class = "small mb-0 mt-2 results-context-hint",
-          "Open Compare two sets once so both parameter sets are available to import.")
+          "Waiting for Compare sets to finish loading, or Open Compare two sets once.")
       }
     )
   })
@@ -512,7 +519,7 @@ server <- function(input, output, session) {
     tryCatch({
       d <- two_set_study$draft()
       if (inherits(d, "error") || is.null(d)) return()
-      idx <- suppressWarnings(as.integer(import_params_selection() %||% input$import_params_set %||% "1"))
+      idx <- suppressWarnings(as.integer(input$import_params_set %||% import_params_selection() %||% "1"))
       if (!idx %in% c(1L, 2L)) idx <- 1L
       import_params_selection(as.character(idx))
       p <- if (identical(idx, 1L)) d$one else d$two
@@ -526,45 +533,65 @@ server <- function(input, output, session) {
     }, error = function(e) {
       params_import_note(paste0("Import failed: ", conditionMessage(e)))
     })
+    session$sendCustomMessage(
+      "importBusy",
+      list(id = "import_params_compare", state = if (isTRUE(ok)) "done" else "idle")
+    )
     session$onFlushed(function() {
       session$sendCustomMessage(
         "importBusy",
         list(id = "import_params_compare", state = if (isTRUE(ok)) "done" else "idle")
       )
     }, once = TRUE)
-    if (!isTRUE(ok)) {
-      session$sendCustomMessage("importBusy", list(id = "import_params_compare", state = "idle"))
-    }
   }, ignoreInit = TRUE)
 
   results_pages <- c(
     "results_capacity", "results_flow", "results_lead", "production_schedule"
   )
-  output$results_context_bar <- renderUI({
+  # Controls rebuild when Compare choices/readiness change — NOT when the
+  # Showing label changes after Import. Rebuilding the select+button on every
+  # import destroyed the importBusy "Importing…" state and could race the
+  # deferred Compare seed (PR #50), which felt like a freeze on Experiment.
+  output$results_showing_label <- renderUI({
     page <- input$main_page
     if (is.null(page) || !page %in% results_pages) return(NULL)
-    choices <- compare_set_choices()
-    ready <- isTRUE(compare_has_results())
     disp <- results_display()
-    selected <- isolate(import_results_selection())
-    if (!selected %in% c("1", "2")) selected <- "1"
-    showing <- if (identical(disp$kind, "compare") && !is.null(disp$label)) {
+    if (identical(disp$kind, "compare") && !is.null(disp$label)) {
       span(class = "results-context-showing",
            sprintf("Showing: %s from Compare", disp$label))
     } else {
       span(class = "results-context-showing", "Showing: latest Simulate run")
     }
+  })
+  output$results_context_bar <- renderUI({
+    page <- input$main_page
+    if (is.null(page) || !page %in% results_pages) return(NULL)
+    choices <- compare_set_choices()
+    ready <- isTRUE(compare_has_results()) && isTRUE(preload_compare_done())
+    # Prefer live input$import_results_set so rebuilds (page change, choice
+    # label refresh) do not snap the select back to the previous set before
+    # Import — that looked like Experiment "not importing" / a freeze.
+    selected <- isolate({
+      v <- as.character(input$import_results_set %||% import_results_selection() %||% "1")
+      if (!v %in% c("1", "2")) v <- "1"
+      v
+    })
+    # Keep both Baseline and Experiment as plain <option>s (no selectize).
+    if (!all(c("1", "2") %in% as.character(unname(choices)))) {
+      ready <- FALSE
+    }
     div(
       class = "results-context-bar",
       div(
         class = "d-flex flex-wrap gap-3 align-items-end",
-        showing,
+        uiOutput("results_showing_label"),
         selectInput(
           "import_results_set",
           "Import results from Compare",
           choices = choices,
           selected = selected,
-          width = "22rem"
+          width = "22rem",
+          selectize = FALSE
         ),
         actionButton(
           "import_results_compare",
@@ -575,7 +602,7 @@ server <- function(input, output, session) {
       ),
       if (!ready) {
         div(class = "results-context-hint mt-1",
-            "Run a comparison first to import either set into these Results pages.")
+            "Waiting for Compare sets to finish loading, or Open Compare two sets once. Baseline stays until you import Experiment (or Set 2).")
       }
     )
   })
@@ -583,9 +610,17 @@ server <- function(input, output, session) {
     session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "running"))
     ok <- FALSE
     tryCatch({
+      if (!isTRUE(isolate(preload_compare_done())) || !isTRUE(isolate(compare_has_results()))) {
+        showNotification(
+          "Compare sets are still loading — try Import again in a moment.",
+          type = "warning", duration = 6
+        )
+        return()
+      }
       r <- two_set_study$results()
       if (is.null(r) || is.null(r$runs) || length(r$runs) < 2L) return()
-      idx <- suppressWarnings(as.integer(import_results_selection() %||% input$import_results_set %||% "1"))
+      # Prefer the live select value (user just picked Experiment/Set 2).
+      idx <- suppressWarnings(as.integer(input$import_results_set %||% import_results_selection() %||% "1"))
       if (!idx %in% c(1L, 2L)) idx <- 1L
       import_results_selection(as.character(idx))
       run <- r$runs[[idx]]
@@ -606,15 +641,18 @@ server <- function(input, output, session) {
     }, error = function(e) {
       showNotification(paste0("Import failed: ", conditionMessage(e)), type = "error", duration = 8)
     })
+    # Clear busy immediately as well as on flush: plot redraw can delay flush,
+    # which left the button on Importing… and felt like a freeze.
+    session$sendCustomMessage(
+      "importBusy",
+      list(id = "import_results_compare", state = if (isTRUE(ok)) "done" else "idle")
+    )
     session$onFlushed(function() {
       session$sendCustomMessage(
         "importBusy",
         list(id = "import_results_compare", state = if (isTRUE(ok)) "done" else "idle")
       )
     }, once = TRUE)
-    if (!isTRUE(ok)) {
-      session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "idle"))
-    }
   }, ignoreInit = TRUE)
 
   current_fingerprint <- reactive(params_fingerprint(build_params()))
