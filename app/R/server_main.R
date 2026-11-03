@@ -508,24 +508,33 @@ server <- function(input, output, session) {
   })
   observeEvent(input$import_params_compare, {
     session$sendCustomMessage("importBusy", list(id = "import_params_compare", state = "running"))
-    d <- two_set_study$draft()
-    if (inherits(d, "error") || is.null(d)) {
-      session$sendCustomMessage("importBusy", list(id = "import_params_compare", state = "idle"))
-      return()
-    }
-    idx <- suppressWarnings(as.integer(import_params_selection() %||% input$import_params_set %||% "1"))
-    if (!idx %in% c(1L, 2L)) idx <- 1L
-    import_params_selection(as.character(idx))
-    p <- if (identical(idx, 1L)) d$one else d$two
-    apply_params_to_inputs(session, p)
-    titles <- two_set_study$titles()
-    params_import_note(sprintf(
-      "Imported parameters from %s. Adjust anything you need, then Run simulation.",
-      titles[[idx]]
-    ))
+    ok <- FALSE
+    tryCatch({
+      d <- two_set_study$draft()
+      if (inherits(d, "error") || is.null(d)) return()
+      idx <- suppressWarnings(as.integer(import_params_selection() %||% input$import_params_set %||% "1"))
+      if (!idx %in% c(1L, 2L)) idx <- 1L
+      import_params_selection(as.character(idx))
+      p <- if (identical(idx, 1L)) d$one else d$two
+      apply_params_to_inputs(session, p)
+      titles <- two_set_study$titles()
+      params_import_note(sprintf(
+        "Imported parameters from %s. Adjust anything you need, then Run simulation.",
+        titles[[idx]]
+      ))
+      ok <- TRUE
+    }, error = function(e) {
+      params_import_note(paste0("Import failed: ", conditionMessage(e)))
+    })
     session$onFlushed(function() {
-      session$sendCustomMessage("importBusy", list(id = "import_params_compare", state = "done"))
+      session$sendCustomMessage(
+        "importBusy",
+        list(id = "import_params_compare", state = if (isTRUE(ok)) "done" else "idle")
+      )
     }, once = TRUE)
+    if (!isTRUE(ok)) {
+      session$sendCustomMessage("importBusy", list(id = "import_params_compare", state = "idle"))
+    }
   }, ignoreInit = TRUE)
 
   results_pages <- c(
@@ -572,31 +581,40 @@ server <- function(input, output, session) {
   })
   observeEvent(input$import_results_compare, {
     session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "running"))
-    r <- two_set_study$results()
-    if (is.null(r) || is.null(r$runs) || length(r$runs) < 2L) {
-      session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "idle"))
-      return()
-    }
-    idx <- suppressWarnings(as.integer(import_results_selection() %||% input$import_results_set %||% "1"))
-    if (!idx %in% c(1L, 2L)) idx <- 1L
-    import_results_selection(as.character(idx))
-    run <- r$runs[[idx]]
-    titles <- two_set_study$titles()
-    label <- titles[[idx]]
-    p <- run$params
-    fp <- params_fingerprint(p)
-    settings <- format_run_settings(p)
-    run_seq$main <- run_seq$main + 1L
-    compare_result_override(stamp_run(run, p, run_seq$main, fingerprint = fp, summary = settings))
-    results_display(list(kind = "compare", label = label))
-    # Stay on the current Results page when possible; otherwise open Flow.
-    page <- isolate(input$main_page)
-    if (is.null(page) || !page %in% results_pages) {
-      nav_select("main_page", "results_flow", session = session)
-    }
+    ok <- FALSE
+    tryCatch({
+      r <- two_set_study$results()
+      if (is.null(r) || is.null(r$runs) || length(r$runs) < 2L) return()
+      idx <- suppressWarnings(as.integer(import_results_selection() %||% input$import_results_set %||% "1"))
+      if (!idx %in% c(1L, 2L)) idx <- 1L
+      import_results_selection(as.character(idx))
+      run <- r$runs[[idx]]
+      titles <- two_set_study$titles()
+      label <- titles[[idx]]
+      p <- run$params
+      fp <- params_fingerprint(p)
+      settings <- format_run_settings(p)
+      run_seq$main <- run_seq$main + 1L
+      compare_result_override(stamp_run(run, p, run_seq$main, fingerprint = fp, summary = settings))
+      results_display(list(kind = "compare", label = label))
+      # Stay on the current Results page when possible; otherwise open Flow.
+      page <- isolate(input$main_page)
+      if (is.null(page) || !page %in% results_pages) {
+        nav_select("main_page", "results_flow", session = session)
+      }
+      ok <- TRUE
+    }, error = function(e) {
+      showNotification(paste0("Import failed: ", conditionMessage(e)), type = "error", duration = 8)
+    })
     session$onFlushed(function() {
-      session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "done"))
+      session$sendCustomMessage(
+        "importBusy",
+        list(id = "import_results_compare", state = if (isTRUE(ok)) "done" else "idle")
+      )
     }, once = TRUE)
+    if (!isTRUE(ok)) {
+      session$sendCustomMessage("importBusy", list(id = "import_results_compare", state = "idle"))
+    }
   }, ignoreInit = TRUE)
 
   current_fingerprint <- reactive(params_fingerprint(build_params()))

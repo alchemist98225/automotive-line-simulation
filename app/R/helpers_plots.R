@@ -147,21 +147,28 @@ format_run_settings <- function(p) {
   )
 }
 stamp_run <- function(res, p, run_number, run_at = Sys.time(), fingerprint = NULL, summary = NULL) {
+  # Capture locals before mutate: run_parameters may already have run_at /
+  # run_number columns from a prior stamp (Compare preload seed, then Import).
+  # Bare names inside dplyr::mutate would mask the function args and
+  # format(character, "%Y-...") errors with "invalid 'trim' argument".
   fp <- fingerprint %||% params_fingerprint(p)
   summary <- summary %||% format_run_settings(p)
+  run_number_value <- as.integer(run_number)
+  run_at_value <- run_at
+  run_at_label <- format(run_at_value, "%Y-%m-%d %H:%M:%S")
   res$provenance <- list(
-    run_number = as.integer(run_number),
-    run_at = run_at,
+    run_number = run_number_value,
+    run_at = run_at_value,
     fingerprint = fp,
     summary = summary,
     params = p
   )
   res$run_parameters <- res$run_parameters %>%
     dplyr::mutate(
-      run_number = as.integer(run_number),
-      run_at = format(run_at, "%Y-%m-%d %H:%M:%S"),
-      settings_summary = summary,
-      params_fingerprint = fp
+      run_number = .env$run_number_value,
+      run_at = .env$run_at_label,
+      settings_summary = .env$summary,
+      params_fingerprint = .env$fp
     )
   res
 }
