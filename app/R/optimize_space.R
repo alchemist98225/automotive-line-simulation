@@ -1,6 +1,6 @@
 # optimize_space.R
 # Decision variables and cost-equivalent rates for the line optimizer.
-# Baseline knobs match Scenario 2 (shared 1+2 operators, 2 paint bays, ~11 veh/hr).
+# Baseline knobs match Scenario 2 (shared 2+2 operators, 2 paint, 10 veh/hr start).
 # Sourced by opt_lib.R.
 
 # Illustrative labor-hour equivalents per clock-hour of resource held.
@@ -10,17 +10,17 @@
 opt_default_capacity_cost_h <- 1.0
 opt_default_queue_cost_h <- 0.1
 
-# Scenario 2 / Compare Experiment: shared upstream=1, downstream=2, paint=2.
-# Throughput floor starts near 11 veh/hr; the GA searches for lower HPU/cost
+# Scenario 2 / Compare Experiment: shared upstream=2, downstream=2, paint=2.
+# Throughput floor starts near 10 veh/hr; the GA searches for lower HPU/cost
 # while staying at least that productive.
 opt_guided_experiment_params <- function() {
-  # Scenario 2 staffing/paint at 12 veh/hr demand (both lines saturate near 12),
-  # so the search has headroom for more throughput. Preloads stay at 10/hr.
+  # Scenario 2 staffing/paint at 10 veh/hr demand (same as the preloads; S2 breaks near 12),
+  # At 10/hr a 3-operator setup can hold throughput, which the search should find.
   p <- default_params()
-  p$arrival_mean_min <- 60 / 12
+  p$arrival_mean_min <- 60 / 10
   p$operators <- tibble::tibble(
     pool = c("upstream", "downstream"),
-    count = c(1L, 2L)
+    count = c(2L, 2L)
   )
   p$stations$operator_pool <- c("upstream", "upstream", "downstream", "downstream")
   p$stations$capacity[p$stations$name == "paint"] <- 2L
@@ -28,13 +28,13 @@ opt_guided_experiment_params <- function() {
 }
 
 opt_knob_defs <- function() {
-  # Defaults = Scenario 2 (~11 veh/hr shared 2-paint set).
+  # Defaults = Scenario 2 (~10 veh/hr shared 2-paint set).
   tibble::tribble(
     ~name,                    ~lo, ~hi, ~default, ~label,
     "buffer_paint",              0L,  8L,       3L, "Queue before paint",
     "buffer_final_assembly",     0L,  8L,       3L, "Queue before final assembly",
     "buffer_inspection",         0L,  8L,       3L, "Queue before inspection",
-    "op_upstream",               1L,  5L,       1L, "Upstream operators",
+    "op_upstream",               1L,  5L,       2L, "Upstream operators",
     "op_downstream",             1L,  5L,       2L, "Downstream operators",
     "cap_paint",                 1L,  4L,       2L, "Paint capacity"
   )

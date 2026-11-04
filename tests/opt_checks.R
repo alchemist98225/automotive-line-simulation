@@ -4,10 +4,10 @@ source("scripts/opt_lib.R")
 
 stopifnot(nrow(opt_knob_defs()) == 6L)
 stopifnot(identical(as.integer(opt_knob_defs()$default[opt_knob_defs()$name == "cap_paint"]), 2L))
-stopifnot(identical(as.integer(opt_knob_defs()$default[opt_knob_defs()$name == "op_upstream"]), 1L))
+stopifnot(identical(as.integer(opt_knob_defs()$default[opt_knob_defs()$name == "op_upstream"]), 2L))
 stopifnot(identical(as.integer(opt_knob_defs()$default[opt_knob_defs()$name == "op_downstream"]), 2L))
 
-# Scenario 2 baseline ≈ 11 vehicles/hr (shared 1+2 ops, paint 2).
+# Scenario 2 baseline ≈ 10 vehicles/hr (shared 2+2 ops, paint 2).
 base <- opt_evaluate_baseline(n_reps = 5L, base_seed = 20261027L)
 stopifnot(base$thr_mean > 8, base$thr_mean < 14)
 stopifnot(is.finite(base$hpu_mean), base$hpu_mean > 0.2, base$hpu_mean < 0.6)

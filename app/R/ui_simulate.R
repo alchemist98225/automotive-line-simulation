@@ -46,7 +46,7 @@ guided_example_ui <- function() {
             "Each station has its own operator, so four people in total. There is one paint booth."),
           p(class = "mb-2",
             tags$strong("Experiment. "),
-            "Same four stations, but the people are shared. One operator covers the upstream stations (body shop and paint). Two operators share the downstream stations (final assembly and inspection). Paint also gets a second booth."),
+            "Same four stations and the same four people, but they're shared. Two operators cover the upstream stations (body shop and paint), and two share the downstream stations (final assembly and inspection). Paint also gets a second booth."),
           p(class = "mb-2",
             "Click Try it to run the Experiment five times. The numbers above will change so you can see the difference."),
           div(

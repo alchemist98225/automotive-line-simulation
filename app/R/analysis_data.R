@@ -46,7 +46,7 @@ scenario_shared_two_paint <- function(n_replications = 20L, base = default_param
   p$arrival_mean_min <- 60 / as.numeric(demand_per_hr)
   p$operators <- tibble::tibble(
     pool = c("upstream", "downstream"),
-    count = c(1L, 2L)
+    count = c(2L, 2L)
   )
   p$stations$operator_pool <- c("upstream", "upstream", "downstream", "downstream")
   p$stations$capacity[p$stations$name == "paint"] <- 2L

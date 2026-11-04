@@ -83,7 +83,7 @@ optimize_page_server <- function(id = "optimize_page",
     resolve_baseline_params <- reactive({
       src <- input$baseline_source %||% "guided"
       if (identical(src, "guided")) {
-        return(list(params = opt_guided_experiment_params(), label = "Shared 2-paint @ 12/hr"))
+        return(list(params = opt_guided_experiment_params(), label = "Shared 2-paint @ 10/hr"))
       }
       if (identical(src, "current")) {
         p <- tryCatch(build_params(), error = function(e) NULL)
@@ -98,7 +98,7 @@ optimize_page_server <- function(id = "optimize_page",
         return(list(params = p, label = paste0("Compare: ", titles[[idx]])))
       }
       list(params = opt_guided_experiment_params(),
-           label = "Shared 2-paint @ 12/hr (Compare not ready)")
+           label = "Shared 2-paint @ 10/hr (Compare not ready)")
     })
 
     output$baseline_note <- renderUI({
@@ -380,6 +380,19 @@ optimize_page_server <- function(id = "optimize_page",
           if (!base_key %in% elite_keys) {
             elite_genomes <- c(list(baseline_genome), elite_genomes)
           }
+          # Also re-check the one-operator cuts with the elite reps and shared
+          # seeds. A 2-rep search draw can wrongly drop a cut that holds
+          # throughput; the objective and floor are unchanged.
+          op_cuts <- c("op_upstream", "op_downstream") %>%
+            purrr::keep(~ .x %in% defs$name) %>%
+            purrr::map(function(nm) {
+              i <- match(nm, defs$name)
+              if (baseline_genome[[i]] <= defs$lo[[i]]) return(NULL)
+              g <- baseline_genome; g[[i]] <- g[[i]] - 1L; g
+            }) %>%
+            purrr::compact()
+          have <- vapply(elite_genomes, opt_genome_key, character(1))
+          elite_genomes <- c(elite_genomes, purrr::discard(op_cuts, ~ opt_genome_key(.x) %in% have))
           elite_evals <- lapply(elite_genomes, function(g) {
             opt_evaluate_genome(
               genome = g,
