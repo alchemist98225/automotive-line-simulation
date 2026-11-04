@@ -224,6 +224,8 @@ apply_params_to_inputs <- function(session, params) {
   updateNumericInput(session, "warmup", value = p$warmup_min)
   updateNumericInput(session, "n_reps", value = as.integer(p$n_replications))
   updateNumericInput(session, "seed", value = as.integer(p$base_seed))
+  # Keep the Parameters-page run-setting copies in step (import, reset, Try it).
+  params_run_fields_update(session, params_run_values(p))
   cap_ids <- c(
     body_shop = "body_cap", paint = "paint_cap",
     final_assembly = "fa_cap", inspection = "insp_cap"
@@ -245,6 +247,9 @@ apply_params_to_inputs <- function(session, params) {
   pool_count <- function(name, default = 1) {
     if (name %in% pools) counts[[match(name, pools)]] else default
   }
+  # A staffing switch re-renders operator_controls, which drops updates sent
+  # to the old widgets. Stash the counts so the new widgets start with them.
+  session$userData$op_pending <- purrr::set_names(as.list(counts), pools)
   if (setequal(pools, c("upstream", "downstream"))) {
     updateSelectInput(session, "staffing", selected = "zones")
     updateNumericInput(session, "op_a", value = pool_count("upstream", 2))

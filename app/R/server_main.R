@@ -57,10 +57,14 @@ server <- function(input, output, session) {
   guide_pair <- reactiveVal(NULL)
 
   output$operator_controls <- renderUI({
+    # Counts stashed by apply_params_to_inputs (import / Try it / reset) win
+    # over the placeholders, so switching staffing does not reset them.
+    pend <- session$userData$op_pending %||% list()
+    pc <- function(pool, default) as.integer(pend[[pool]] %||% default)
     switch(input$staffing,
-      zones=tagList(numericInput("op_a","Zone A operators",2,min=1,step=1),numericInput("op_b","Zone B operators",2,min=1,step=1)),
-      shared=numericInput("op_all","Shared team operators",4,min=1,step=1),
-      dedicated=tagList(lapply(names(station_labels),function(n) numericInput(paste0("op_",n),paste(station_labels[[n]],"operators"),1,min=1,step=1))))
+      zones=tagList(numericInput("op_a","Zone A operators",pc("upstream",2),min=1,step=1),numericInput("op_b","Zone B operators",pc("downstream",2),min=1,step=1)),
+      shared=numericInput("op_all","Shared team operators",pc("shared",4),min=1,step=1),
+      dedicated=tagList(lapply(names(station_labels),function(n) numericInput(paste0("op_",n),paste(station_labels[[n]],"operators"),pc(n,1),min=1,step=1))))
   })
   # Collapsed panels still create operator counts, timing, and reliability inputs.
   outputOptions(output, "operator_controls", suspendWhenHidden = FALSE)
@@ -153,18 +157,20 @@ server <- function(input, output, session) {
       unload_timing=map(seq_len(n()),~read_timing(p$stations[.x,],"unload", ignore)),
       task_timing=map(seq_len(n()),~if(noncyclic) read_timing(p$stations[.x,],"task", ignore) else timing_spec()))
     if (identical(mode, "try")) {
-      # Fast live pass: dedicated operators, 1 paint bay, 5 replications.
-      return(scenario_dedicated_one_paint(5L))
+      # Fast live pass: Experiment (shared operators, 2 paint), 5 replications.
+      return(scenario_shared_two_paint(5L))
     }
     validate(need(p$warmup_min<p$sim_length_min,"Warmup must be shorter than the simulation."))
     normalize_params(p)
   }
   build_params <- reactive(assemble_params(guide_mode()))
+  params_save_server(input, session)
   observeEvent(input$guide_try, {
-    # Fast 5-rep live run of Scenario 1 (dedicated, 1 paint). Compare stays on
-    # the preloaded 20-rep pair unless the user re-runs Compare themselves.
+    # Fast 5-rep live run of the Experiment (shared operators, 2 paint) at
+    # 10 veh/hr so the KPIs visibly move off the Baseline preload. Compare
+    # stays on the preloaded 20-rep pair.
     guide_pair(NULL)
-    try_params <- scenario_dedicated_one_paint(5L)
+    try_params <- scenario_shared_two_paint(5L)
     apply_params_to_inputs(session, try_params)
     params_overlay(try_params)
     guide_mode("try")

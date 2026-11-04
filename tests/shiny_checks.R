@@ -595,8 +595,9 @@ stopifnot(sum(wide_hist$count) == nrow(wide_df))
 stopifnot(any(wide_hist$count[wide_hist$fill == "#2474A5"] > 0))
 stopifnot(any(wide_hist$count[wide_hist$fill == "#D46B25"] > 0))
 cat("Shift output chart checks passed\n")
-# Startup is preloaded Scenario 1 (dedicated, 1 paint). Try it re-runs that
-# line at 5 reps without replacing the Compare preload pair. Reset -> defaults.
+# Startup is preloaded Scenario 1 (dedicated, 1 paint). Try it runs the
+# Experiment (shared operators, 2 paint) at 5 reps without replacing the
+# Compare preload pair. Reset -> defaults.
 shiny::testServer(e$server, {
   base <- sim_result()
   paint_cap <- function(res) res$params$stations$capacity[res$params$stations$name == "paint"]
@@ -625,9 +626,10 @@ shiny::testServer(e$server, {
   session$setInputs(guide_try = 1)
   tried <- sim_result()
   stopifnot(tried$provenance$run_number == 2L)
-  stopifnot(paint_cap(tried) == 1L)
+  stopifnot(paint_cap(tried) == 2L)
   stopifnot(tried$params$n_replications == 5L)
-  stopifnot(identical(as.integer(tried$params$operators$count), c(1L, 1L, 1L, 1L)))
+  stopifnot(identical(tried$params$operators$pool, c("upstream", "downstream")))
+  stopifnot(isTRUE(all.equal(60 / tried$params$arrival_mean_min, 10)))
   stopifnot(identical(output$main_stale_flag, "fresh"))
   comp_after <- two_set_study$results()
   stopifnot(paint_cap(comp_after$runs[[1]]) == 1L, paint_cap(comp_after$runs[[2]]) == 2L)
@@ -651,6 +653,11 @@ shiny::testServer(e$server, {
   stopifnot(grepl("Runs 5", reset$provenance$summary, fixed = TRUE))
 })
 cat("Guided example checks passed\n")
+# Parameters run-settings copies map 1:1 onto Simulate sidebar inputs.
+sim_ui_src <- paste(readLines("app/R/ui_pages.R"), collapse = "\n")
+stopifnot(all(vapply(e$params_run_fields$sim_id, function(id) grepl(sprintf('"%s"', id), sim_ui_src, fixed = TRUE), logical(1))))
+stopifnot(grepl("params_run_settings_ui()", sim_ui_src, fixed = TRUE), grepl("params_save_bar_ui()", sim_ui_src, fixed = TRUE))
+cat("Parameters Save wiring checks passed\n")
 cat("Manual-scale level-mismatch warnings:", length(scale_warns$msgs), "\n")
 stopifnot(length(scale_warns$msgs) == 0L)
 cat("Shiny server checks passed\n")

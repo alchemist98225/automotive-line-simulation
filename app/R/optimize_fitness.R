@@ -1,6 +1,6 @@
 # optimize_fitness.R
 # Fitness = HPU + resource cost-equivalent per unit + throughput-shortfall penalty.
-# Baseline = Scenario 2 (shared 2-paint @ 12 veh/hr demand via opt_guided_experiment_params()).
+# Baseline = Scenario 2 (shared 2-paint @ 10 veh/hr demand via opt_guided_experiment_params()).
 # HPU from run_line_sim()$summaries$hpu (app definition).
 # Sourced by opt_lib.R.
 
