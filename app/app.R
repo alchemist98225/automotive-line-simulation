@@ -13,6 +13,7 @@
 # R/plots_bottleneck.R  Wait-reason bars (ggiraph)
 # R/ui_widgets.R     Plot cards, downloads, timing editors, KPI nav boxes
 # R/ui_simulate.R    Guided example + Simulate run-status banner / button JS
+# R/params_run_settings.R  Parameters run-settings card + sticky Save bar
 # R/ui_css_js.R      Page header CSS/JS
 # R/ui_pages.R       Simulate / Parameters / Results pages / About nav_panel builders
 # R/server_main.R    Main server() wiring (KPIs, plots, downloads, Try-it)
@@ -47,6 +48,7 @@ source("R/plots_flow.R", local = TRUE)
 source("R/plots_bottleneck.R", local = TRUE)
 source("R/ui_widgets.R", local = TRUE)
 source("R/ui_simulate.R", local = TRUE)
+source("R/params_run_settings.R", local = TRUE)
 source("R/ui_css_js.R", local = TRUE)
 source("R/ui_pages.R", local = TRUE)
 source("R/comparison_logic.R", local = TRUE)

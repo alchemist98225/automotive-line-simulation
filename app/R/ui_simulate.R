@@ -40,15 +40,22 @@ guided_example_ui <- function() {
             )
           ),
           p(class = "mt-2 mb-2",
-            "Startup shows the dedicated-operators, 1 paint bay line from a 20-replication preload at 10 veh/hr demand. Compare already holds that set beside the shared 2-paint line at the same demand."),
-          p(class = "mb-2", "Try it re-runs the dedicated 1-paint settings live at 5 replications so you can see a fast pass."),
+            "This app compares two ways to run the same four-station line: body shop, paint, final assembly, and inspection. Both get 10 vehicles an hour."),
+          p(class = "mb-2",
+            tags$strong("Baseline (already loaded). "),
+            "Each station has its own operator, so four people in total. There is one paint booth."),
+          p(class = "mb-2",
+            tags$strong("Experiment. "),
+            "Same four stations, but the people are shared. One operator covers the upstream stations (body shop and paint). Two operators share the downstream stations (final assembly and inspection). Paint also gets a second booth."),
+          p(class = "mb-2",
+            "Click Try it to run the Experiment five times. The numbers above will change so you can see the difference."),
           div(
             class = "d-flex flex-wrap gap-2 mb-2",
             actionButton("guide_try", tagList(icon("play"), span(class = "sim-run-label", "Try it")), class = "btn-primary btn-sm sim-run-btn"),
             actionButton("guide_reset", "Reset to defaults", class = "btn-outline-secondary btn-sm")
           ),
           p(class = "mb-0",
-            "Run simulation returns the matching 20-rep preload instantly when the sidebar matches Scenario 1 or 2. Import either Compare set on Results for the full 20-rep charts. Optimize starts from the shared 2-paint set at 12 veh/hr demand (throughput at least that baseline).")
+            "Then open Results for a closer look at that run. On Results you can also import the saved 20-run Baseline or Experiment for a fuller picture.")
         )
       )
     )

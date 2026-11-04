@@ -31,7 +31,8 @@ Structural layout after the pure-move split (`tom/split-app-modules`). Behavior 
 | `app/R/server_main.R` | — | Main server(): run lifecycle, onFlushed Done/Ready, Compare→Results/Parameters import, KPIs (incl. WIP), downloads. | `server` |
 | `app/R/ui_css_js.R` | — | Global page header CSS/JS: boot overlay, recalculating placeholders, Run/Try-it Done deferral, Results-nav / KPI JS. | `app_header_tags` |
 | `app/R/ui_pages.R` | 558 | nav_panel builders: Simulate, Parameters, Bottleneck, Flow, Lead, About. | `simulate_page_ui, parameters_page_ui, results_bottleneck_ui, results_flow_ui, results_lead_ui, about_page_ui` |
-| `app/R/ui_simulate.R` | — | Guided example card + Simulate run-status banner / Run button CSS. | `guided_example_ui, sim_status_bar_ui` |
+| `app/R/ui_simulate.R` | — | Guided example card (plain-English Baseline vs Experiment; Try it = Experiment, 5 reps) + Simulate run-status banner / Run button CSS. | `guided_example_ui, sim_status_bar_ui` |
+| `app/R/params_run_settings.R` | — | Parameters page run-settings card (p_* copies of the Simulate Run panel) + sticky Save bar; Save pushes p_* into the sidebar inputs, toast confirms. | `params_run_fields, params_run_settings_ui, params_save_bar_ui, params_run_fields_update, params_run_values, params_save_server` |
 | `app/R/ui_widgets.R` | — | Plot cards, download catalog, timing editors, KPI nav boxes, apply/restore params. | `apply_params_to_inputs, restore_default_inputs, provenance_warning, sim_render_plot, plot_card…` |
 
 ## Chart title → function
@@ -183,7 +184,7 @@ Precomputed credibility charts plus the startup dedicated-vs-shared scenario pai
 
 Charts: "Where the line breaks"; "Tornado: HPU" / "Tornado: throughput"; "M/M/c check vs Erlang-C"; "Little's Law check on the full line"; "Welch warm-up: ensemble WIP".
 
-Phone / polish: Analysis plot heights are owned by `analysis_ui.R` + scoped CSS in `ui_css_js.R` (not the Results clamp). Tornado and break-sweep charts use base_size ~12.5 when their plot width is under 576px (desktop stays 16). Compare headline value boxes wrap long set titles. Guided Try-it labels are `"1 paint bay"` / `"2 paint bays"` so the import dropdown does not double the Baseline/Experiment prefix. Startup Simulate/Results use Scenario 1 (dedicated, 1 paint, ~6 veh/hr, 20 reps); Compare keeps S1 vs S2; Run returns a matching preload instantly; Try it re-runs Scenario 1 at 5 reps; Preloads and Try it use 10 veh/hr demand; Optimize starts from Scenario 2 at 12 veh/hr with throughput at least the baseline. Simulate KPIs are Throughput, Cycle time, HPU, Bottleneck (no WIP tile). Production/Compare show demand vs cumulative output instead of admission-vs-WIP.
+Phone / polish: Analysis plot heights are owned by `analysis_ui.R` + scoped CSS in `ui_css_js.R` (not the Results clamp). Tornado and break-sweep charts use base_size ~12.5 when their plot width is under 576px (desktop stays 16). Compare headline value boxes wrap long set titles. Guided Try-it labels are `"1 paint bay"` / `"2 paint bays"` so the import dropdown does not double the Baseline/Experiment prefix. Startup Simulate/Results use Scenario 1 (dedicated, 1 paint, ~6 veh/hr, 20 reps); Compare keeps S1 vs S2; Run returns a matching preload instantly; Try it runs Scenario 2 (Experiment: shared operators, 2 paint) at 5 reps; Preloads and Try it use 10 veh/hr demand; Optimize starts from Scenario 2 at 12 veh/hr with throughput at least the baseline. Simulate KPIs are Throughput, Cycle time, HPU, Bottleneck (no WIP tile). Production/Compare show demand vs cumulative output instead of admission-vs-WIP.
 
 ## Write-up
 

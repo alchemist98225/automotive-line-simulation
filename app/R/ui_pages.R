@@ -158,11 +158,12 @@ nav_panel(
   title = "Parameters",
   value = "parameters",
   div(
-    class = "px-3 py-3",
+    class = "px-3 py-3 params-page-body",
     h3("Line parameters"),
     p(class = "mb-3",
-      "Edit station capacity, timing, crews, and reliability here in a wider layout. ",
-      "Arrivals, shifts, and replications stay under Run simulation on Simulate. The Run button still uses these values."),
+      "Edit run settings, station capacity, timing, crews, and reliability here. ",
+      "Click Save settings at the bottom of the screen, then go to Simulate and click Run."),
+    params_run_settings_ui(),
     card(
       id = "params_import_compare",
       class = "params-section mb-3",
@@ -291,7 +292,8 @@ nav_panel(
           station_group("Inspection", uiOutput("reliability_inspection"))
         )
       )
-    )
+    ),
+    params_save_bar_ui()
   )
 )
 }
