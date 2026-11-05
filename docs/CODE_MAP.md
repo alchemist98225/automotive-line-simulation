@@ -116,9 +116,10 @@ Integer GA over queues, zone operators, and paint capacity. Minimizes mean HPU w
 | `app/R/optimize_space.R` | Knobs, cost rates, guided baseline | `opt_knob_defs`, `opt_cost_hpu` |
 | `app/R/optimize_fitness.R` | HPU + cost + thr penalty | `opt_evaluate_genome` |
 | `app/R/optimize_ga.R` | Integer GA + elite re-eval | `opt_run_ga` |
+| `app/R/optimize_recheck.R` | Page recheck pool (top N + one-operator cuts, deduplicated) and best pick | `opt_recheck_pool`, `opt_recheck_pick` |
 | `app/R/optimize_plots.R` | Convergence / diversity / summary DT | `optimize_convergence_plot` |
 | `app/R/optimize_ui.R` | Optimize nav page | `optimize_page_ui` |
-| `app/R/optimize_server.R` | Live sequential search + Send to Compare | `optimize_page_server` |
+| `app/R/optimize_server.R` | Live sequential search, one-candidate-per-tick recheck, Send to Compare | `optimize_page_server` |
 
 CLI shims under `scripts/opt_*.R` source the same `app/R/optimize_*.R` core via `opt_lib.R`.
 

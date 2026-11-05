@@ -84,13 +84,14 @@ optimize_page_ui <- function(id = "optimize_page") {
               "Population × generations × replications. Sequential on one core."),
             div(
               class = "d-flex flex-wrap gap-2 mb-2",
-              actionButton(ns("preset_quick"), "Quick (~2 min)", class = "btn-outline-primary btn-sm"),
+              actionButton(ns("preset_quick"), "Quick (~5 min)", class = "btn-outline-primary btn-sm"),
               actionButton(ns("preset_thorough"), "Thorough", class = "btn-outline-secondary btn-sm")
             ),
             numericInput(ns("pop"), "Population", value = 10, min = 4, max = 48, step = 1),
             numericInput(ns("gen"), "Generations", value = 6, min = 2, max = 40, step = 1),
             numericInput(ns("reps"), "Replications (search)", value = 2, min = 1, max = 20, step = 1),
-            numericInput(ns("elite_reps"), "Elite replications", value = 15, min = 2, max = 40, step = 1),
+            numericInput(ns("elite_reps"), "Recheck replications", value = 15, min = 2, max = 40, step = 1),
+            numericInput(ns("elite_n"), "Recheck top candidates", value = 3, min = 1, max = 10, step = 1),
             numericInput(ns("seed"), "Seed", value = 42, min = 1, step = 1)
           ),
           accordion_panel(

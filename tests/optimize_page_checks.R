@@ -17,11 +17,23 @@ res <- opt_run_ga(
 )
 stopifnot(nrow(res$history) == 2L, is.finite(res$best$fitness))
 
+# Recheck pool: top N + one-operator cuts, deduplicated, baseline excluded
+source("app/R/optimize_recheck.R")
+defs <- opt_knob_defs()
+bg <- as.integer(defs$default)
+cut_up <- bg; cut_up[match("op_upstream", defs$name)] <- cut_up[match("op_upstream", defs$name)] - 1L
+ev <- purrr::map2_dfr(list(bg, cut_up, bg + 1L), c(0.3, 0.2, 0.4), function(g, f) {
+  tibble(fitness = f, genome_key = opt_genome_key(g), !!!setNames(as.list(g), defs$name))
+})
+pool <- opt_recheck_pool(ev, bg, defs, n_top = 3L)
+keys <- purrr::map_chr(pool, opt_genome_key)
+stopifnot(!anyDuplicated(keys), !opt_genome_key(bg) %in% keys, opt_genome_key(cut_up) %in% keys)
+
 # UI/server files parse
 for (f in c(
   "app/R/optimize_ui.R", "app/R/optimize_server.R", "app/R/optimize_plots.R",
   "app/R/optimize_doe.R", "app/R/optimize_space.R", "app/R/optimize_fitness.R",
-  "app/R/optimize_ga.R"
+  "app/R/optimize_ga.R", "app/R/optimize_recheck.R"
 )) {
   parse(f)
 }

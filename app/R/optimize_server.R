@@ -13,7 +13,7 @@ optimize_page_server <- function(id = "optimize_page",
     state <- reactiveValues(
       running = FALSE,
       cancel = FALSE,
-      phase = "idle", # idle | search | elite | done
+      phase = "idle", # idle | search | elite | finish | done
       gen_i = 0L,
       n_gen = 0L,
       pop = NULL,
@@ -37,6 +37,9 @@ optimize_page_server <- function(id = "optimize_page",
       param_diff = NULL,
       best_ev = NULL,
       baseline_elite = NULL,
+      elite_n = 3L,
+      elite_queue = NULL,
+      elite_evals = NULL,
       status = "Idle",
       progress = 0
     )
@@ -128,12 +131,14 @@ optimize_page_server <- function(id = "optimize_page",
       updateNumericInput(session, "gen", value = 6)
       updateNumericInput(session, "reps", value = 2)
       updateNumericInput(session, "elite_reps", value = 15)
+      updateNumericInput(session, "elite_n", value = 3)
     })
     observeEvent(input$preset_thorough, {
       updateNumericInput(session, "pop", value = 24)
       updateNumericInput(session, "gen", value = 15)
       updateNumericInput(session, "reps", value = 3)
       updateNumericInput(session, "elite_reps", value = 15)
+      updateNumericInput(session, "elite_n", value = 5)
     })
 
     observeEvent(input$cancel, {
@@ -153,7 +158,8 @@ optimize_page_server <- function(id = "optimize_page",
       pop_size <- as.integer(input$pop %||% 8)
       n_gen <- as.integer(input$gen %||% 5)
       n_reps <- as.integer(input$reps %||% 2)
-      elite_reps <- as.integer(input$elite_reps %||% 5)
+      elite_reps <- as.integer(input$elite_reps %||% 15)
+      elite_n <- as.integer(input$elite_n %||% 3)
       base_seed <- as.integer(input$seed %||% 42)
       capacity_cost_h <- as.numeric(input$capacity_cost %||% 1)
       queue_cost_h <- as.numeric(input$queue_cost %||% 0.1)
@@ -222,6 +228,9 @@ optimize_page_server <- function(id = "optimize_page",
       state$queue_cost_h <- queue_cost_h
       state$n_reps <- n_reps
       state$elite_reps <- elite_reps
+      state$elite_n <- elite_n
+      state$elite_queue <- NULL
+      state$elite_evals <- NULL
       state$base_seed <- base_seed
       state$cache <- cache
       state$defs <- defs
@@ -243,11 +252,12 @@ optimize_page_server <- function(id = "optimize_page",
     # ---- Step one generation (or elite finish) ----
     observe({
       req(isTRUE(state$running))
-      if (isTRUE(state$cancel) && identical(state$phase, "search")) {
+      if (isTRUE(state$cancel) && state$phase %in% c("search", "elite")) {
         state$running <- FALSE
         state$phase <- "idle"
         state$status <- "Cancelled."
         state$progress <- 0
+        state$elite_queue <- NULL
         return()
       }
 
@@ -326,7 +336,7 @@ optimize_page_server <- function(id = "optimize_page",
 
           if (gen >= n_gen) {
             state$phase <- "elite"
-            state$status <- "Re-evaluating top elites…"
+            state$status <- "Rechecking top candidates on shared seeds…"
           } else {
             ord <- order(fitness)
             next_pop <- list(state$baseline_genome, pop[[ord[1L]]])
@@ -343,80 +353,51 @@ optimize_page_server <- function(id = "optimize_page",
             state$pop <- next_pop
           }
         } else if (identical(state$phase, "elite")) {
+          # Recheck one candidate per tick so the session flushes progress.
           defs <- state$defs
-          eval_tbl <- state$all_evals
-          uniq <- eval_tbl %>%
-            dplyr::group_by(genome_key) %>%
-            dplyr::slice_min(fitness, n = 1, with_ties = FALSE) %>%
-            dplyr::ungroup() %>%
-            dplyr::arrange(fitness) %>%
-            dplyr::slice_head(n = 5)
           baseline_genome <- state$baseline_genome
-          elite_reps <- state$elite_reps
-          cache <- state$cache
-
-          baseline_elite <- opt_evaluate_genome(
-            genome = baseline_genome,
-            n_reps = elite_reps,
-            base_seed = state$base_seed,
-            cand_index = 1L,
-            thr_floor = 0,
-            penalty = 0,
-            cache = cache,
-            defs = defs,
-            shared_seed = TRUE,
-            baseline_genome = baseline_genome,
-            capacity_cost_h = state$capacity_cost_h,
-            queue_cost_h = state$queue_cost_h
-          )
-          thr_floor_elite <- baseline_elite$thr_mean
-
-          elite_genomes <- uniq %>%
-            dplyr::select(all_of(defs$name)) %>%
-            pmap(function(...) as.integer(c(...)))
-          # Always include the baseline genome in the elite re-eval pool
-          base_key <- opt_genome_key(baseline_genome)
-          elite_keys <- vapply(elite_genomes, opt_genome_key, character(1))
-          if (!base_key %in% elite_keys) {
-            elite_genomes <- c(list(baseline_genome), elite_genomes)
-          }
-          # Also re-check the one-operator cuts with the elite reps and shared
-          # seeds. A 2-rep search draw can wrongly drop a cut that holds
-          # throughput; the objective and floor are unchanged.
-          op_cuts <- c("op_upstream", "op_downstream") %>%
-            purrr::keep(~ .x %in% defs$name) %>%
-            purrr::map(function(nm) {
-              i <- match(nm, defs$name)
-              if (baseline_genome[[i]] <= defs$lo[[i]]) return(NULL)
-              g <- baseline_genome; g[[i]] <- g[[i]] - 1L; g
-            }) %>%
-            purrr::compact()
-          have <- vapply(elite_genomes, opt_genome_key, character(1))
-          elite_genomes <- c(elite_genomes, purrr::discard(op_cuts, ~ opt_genome_key(.x) %in% have))
-          elite_evals <- lapply(elite_genomes, function(g) {
+          eval_one <- function(g, thr_floor, penalty, cand_index) {
             opt_evaluate_genome(
               genome = g,
-              n_reps = elite_reps,
+              n_reps = state$elite_reps,
               base_seed = state$base_seed,
-              cand_index = assign_index(g, defs, baseline_genome),
-              thr_floor = thr_floor_elite,
-              penalty = state$penalty,
-              cache = cache,
+              cand_index = cand_index,
+              thr_floor = thr_floor,
+              penalty = penalty,
+              cache = state$cache,
               defs = defs,
               shared_seed = TRUE,
               baseline_genome = baseline_genome,
               capacity_cost_h = state$capacity_cost_h,
               queue_cost_h = state$queue_cost_h
             )
-          })
-          # Include pristine baseline_elite in the comparison set
-          all_cands <- c(list(baseline_elite), elite_evals)
-          fits <- vapply(all_cands, `[[`, numeric(1), "fitness")
-          best_ev <- all_cands[[which.min(fits)]]
-          # Guard: never report a best worse than baseline
-          if (best_ev$fitness > baseline_elite$fitness) best_ev <- baseline_elite
-          improved <- best_ev$fitness < baseline_elite$fitness - 1e-12 &&
-            !identical(opt_genome_key(best_ev$genome), opt_genome_key(baseline_genome))
+          }
+          if (is.null(state$elite_queue)) {
+            state$baseline_elite <- eval_one(baseline_genome, thr_floor = 0, penalty = 0, cand_index = 1L)
+            state$elite_queue <- opt_recheck_pool(state$all_evals, baseline_genome, defs, state$elite_n)
+            state$elite_evals <- list()
+          } else {
+            g <- state$elite_queue[[1L]]
+            state$elite_evals <- c(state$elite_evals, list(eval_one(
+              g, thr_floor = state$baseline_elite$thr_mean, penalty = state$penalty,
+              cand_index = assign_index(g, defs, baseline_genome)
+            )))
+            state$elite_queue <- state$elite_queue[-1L]
+          }
+          n_done <- length(state$elite_evals)
+          n_all <- n_done + length(state$elite_queue)
+          state$progress <- 0.8 + 0.19 * (n_done + 1L) / (n_all + 1L)
+          state$status <- sprintf("Rechecking candidates on %d shared seeds: %d / %d done",
+                                  state$elite_reps, n_done, n_all)
+          if (length(state$elite_queue) == 0L) state$phase <- "finish"
+        } else if (identical(state$phase, "finish")) {
+          baseline_genome <- state$baseline_genome
+          defs <- state$defs
+          baseline_elite <- state$baseline_elite
+          picked <- opt_recheck_pick(baseline_elite, state$elite_evals, baseline_genome)
+          best_ev <- picked$best_ev
+          improved <- picked$improved
+          state$elite_queue <- NULL
 
           ci <- function(x) {
             x <- x[is.finite(x)]
